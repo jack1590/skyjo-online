@@ -2,7 +2,12 @@
 
 A free, phone-first multiplayer card game based on Skyjo's mechanics. Open a link, pick a name, and play with 2–8 friends in real time. No accounts. Available in English, Spanish (Latin America), and Portuguese (Brazil).
 
-> Work in progress. See [`docs/PLAN.md`](docs/PLAN.md) for the roadmap. Today you can play on one phone, passing it around (hot-seat). Online rooms, deploy, and self-host sections land with their milestones.
+> Work in progress. See [`docs/PLAN.md`](docs/PLAN.md) for the roadmap. Deploy and self-host sections land with their milestones.
+
+## Play
+
+- **Online with friends:** tap **Create a room**, then **Invite friends** to share the link (or read out the 5-letter code). Everyone enters a name and joins. The host taps **Start game**. If you reload or lose signal, you get your seat back automatically. A ninth person, or anyone arriving mid-game, watches until the game ends.
+- **On one phone:** pick 2–8 players and pass the phone around.
 
 ## How to play
 
@@ -23,7 +28,7 @@ Requires Node 22+.
 
 ```sh
 npm install
-npm run dev        # http://localhost:5173
+npm run dev        # http://localhost:5173 — app + Worker + Durable Objects, all local
 npm test           # unit tests
 npm run e2e        # Playwright (first time: npx playwright install chromium webkit)
 ```

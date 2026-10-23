@@ -8,19 +8,24 @@ A phone-first, real-time multiplayer card game based on Skyjo's mechanics. 2–8
 
 ## Architecture
 
-| Path                   | Responsibility                                                     | Rules                                                                                    |
-| ---------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
-| `src/engine/`          | Rules engine: state, actions, scoring, view projection, seeded RNG | Pure and deterministic. Imports only `./…`. No `Math.random`, `Date`, DOM, or Node APIs. |
-| `src/client/`          | React UI (hot-seat and online)                                     | Renders `GameView`, sends actions. Never decides rules.                                  |
-| `src/server/room.ts`   | Room: seats, protocol, reconnection, stall guard                   | Platform-agnostic. Runs the engine; is the only authority.                               |
-| `src/server/worker.ts` | Cloudflare Worker + Durable Object adapter                         | Thin.                                                                                    |
-| `src/server/node.ts`   | Self-host adapter (Node + `ws`)                                    | Thin.                                                                                    |
-| `e2e/`                 | Playwright tests                                                   | Mobile (iPhone, Pixel) and desktop projects.                                             |
-| `scripts/`             | Local-only tooling (e.g. art generation)                           | May read `.env`. Never runs in CI.                                                       |
+| Path                   | Responsibility                                                            | Rules                                                                                    |
+| ---------------------- | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `src/engine/`          | Rules engine: state, actions, scoring, view projection, seeded RNG        | Pure and deterministic. Imports only `./…`. No `Math.random`, `Date`, DOM, or Node APIs. |
+| `src/client/`          | React UI (hot-seat and online)                                            | Renders `GameView`, sends actions. Never decides rules.                                  |
+| `src/server/room.ts`   | Room: seats, protocol, reconnection, stall guard                          | Platform-agnostic. Runs the engine; is the only authority.                               |
+| `src/server/worker.ts` | Cloudflare Worker + Durable Object adapter                                | Thin.                                                                                    |
+| `src/protocol.ts`      | Wire messages (`ClientMsg`, `ServerMsg`, `RoomView`) and `parseClientMsg` | Shared by client and server. Validates shape only; never trusts `seat` from the client.  |
+| `src/server/node.ts`   | Self-host adapter (Node + `ws`)                                           | Thin.                                                                                    |
+| `e2e/`                 | Playwright tests                                                          | Mobile (iPhone, Pixel) and desktop projects.                                             |
+| `scripts/`             | Local-only tooling (e.g. art generation)                                  | May read `.env`. Never runs in CI.                                                       |
 
 Data flow: client sends an `Action` → server calls `apply(state, action)` → server broadcasts `toView(state)`. `GameView` never contains face-down values, deck order, or RNG state. (No player, including the owner, knows their own face-down cards, so the view is the same for everyone.)
 
 The engine's turn check compares `action.seat` with `state.current`; it is not an identity check. The server must set `action.seat` from the authenticated connection, never from the client payload.
+
+Online flow: the browser opens `/api/rooms/CODE/ws` and sends `hello` with its per-room token from `localStorage` (`src/client/useRoom.ts`). One Durable Object per room code (`RoomDO`) persists `RoomData` on every change and sends each socket its own `RoomView`. Pings (`"ping"` → `"pong"`) are answered by the runtime without waking the object. Their timestamps tell `room.ts` who is still connected, which drives the presence dots, the host stand-in, and the 60 s stall guard.
+
+The Worker has its own tsconfig (`tsconfig.worker.json`, runtime types from `wrangler types`, gitignored). `npm run typecheck` checks both.
 
 Engine API: `createGame(names, seed)` (`seed` is 4 int32s from `crypto.getRandomValues` in real games), `apply(state, action)` (throws `RuleError`, never mutates input), `legalActions(state)`, `toView(state)`.
 
@@ -61,7 +66,7 @@ CI (`.github/workflows/ci.yml`) runs on every PR and on `main`, as four parallel
 2. **Build test-first** for engine and server code.
 3. **Review:** run the `superpowers:requesting-code-review` skill on the branch, fix findings, keep CI green.
 4. **PR:** summary, mobile screenshots (Playwright, under `docs/screenshots/m<N>/`), and test results.
-5. **Product Owner (PO):** a fresh agent that has not seen the implementation reads `docs/PLAN.md` and the PR, runs the game, plays it through Playwright at a mobile viewport, and scores the rubric in `docs/PLAN.md`. It may edit `docs/PLAN.md`, justifying each change in the PR.
+5. **Product Owner (PO):** a fresh agent that has not seen the implementation reads `docs/PLAN.md` and the PR, runs the game, plays it through Playwright at a mobile viewport, and scores the rubric in `docs/PLAN.md`. It may edit `docs/PLAN.md`, justifying each change in the PR. It also owns **delivery health**: CI wall time, flaky or timing-out jobs, slow test suites, slow dev loop. When it finds a bottleneck it acts (requests a change or adds a PLAN item) with the measured numbers.
 6. **Verdict:** GitHub does not let an account approve its own PR, and the author and PO share the `jack1590` account. So the PO posts a comment review whose first line is `PO VERDICT: APPROVE` or `PO VERDICT: CHANGES REQUESTED`, with inline comments for each requested change. On approve it merges with `gh pr merge --squash`.
 7. **Cap:** 3 PO rounds per PR. After that, stop and summarize the open issues for the user.
 
