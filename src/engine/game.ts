@@ -148,9 +148,10 @@ export function legalActions(s: GameState): Action[] {
           : [],
       );
     case "draw":
+      // The discard pile is never empty at the start of a turn: every turn ends by discarding.
       return [
         { type: "draw", seat, source: "deck" },
-        ...(s.discard.length > 0 ? [{ type: "draw", seat, source: "discard" } as const] : []),
+        { type: "draw", seat, source: "discard" },
       ];
     case "place": {
       const grid = s.players[seat].grid;
