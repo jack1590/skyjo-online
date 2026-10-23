@@ -99,7 +99,7 @@ describe("simulation", () => {
       expect(s.players.some((p) => p.total >= 100)).toBe(true);
       for (const p of s.players) expect(p.total).toBe(p.scores.reduce((a, b) => a + b, 0));
     }
-  }, 60_000);
+  });
 
   it("rejects random illegal actions", () => {
     let checked = 0;
