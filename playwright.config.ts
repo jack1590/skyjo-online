@@ -10,7 +10,8 @@ export default defineConfig({
   reporter: CI ? [["list"], ["html", { open: "never" }]] : "list",
   use: { baseURL: "http://localhost:4173", trace: "retain-on-failure" },
   webServer: {
-    command: "npm run build && npm run preview -- --port 4173 --strictPort",
+    // CI builds in an earlier step.
+    command: `${CI ? "" : "npm run build && "}npm run preview -- --port 4173 --strictPort`,
     url: "http://localhost:4173",
     reuseExistingServer: !CI,
   },

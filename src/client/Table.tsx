@@ -1,4 +1,4 @@
-import { type CSSProperties, useState } from "react";
+import { type CSSProperties, type ReactNode, useEffect, useState } from "react";
 import type { Action } from "../engine/game";
 import type { GameView, ViewSlot } from "../engine/view";
 import { Card } from "./Card";
@@ -10,14 +10,26 @@ interface TableProps {
   onAction: (action: Action) => void;
   onPlayAgain: () => void;
   onExit: () => void;
+  /** Replaces the prompt line, e.g. a hot-seat "Pass to …" button. */
+  banner?: ReactNode;
 }
 
 const where = (pos: number) => `row ${Math.floor(pos / 4) + 1}, column ${(pos % 4) + 1}`;
 const upCount = (grid: ViewSlot[]) => grid.filter((slot) => typeof slot === "number").length;
 
-export function Table({ view, seat, onAction, onPlayAgain, onExit }: TableProps) {
-  const [discarding, setDiscarding] = useState(false);
+export function Table({ view, seat, onAction, onPlayAgain, onExit, banner }: TableProps) {
   const { phase, players } = view;
+  const summary = phase === "roundOver" || phase === "gameOver";
+  const [discarding, setDiscarding] = useState(false);
+  // Hides the summary sheet so players can look at the revealed grids.
+  const [peek, setPeek] = useState(false);
+  // Local modes never outlive the turn or summary they started in (the server may move for us).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the deps are triggers, not inputs
+  useEffect(() => setDiscarding(false), [view.round, view.current, phase]);
+  useEffect(() => {
+    if (!summary) setPeek(false);
+  }, [summary]);
+
   const me = players[seat];
   const playing = phase === "draw" || phase === "place";
   const myTurn = phase === "flip" ? upCount(me.grid) < 2 : playing && view.current === seat;
@@ -40,6 +52,8 @@ export function Table({ view, seat, onAction, onPlayAgain, onExit }: TableProps)
     return () => act({ type: "swap", seat, pos });
   };
 
+  const onDeck =
+    myTurn && phase === "draw" ? () => act({ type: "draw", seat, source: "deck" }) : undefined;
   let onDiscard: (() => void) | undefined;
   if (myTurn && phase === "draw" && view.discardTop !== null) {
     onDiscard = () => act({ type: "draw", seat, source: "discard" });
@@ -50,18 +64,25 @@ export function Table({ view, seat, onAction, onPlayAgain, onExit }: TableProps)
   const n = players.length;
   const others = Array.from({ length: n - 1 }, (_, i) => (seat + 1 + i) % n);
   const compact = others.length >= 4;
+  const lastTurns = view.ender !== null && playing;
+
+  let pill = "";
+  if (playing) pill = `${lastTurns ? "Last turn · " : ""}${players[view.current].name}`;
+  else if (phase === "flip") pill = "Flip 2 cards";
 
   return (
     <div className="table" data-testid="table" data-phase={phase} data-current={view.current}>
       <header className="bar">
         <span className="round">Round {view.round}</span>
-        <span className="turn" key={`${phase}-${view.current}`}>
-          {playing
-            ? `${players[view.current].name}'s turn`
-            : phase === "flip"
-              ? "Flip 2 cards"
-              : ""}
-        </span>
+        {summary && peek ? (
+          <button type="button" className="btn primary" onClick={() => setPeek(false)}>
+            Show scores
+          </button>
+        ) : (
+          <span className={`turn${lastTurns ? " final" : ""}`} key={`${phase}-${view.current}`}>
+            {pill}
+          </span>
+        )}
         <button
           type="button"
           className="btn icon"
@@ -96,10 +117,6 @@ export function Table({ view, seat, onAction, onPlayAgain, onExit }: TableProps)
         })}
       </section>
 
-      {view.ender !== null && playing && (
-        <p className="final">Last turns! {players[view.ender].name} revealed every card.</p>
-      )}
-
       <section className="piles">
         <div className="pile">
           <Card
@@ -107,26 +124,22 @@ export function Table({ view, seat, onAction, onPlayAgain, onExit }: TableProps)
             size="md"
             label="Deck"
             testId="deck"
-            highlight={myTurn && phase === "draw"}
-            onClick={
-              myTurn && phase === "draw"
-                ? () => act({ type: "draw", seat, source: "deck" })
-                : undefined
-            }
+            highlight={!!onDeck}
+            onClick={onDeck}
           />
           <span className="pile-label">Deck · {view.deckCount}</span>
         </div>
         {view.drawn !== null && (
-          <div className="pile drawn">
+          <div className="pile">
             <Card
               slot={view.drawn}
               size="md"
               label="Drawn card"
               testId="drawn"
-              highlight
+              highlight={!discardMode}
               onClick={discardMode ? () => setDiscarding(false) : undefined}
             />
-            <span className="pile-label">Drawn</span>
+            <span className="pile-label">{discardMode ? "Tap to keep" : "Drawn"}</span>
           </div>
         )}
         <div className="pile">
@@ -135,16 +148,18 @@ export function Table({ view, seat, onAction, onPlayAgain, onExit }: TableProps)
             size="md"
             label="Discard pile"
             testId="discard"
-            highlight={discardMode || (myTurn && phase === "draw")}
+            highlight={!!onDiscard}
             onClick={onDiscard}
           />
           <span className="pile-label">Discard</span>
         </div>
       </section>
 
-      <p className="prompt" aria-live="polite">
-        {prompt(view, seat, myTurn, discardMode)}
-      </p>
+      {banner ?? (
+        <p className="prompt" aria-live="polite">
+          {prompt(view, seat, myTurn, discardMode)}
+        </p>
+      )}
 
       <section className="mine">
         <div className="mine-head">
@@ -167,9 +182,10 @@ export function Table({ view, seat, onAction, onPlayAgain, onExit }: TableProps)
         </div>
       </section>
 
-      {(phase === "roundOver" || phase === "gameOver") && (
+      {summary && !peek && (
         <Summary
           view={view}
+          onPeek={() => setPeek(true)}
           onNext={() => act({ type: "nextRound" })}
           onPlayAgain={onPlayAgain}
           onExit={onExit}
@@ -181,6 +197,7 @@ export function Table({ view, seat, onAction, onPlayAgain, onExit }: TableProps)
 
 function prompt(view: GameView, seat: number, myTurn: boolean, discardMode: boolean): string {
   const me = view.players[seat];
+  const last = view.ender !== null ? "Last turn! " : "";
   switch (view.phase) {
     case "flip": {
       const left = 2 - upCount(me.grid);
@@ -190,13 +207,13 @@ function prompt(view: GameView, seat: number, myTurn: boolean, discardMode: bool
     }
     case "draw":
       return myTurn
-        ? `${me.name}: draw from the deck or take the discard`
+        ? `${last}${me.name}: draw from the deck or take the discard`
         : `Waiting for ${view.players[view.current].name}…`;
     case "place":
       if (!myTurn) return `Waiting for ${view.players[view.current].name}…`;
       if (view.drawnFrom === "discard") return "Tap a card in your grid to swap it in";
       return discardMode
-        ? "Tap a face-down card to flip it, or the drawn card to cancel"
+        ? "Tap a face-down card to flip it, or the drawn card to keep it"
         : "Tap a grid card to swap, or the discard pile to throw it away";
     default:
       return "";
@@ -205,23 +222,22 @@ function prompt(view: GameView, seat: number, myTurn: boolean, discardMode: bool
 
 interface SummaryProps {
   view: GameView;
+  onPeek: () => void;
   onNext: () => void;
   onPlayAgain: () => void;
   onExit: () => void;
 }
 
-function Summary({ view, onNext, onPlayAgain, onExit }: SummaryProps) {
+function Summary({ view, onPeek, onNext, onPlayAgain, onExit }: SummaryProps) {
   const over = view.phase === "gameOver";
   const winners = view.winners.map((i) => view.players[i].name);
   const rows = view.players.map((p, seat) => ({ ...p, seat }));
   if (over) rows.sort((a, b) => a.total - b.total);
-  // Lets players look at the revealed grids behind the sheet.
-  const [peek, setPeek] = useState(false);
   return (
     <div
-      className={`overlay${peek ? " peek" : ""}`}
+      className="overlay"
       role="dialog"
-      aria-modal={!peek}
+      aria-modal="true"
       aria-labelledby="summary-title"
       data-testid={over ? "game-over" : "round-summary"}
     >
@@ -232,51 +248,47 @@ function Summary({ view, onNext, onPlayAgain, onExit }: SummaryProps) {
               ? `${winners.join(" & ")} win${winners.length === 1 ? "s" : ""}!`
               : `Round ${view.round} over`}
           </h2>
-          <button type="button" className="btn" onClick={() => setPeek(!peek)}>
-            {peek ? "Show scores" : "View table"}
+          <button type="button" className="btn" onClick={onPeek}>
+            View table
           </button>
         </div>
-        {!peek && (
-          <>
-            <table className="scores">
-              <thead>
-                <tr>
-                  <th>Player</th>
-                  <th>Round</th>
-                  <th>Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((p) => (
-                  <tr key={p.seat} className={view.winners.includes(p.seat) ? "win" : undefined}>
-                    <td>
-                      {p.name}
-                      {p.seat === view.ender && <span className="tag">ended</span>}
-                    </td>
-                    <td>
-                      {p.scores.at(-1)}
-                      {p.seat === view.ender && view.doubled && <span className="tag x2">×2</span>}
-                    </td>
-                    <td>{p.total}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {over ? (
-              <div className="actions">
-                <button type="button" className="btn" onClick={onExit}>
-                  Home
-                </button>
-                <button type="button" className="btn primary" onClick={onPlayAgain}>
-                  Play again
-                </button>
-              </div>
-            ) : (
-              <button type="button" className="btn primary" onClick={onNext}>
-                Next round
-              </button>
-            )}
-          </>
+        <table className="scores">
+          <thead>
+            <tr>
+              <th>Player</th>
+              <th>Round</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((p) => (
+              <tr key={p.seat} className={view.winners.includes(p.seat) ? "win" : undefined}>
+                <td>
+                  {p.name}
+                  {p.seat === view.ender && <span className="tag">ended</span>}
+                </td>
+                <td>
+                  {p.scores.at(-1)}
+                  {p.seat === view.ender && view.doubled && <span className="tag x2">×2</span>}
+                </td>
+                <td>{p.total}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {over ? (
+          <div className="actions">
+            <button type="button" className="btn" onClick={onExit}>
+              Home
+            </button>
+            <button type="button" className="btn primary" onClick={onPlayAgain}>
+              Play again
+            </button>
+          </div>
+        ) : (
+          <button type="button" className="btn primary" onClick={onNext}>
+            Next round
+          </button>
         )}
       </div>
     </div>

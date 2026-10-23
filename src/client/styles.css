@@ -173,7 +173,8 @@ button {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  overflow: hidden;
+  /* Short screens scroll rather than shrink your cards below 44px. */
+  overflow-y: auto;
 }
 
 .bar {
@@ -201,6 +202,11 @@ button {
   animation: pop 0.35s ease-out;
 }
 
+.turn.final {
+  background: #ff7a59;
+  color: #2a0d05;
+}
+
 .turn:empty {
   visibility: hidden;
 }
@@ -216,7 +222,7 @@ button {
   display: grid;
   grid-template-columns: repeat(var(--cols), minmax(0, 1fr));
   gap: 6px;
-  max-width: calc(var(--cols) * 150px);
+  max-width: calc(var(--cols) * 120px);
   width: 100%;
   margin: 0 auto;
 }
@@ -258,17 +264,6 @@ button {
   gap: 2px;
 }
 
-.final {
-  margin: 0;
-  padding: 6px 10px;
-  border-radius: 10px;
-  background: rgb(255 122 89 / 0.18);
-  border: 1px solid rgb(255 122 89 / 0.5);
-  text-align: center;
-  font-weight: 700;
-  font-size: 14px;
-}
-
 .piles {
   display: flex;
   justify-content: center;
@@ -286,6 +281,10 @@ button {
 .pile-label {
   font-size: 12px;
   color: var(--muted);
+}
+
+.pass {
+  width: 100%;
 }
 
 .prompt {
@@ -317,13 +316,17 @@ button {
 
 .grid-wrap {
   flex: 1;
-  min-height: 0;
+  /* Three rows of 44px-wide cards plus gaps. */
+  min-height: calc(3 * 44px * 7 / 5 + 16px);
   container-type: size;
 }
 
 .grid {
   --gap: 8px;
-  --w: min(calc((100cqw - 3 * var(--gap)) / 4), calc((100cqh - 2 * var(--gap)) / 3 * 5 / 7));
+  --w: max(
+    44px,
+    min(calc((100cqw - 3 * var(--gap)) / 4), calc((100cqh - 2 * var(--gap)) / 3 * 5 / 7))
+  );
   height: 100%;
   display: grid;
   grid-template-columns: repeat(4, var(--w));
@@ -358,7 +361,7 @@ button {
 }
 
 .card.md {
-  --w: clamp(54px, 17vw, 80px);
+  --w: clamp(48px, 15vw, 76px);
   width: var(--w);
 }
 
@@ -482,6 +485,10 @@ button.card:active {
   padding: 8px 6px;
   text-align: right;
   border-bottom: 1px solid var(--line);
+}
+
+.scores td {
+  overflow-wrap: anywhere;
 }
 
 .scores th:first-child,

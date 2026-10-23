@@ -1,22 +1,37 @@
 import { expect, type Page, test } from "@playwright/test";
 
-/** Does whatever the table asks for (flip, draw from deck, discard and flip) until `done(phase)`. */
-async function playUntil(page: Page, done: (phase: string) => boolean) {
+type Done = (phase: string) => boolean | Promise<boolean>;
+
+/**
+ * Does whatever the table asks for until `done(phase)`. Turns rotate through the three ways to
+ * move: take the discard and swap, draw and swap, draw then discard and flip. Every turn reveals a
+ * card, so rounds always end.
+ */
+async function playUntil(page: Page, done: Done) {
   const table = page.getByTestId("table");
   const faceDown = page.getByTestId("my-grid").locator('button[data-face="down"]');
+  const pass = page.getByRole("button", { name: /^Pass to / });
+  let turn = 0;
   for (let step = 0; step < 3000; step++) {
+    if (await pass.count()) {
+      await pass.click();
+      continue;
+    }
     const phase = (await table.getAttribute("data-phase")) ?? "";
-    if (done(phase)) return;
+    if (await done(phase)) return;
     if (phase === "gameOver") throw new Error("game ended before the expected phase");
     if (phase === "roundOver") {
       await page.getByRole("button", { name: "Next round" }).click();
     } else if (phase === "flip") {
       await faceDown.first().click();
     } else if (phase === "draw") {
-      await page.getByTestId("deck").click();
+      turn++;
+      await page.getByTestId(turn % 3 === 0 ? "discard" : "deck").click();
     } else if (phase === "place") {
-      await page.getByTestId("discard").click();
-      await expect(page.getByTestId("discard")).toHaveClass(/\bhl\b/);
+      if (turn % 3 === 2) {
+        await page.getByTestId("discard").click();
+        await expect(page.getByText("Tap a face-down card to flip it")).toBeVisible();
+      }
       await faceDown.first().click();
     }
   }
@@ -30,6 +45,9 @@ async function start(page: Page, players: number, seed: number) {
   }
   await page.getByRole("button", { name: "Start game" }).click();
 }
+
+const lastTurn = (page: Page) => async (phase: string) =>
+  phase === "draw" && (await page.getByText(/^Last turn · /).count()) > 0;
 
 async function expectMobileFriendly(page: Page) {
   const { scrollWidth, innerWidth, small } = await page.evaluate(() => ({
@@ -65,6 +83,41 @@ test("8 players fit: no horizontal scroll, every tap target at least 44px", asyn
   await expectMobileFriendly(page);
   await playUntil(page, (phase) => phase === "draw");
   await expectMobileFriendly(page);
+  await playUntil(page, lastTurn(page));
+  await expectMobileFriendly(page);
+});
+
+test("2 players: cards stay at least 44px during the last turns", async ({ page }) => {
+  await start(page, 2, 4);
+  await playUntil(page, lastTurn(page));
+  await page.getByTestId("deck").click();
+  await expectMobileFriendly(page);
+});
+
+test.describe("small phone (375×548)", () => {
+  test.use({ viewport: { width: 375, height: 548 } });
+
+  test("the table scrolls instead of shrinking cards", async ({ page }) => {
+    await start(page, 8, 3);
+    await playUntil(page, lastTurn(page));
+    await expectMobileFriendly(page);
+  });
+});
+
+test("discard mode can be cancelled and the drawn card swapped in", async ({ page }) => {
+  await start(page, 2, 9);
+  await playUntil(page, (phase) => phase === "draw");
+  await page.getByTestId("deck").click();
+  const drawn = (await page.getByTestId("drawn").getAttribute("aria-label"))?.split(": ")[1];
+  await page.getByTestId("discard").click();
+  await expect(page.getByText("Tap a face-down card to flip it")).toBeVisible();
+  await page.getByTestId("drawn").click();
+  await expect(page.getByText("Tap a grid card to swap")).toBeVisible();
+  const target = page.getByTestId("my-grid").locator('button[data-face="up"]').first();
+  const position = (await target.getAttribute("aria-label"))?.split(":")[0];
+  await target.click();
+  await expect(page.getByLabel(`${position}: ${drawn}`, { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Pass to / })).toBeVisible();
 });
 
 test("a hot-seat game survives a reload", async ({ page }) => {
@@ -76,30 +129,50 @@ test("a hot-seat game survives a reload", async ({ page }) => {
   expect(await page.getByTestId("my-grid").innerHTML()).toBe(before);
 });
 
+test("a corrupt saved game falls back to the home screen", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(() =>
+    localStorage.setItem("skyjo:hotseat:v2", JSON.stringify({ state: { players: [] }, seat: 0 })),
+  );
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Start game" })).toBeVisible();
+});
+
 test("screenshots", async ({ page }, info) => {
   test.skip(!process.env.SHOTS || info.project.name !== "iphone", "run with npm run screenshots");
   const shot = (name: string) =>
-    page.screenshot({ path: `docs/screenshots/m2/${name}.png`, animations: "disabled" });
+    page.screenshot({
+      path: `docs/screenshots/m2/${name}.jpg`,
+      type: "jpeg",
+      quality: 80,
+      scale: "css",
+      animations: "disabled",
+    });
   await page.goto("/?seed=11");
   await shot("01-home");
   await page.getByRole("button", { name: "Start game" }).click();
   await shot("02-flip");
-  await playUntil(page, (phase) => phase === "draw");
-  await shot("03-draw");
-  await page.getByTestId("deck").click();
-  await shot("04-drawn");
-  await page.getByTestId("discard").click();
-  await shot("05-discard-then-flip");
   await page.getByTestId("my-grid").locator('button[data-face="down"]').first().click();
+  await page.getByTestId("my-grid").locator('button[data-face="down"]').first().click();
+  await shot("03-pass");
+  await playUntil(page, (phase) => phase === "draw");
+  await shot("04-draw");
+  await page.getByTestId("deck").click();
+  await shot("05-drawn");
+  await page.getByTestId("discard").click();
+  await shot("06-discard-then-flip");
+  await page.getByTestId("my-grid").locator('button[data-face="down"]').first().click();
+  await playUntil(page, lastTurn(page));
+  await shot("07-last-turn");
   await playUntil(page, (phase) => phase === "roundOver");
-  await shot("06-round-summary");
+  await shot("08-round-summary");
   await page.getByRole("button", { name: "View table" }).click();
-  await shot("06b-view-table");
+  await shot("09-view-table");
   await page.getByRole("button", { name: "Show scores" }).click();
   await playUntil(page, (phase) => phase === "gameOver");
-  await shot("07-game-over");
+  await shot("10-game-over");
   await page.evaluate(() => localStorage.clear());
   await start(page, 6, 11);
   await playUntil(page, (phase) => phase === "draw");
-  await shot("08-six-players");
+  await shot("11-six-players");
 });

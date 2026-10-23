@@ -51,8 +51,16 @@ export function Home({ onStart }: { onStart: (names: string[]) => void }) {
             key={i}
             className="name-input"
             value={name}
+            name={`name-${i}`}
             maxLength={16}
+            enterKeyHint={i < names.length - 1 ? "next" : "go"}
             aria-label={`Player ${i + 1} name`}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter" || i === names.length - 1) return;
+              e.preventDefault();
+              const nextInput = e.currentTarget.form?.elements.namedItem(`name-${i + 1}`);
+              if (nextInput instanceof HTMLInputElement) nextInput.focus();
+            }}
             onChange={(e) => setNames(names.map((n, j) => (j === i ? e.target.value : n)))}
           />
         ))}
