@@ -73,8 +73,10 @@ async function loadGame(page: Page, game: ReturnType<typeof lastTurnGame>) {
 }
 
 /** Full play-throughs are slow and engine-independent, so CI runs them on one device. */
-const longPlayThrough = (info: TestInfo) =>
+function longPlayThrough(info: TestInfo) {
   test.skip(info.project.name !== "pixel", "long play-throughs run on Pixel only");
+  test.setTimeout(120_000);
+}
 
 const lastTurn = (page: Page) => async (phase: string) =>
   phase === "draw" && (await page.getByText(/^Last turn · /).count()) > 0;
@@ -124,6 +126,18 @@ for (const players of [2, 8]) {
     await expectMobileFriendly(page);
   });
 }
+
+test("a round runs to its summary and the next round starts", async ({ page }) => {
+  await loadGame(page, lastTurnGame(2, 11)); // seed 11: round 1 ends at 39–52, no game over
+  await playUntil(page, (phase) => phase === "roundOver");
+  await expect(page.getByTestId("round-summary")).toBeVisible();
+  await page.getByRole("button", { name: "View table" }).click();
+  await expect(page.getByRole("table")).toBeHidden();
+  await page.getByRole("button", { name: "Show scores" }).click();
+  await page.getByRole("button", { name: "Next round" }).click();
+  await expect(page.getByTestId("table")).toHaveAttribute("data-phase", "flip");
+  await expect(page.getByText("Round 2")).toBeVisible();
+});
 
 test("8-player hot-seat play-through reaches the last turns", async ({ page }, info) => {
   longPlayThrough(info);

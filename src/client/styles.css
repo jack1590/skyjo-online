@@ -523,6 +523,7 @@ button.card:active {
 }
 
 .tag {
+  white-space: nowrap;
   margin-left: 6px;
   padding: 1px 6px;
   border-radius: 6px;

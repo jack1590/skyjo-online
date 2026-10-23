@@ -2,10 +2,27 @@ import { type FormEvent, useState } from "react";
 import { MAX_PLAYERS, MIN_PLAYERS } from "../engine/game";
 import { LOCALES, type Locale, useI18n } from "./i18n";
 
+const NAMES_KEY = "skyjo:names";
+
+/** Last hot-seat names, so a rematch after Quit doesn't mean retyping everyone. */
+function loadNames(): string[] {
+  try {
+    const saved: unknown = JSON.parse(localStorage.getItem(NAMES_KEY) ?? "null");
+    const ok =
+      Array.isArray(saved) &&
+      saved.length >= MIN_PLAYERS &&
+      saved.length <= MAX_PLAYERS &&
+      saved.every((n) => typeof n === "string");
+    return ok ? saved : ["", ""];
+  } catch {
+    return ["", ""];
+  }
+}
+
 export function Home({ onStart }: { onStart: (names: string[]) => void }) {
   const { t, locale, setLocale } = useI18n();
   // Blank means "use the default name", so defaults follow the chosen language.
-  const [names, setNames] = useState(["", ""]);
+  const [names, setNames] = useState(loadNames);
   const defaultName = (i: number) => t("defaultName", { n: i + 1 });
 
   const setCount = (count: number) =>
@@ -13,6 +30,11 @@ export function Home({ onStart }: { onStart: (names: string[]) => void }) {
 
   const start = (e: FormEvent) => {
     e.preventDefault();
+    try {
+      localStorage.setItem(NAMES_KEY, JSON.stringify(names));
+    } catch {
+      // Names just won't be prefilled next time.
+    }
     onStart(names.map((name, i) => name.trim() || defaultName(i)));
   };
 

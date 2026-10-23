@@ -12,7 +12,7 @@ const en = {
   startGame: "Start game",
   howToPlay: "How to play",
   rules1:
-    "Everyone gets 12 face-down cards in a 3 × 4 grid and flips any 2. The highest pair starts.",
+    "Everyone gets 12 face-down cards in a 3 × 4 grid and flips any 2. Whoever's 2 cards add up highest starts.",
   rules2: "On your turn, draw from the deck or take the top card of the discard pile.",
   rules3:
     "A deck card can replace any card in your grid, or you can throw it away and flip one of your face-down cards instead. A card from the discard pile must replace a grid card.",
@@ -68,7 +68,7 @@ export type Key = keyof typeof en;
 const es: Record<Key, string> = {
   tagline: "Voltea, cambia y mantén tu puntaje bajo.",
   language: "Idioma",
-  playOnPhone: "Jugar en este teléfono",
+  playOnPhone: "Jugar en este celular",
   fewerPlayers: "Menos jugadores",
   morePlayers: "Más jugadores",
   playersCount: "{n} jugadores",
@@ -77,7 +77,7 @@ const es: Record<Key, string> = {
   startGame: "Empezar partida",
   howToPlay: "Cómo jugar",
   rules1:
-    "Cada jugador recibe 12 cartas boca abajo en una cuadrícula de 3 × 4 y voltea 2 cualesquiera. Empieza quien tenga el par más alto.",
+    "Cada jugador recibe 12 cartas boca abajo en una cuadrícula de 3 × 4 y voltea las 2 que elija. Empieza quien sume más con esas 2.",
   rules2: "En tu turno, roba del mazo o toma la carta de arriba del descarte.",
   rules3:
     "Una carta del mazo puede reemplazar cualquier carta de tu cuadrícula, o puedes descartarla y voltear una de tus cartas boca abajo. Una carta del descarte debe reemplazar una carta de tu cuadrícula.",
@@ -140,7 +140,7 @@ const pt: Record<Key, string> = {
   startGame: "Começar partida",
   howToPlay: "Como jogar",
   rules1:
-    "Cada jogador recebe 12 cartas viradas para baixo em uma grade de 3 × 4 e vira 2 quaisquer. Quem tiver o maior par começa.",
+    "Cada jogador recebe 12 cartas viradas para baixo em uma grade de 3 × 4 e vira 2 à sua escolha. Começa quem tiver a maior soma dessas 2.",
   rules2: "Na sua vez, compre do monte ou pegue a carta de cima do descarte.",
   rules3:
     "Uma carta do monte pode substituir qualquer carta da sua grade, ou você pode descartá-la e virar uma das suas cartas viradas para baixo. Uma carta do descarte precisa substituir uma carta da grade.",
@@ -150,7 +150,7 @@ const pt: Record<Key, string> = {
   rules6: "Quando alguém chega a 100 pontos, a partida termina. Vence o menor total.",
   round: "Rodada {n}",
   flipTwo: "Vire 2 cartas",
-  lastTurnPill: "Última vez · {name}",
+  lastTurnPill: "Última jogada · {name}",
   quit: "Sair para o início",
   confirmLeave: "Sair desta partida?",
   showScores: "Ver pontuação",
@@ -158,7 +158,7 @@ const pt: Record<Key, string> = {
   deckCount: "Monte · {n}",
   drawn: "Comprada",
   drawnCard: "Carta comprada",
-  tapToKeep: "Toque para ficar",
+  tapToKeep: "Toque para ficar com ela",
   discard: "Descarte",
   discardPile: "Pilha de descarte",
   pts: "{n} pts",
@@ -166,7 +166,7 @@ const pt: Record<Key, string> = {
   flipOne: "{name}: vire 1 carta",
   flipMany: "{name}: vire {n} cartas",
   waitingFlip: "Esperando os outros virarem…",
-  lastTurn: "Última vez! ",
+  lastTurn: "Última jogada! ",
   draw: "{name}: compre do monte ou pegue o descarte",
   waiting: "Esperando {name}…",
   swapIn: "Toque em uma carta da sua grade para trocar",

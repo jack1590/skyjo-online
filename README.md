@@ -6,7 +6,7 @@ A free, phone-first multiplayer card game based on Skyjo's mechanics. Open a lin
 
 ## How to play
 
-- Everyone gets 12 face-down cards in a 3 × 4 grid and flips any 2. The highest pair starts.
+- Everyone gets 12 face-down cards in a 3 × 4 grid and flips any 2. Whoever's 2 cards add up highest starts.
 - On your turn, draw from the deck or take the top card of the discard pile.
   - A deck card can replace any card in your grid, or you can throw it away and flip one of your face-down cards instead.
   - A card from the discard pile must replace a grid card.

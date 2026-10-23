@@ -4,8 +4,6 @@ const CI = !!process.env.CI;
 
 export default defineConfig({
   testDir: "e2e",
-  // Full play-throughs take ~30s on CI's WebKit; the default 30s is too tight.
-  timeout: 120_000,
   fullyParallel: true,
   forbidOnly: CI,
   retries: CI ? 1 : 0,
