@@ -20,7 +20,9 @@ A phone-first, real-time multiplayer card game based on Skyjo's mechanics. 2–8
 
 Data flow: client sends an `Action` → server calls `apply(state, action)` → server broadcasts `toView(state)`. `GameView` never contains face-down values, deck order, or RNG state. (No player, including the owner, knows their own face-down cards, so the view is the same for everyone.)
 
-Engine API: `createGame(names, seed)`, `apply(state, action)` (throws `RuleError`, never mutates input), `legalActions(state)`, `toView(state)`.
+The engine's turn check compares `action.seat` with `state.current`; it is not an identity check. The server must set `action.seat` from the authenticated connection, never from the client payload.
+
+Engine API: `createGame(names, seed)` (`seed` is 4 int32s from `crypto.getRandomValues` in real games), `apply(state, action)` (throws `RuleError`, never mutates input), `legalActions(state)`, `toView(state)`.
 
 ## Commands
 
