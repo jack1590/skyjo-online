@@ -12,5 +12,6 @@
     "verbatimModuleSyntax": true,
     "types": ["vite/client", "node"]
   },
-  "include": ["src", "e2e", "scripts", "vite.config.ts", "playwright.config.ts"]
+  "include": ["src", "e2e", "scripts", "vite.config.ts", "playwright.config.ts"],
+  "exclude": ["src/server/worker.ts"]
 }
