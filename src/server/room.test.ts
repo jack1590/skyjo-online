@@ -156,9 +156,16 @@ describe("play", () => {
     for (let i = 0; t.room.data.game?.phase !== "gameOver"; i++) {
       expect(i).toBeLessThan(20_000);
       stepAny(t, conns);
+      const state = t.room.data.game;
       for (const c of [...conns, watcher]) {
-        const json = JSON.stringify(t.room.view(c, t.live));
-        expect(json).not.toMatch(/token-|"deck":|"rng":|"seenAt":/);
+        const view = t.room.view(c, t.live);
+        expect(JSON.stringify(view)).not.toMatch(/token-|"deck":|"rng":|"seenAt":/);
+        // Every face-down card reaches every client, its own player included, only as "down".
+        state?.players.forEach((p, seat) => {
+          p.grid.forEach((slot, pos) => {
+            if (slot && !slot.up) expect(view.game?.players[seat].grid[pos]).toBe("down");
+          });
+        });
       }
     }
     // Start + one fresh seed per round after the first.

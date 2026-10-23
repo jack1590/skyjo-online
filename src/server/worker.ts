@@ -74,6 +74,7 @@ export class RoomDO extends DurableObject<Env> {
       server.serializeAttachment({ token: null, seenAt: Date.now() } satisfies Conn);
     } else {
       // A failed upgrade looks like a network error to browsers, so say "no such room" in-band.
+      send(server, { t: "missing" });
       server.close(CLOSE_UNKNOWN_ROOM, "Unknown room");
     }
     return new Response(null, { status: 101, webSocket: client });

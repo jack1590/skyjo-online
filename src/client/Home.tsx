@@ -1,5 +1,6 @@
 import { type FormEvent, useState } from "react";
 import { MAX_PLAYERS, MIN_PLAYERS } from "../engine/game";
+import { CODE_LENGTH, isRoomCode } from "../protocol";
 import { LOCALES, type Locale, useI18n } from "./i18n";
 
 const NAMES_KEY = "skyjo:names";
@@ -27,6 +28,29 @@ export function Home({ onStart }: { onStart: (names: string[]) => void }) {
 
   const setCount = (count: number) =>
     setNames((prev) => Array.from({ length: count }, (_, i) => prev[i] ?? ""));
+
+  const [code, setCode] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [createFailed, setCreateFailed] = useState(false);
+
+  const createRoom = async () => {
+    setCreating(true);
+    setCreateFailed(false);
+    try {
+      const res = await fetch("/api/rooms", { method: "POST" });
+      if (!res.ok) throw new Error(String(res.status));
+      const { code } = (await res.json()) as { code: string };
+      window.location.assign(`/r/${code}`);
+    } catch {
+      setCreateFailed(true);
+      setCreating(false);
+    }
+  };
+
+  const joinRoom = (e: FormEvent) => {
+    e.preventDefault();
+    if (isRoomCode(code)) window.location.assign(`/r/${code}`);
+  };
 
   const start = (e: FormEvent) => {
     e.preventDefault();
@@ -56,6 +80,35 @@ export function Home({ onStart }: { onStart: (names: string[]) => void }) {
         Skyjo <span>Online</span>
       </h1>
       <p className="tagline">{t("tagline")}</p>
+
+      <section className="panel">
+        <h2>{t("playOnline")}</h2>
+        <button type="button" className="btn primary" disabled={creating} onClick={createRoom}>
+          {t("createRoom")}
+        </button>
+        {createFailed && (
+          <p className="tagline" role="alert">
+            {t("createFailed")}
+          </p>
+        )}
+        <form className="join-row" onSubmit={joinRoom}>
+          <input
+            className="name-input code-input"
+            value={code}
+            maxLength={CODE_LENGTH}
+            autoCapitalize="characters"
+            autoComplete="off"
+            spellCheck={false}
+            enterKeyHint="go"
+            aria-label={t("roomCode")}
+            placeholder={t("roomCode")}
+            onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
+          />
+          <button type="submit" className="btn" disabled={!isRoomCode(code)}>
+            {t("join")}
+          </button>
+        </form>
+      </section>
 
       <form className="panel" onSubmit={start}>
         <h2>{t("playOnPhone")}</h2>

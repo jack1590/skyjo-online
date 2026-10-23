@@ -9,7 +9,7 @@ export const isRoomCode = (code: string) =>
 
 export const NAME_MAX = 16;
 
-/** Closing code the server uses for a room that doesn't exist; the client stops reconnecting. */
+/** Closing code for a room that doesn't exist. Close codes can get lost, so a "missing" message precedes it. */
 export const CLOSE_UNKNOWN_ROOM = 4004;
 
 export type ClientMsg =
@@ -44,7 +44,10 @@ export interface RoomView {
   game: GameView | null;
 }
 
-export type ServerMsg = { t: "state"; room: RoomView } | { t: "error"; code: ErrorCode };
+export type ServerMsg =
+  | { t: "state"; room: RoomView }
+  | { t: "error"; code: ErrorCode }
+  | { t: "missing" };
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
