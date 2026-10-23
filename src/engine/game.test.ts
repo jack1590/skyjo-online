@@ -29,6 +29,9 @@ function inPlay(players: number, current = 0): GameState {
   return s;
 }
 
+const sum = (cards: (Card | null)[]) => cards.reduce<number>((a, b) => a + (b ?? 0), 0);
+const upExcept = (pos: number) => [...Array(12).keys()].filter((i) => i !== pos);
+
 function run(s: GameState, ...actions: Action[]): GameState {
   return actions.reduce(apply, s);
 }
@@ -246,5 +249,164 @@ describe("legalActions", () => {
       expect(actions).toHaveLength(count);
       for (const a of actions) expect(() => apply(s, a)).not.toThrow();
     }
+  });
+});
+
+// Grids with no column of three equal values, so nothing is removed unless a test wants it.
+const A20 = [1, 2, 3, 4, 2, 3, 4, 1, 0, 0, 0, 0];
+const A15 = [1, 2, 3, 4, 1, 2, 1, 1, 0, 0, 0, 0];
+const B10 = [1, 2, 3, 4, 0, 0, 0, 0, 0, 0, 0, 0];
+const Z0 = [1, -1, 2, -2, -1, 1, -2, 2, 0, 0, 0, 0];
+const NEG2 = [-2, 1, -1, 0, 0, -1, 0, 1, 1, 0, -1, 0];
+const N5 = [-1, -1, -1, -1, -1, 0, 0, 0, 0, 0, 0, 0];
+
+/** 2 players. Seat 0 reveals its last card (pos 11) and ends the round; seat 1 takes the final turn. */
+function finishRound(g0: (Card | null)[], g1: (Card | null)[], totals = [0, 0]): GameState {
+  const s = inPlay(2);
+  s.players[0].grid = grid(g0, upExcept(11));
+  s.players[1].grid = grid(g1, [0]);
+  s.players.forEach((p, i) => {
+    p.total = totals[i];
+  });
+  return run(
+    s,
+    { type: "draw", seat: 0, source: "deck" },
+    { type: "discardAndFlip", seat: 0, pos: 11 },
+    { type: "draw", seat: 1, source: "deck" },
+    { type: "discardAndFlip", seat: 1, pos: 1 },
+  );
+}
+
+describe("round end", () => {
+  it("R10: revealing the last card sets ender; each other player gets exactly one more turn", () => {
+    const s0 = inPlay(4, 2);
+    s0.players[2].grid = grid(A20, upExcept(0));
+    let s = run(
+      s0,
+      { type: "draw", seat: 2, source: "deck" },
+      { type: "discardAndFlip", seat: 2, pos: 0 },
+    );
+    expect(s.ender).toBe(2);
+    for (const seat of [3, 0, 1]) {
+      expect(s.phase).toBe("draw");
+      expect(s.current).toBe(seat);
+      s = run(s, { type: "draw", seat, source: "deck" }, { type: "discardAndFlip", seat, pos: 5 });
+    }
+    expect(s.phase).toBe("roundOver");
+  });
+
+  it("R10: a fully removed grid counts as revealed", () => {
+    const s0 = inPlay(2);
+    s0.players[0].grid = grid(
+      [7, null, null, null, 7, null, null, null, 3, null, null, null],
+      [0, 4],
+    );
+    s0.deck.push(7);
+    const s = run(s0, { type: "draw", seat: 0, source: "deck" }, { type: "swap", seat: 0, pos: 8 });
+    expect(s.players[0].grid.every((slot) => slot === null)).toBe(true);
+    expect(s.ender).toBe(0);
+    expect(s.current).toBe(1);
+  });
+
+  it("R11: final reveal flips everything and removes newly matching columns", () => {
+    const s = finishRound(B10, [4, 1, 2, 3, 4, 2, 3, 1, 4, 3, 1, 2]);
+    const g1 = s.players[1].grid;
+    expect([0, 4, 8].map((i) => g1[i])).toEqual([null, null, null]);
+    expect(g1.every((slot) => slot === null || slot.up)).toBe(true);
+    expect(s.players[1].scores).toEqual([18]);
+  });
+
+  it("R12: round score is the sum of remaining cards", () => {
+    const g1 = [null, 2, 3, 4, null, 3, 4, 1, null, 0, 0, 0];
+    const s = finishRound(B10, g1);
+    expect(s.players.map((p) => p.scores)).toEqual([[sum(B10)], [sum(g1)]]);
+    expect(s.players.map((p) => p.total)).toEqual([sum(B10), sum(g1)]);
+    expect(s.phase).toBe("roundOver");
+  });
+
+  it("R12: ender not strictly lowest with a positive score is doubled", () => {
+    const s = finishRound(A20, B10);
+    expect(s.doubled).toBe(true);
+    expect(s.players.map((p) => p.scores[0])).toEqual([40, 10]);
+  });
+
+  it("R12: tie with another player doubles", () => {
+    const s = finishRound(A15, A15);
+    expect(s.players.map((p) => p.scores[0])).toEqual([30, 15]);
+  });
+
+  it("R12: ender strictly lowest is not doubled", () => {
+    const s = finishRound(B10, A20);
+    expect(s.doubled).toBe(false);
+    expect(s.players.map((p) => p.scores[0])).toEqual([10, 20]);
+  });
+
+  it("R12: ender with score ≤ 0 is never doubled", () => {
+    for (const g0 of [Z0, NEG2]) {
+      expect(sum(g0)).toBeGreaterThan(sum(N5));
+      const s = finishRound(g0, N5);
+      expect(s.doubled).toBe(false);
+      expect(s.players[0].scores).toEqual([sum(g0)]);
+    }
+  });
+
+  it("R13: drawing from an empty deck reshuffles the discard except its top card", () => {
+    const s0 = inPlay(2);
+    s0.deck = [];
+    s0.discard = [3, 4, 5, 9];
+    const s = apply(s0, { type: "draw", seat: 0, source: "deck" });
+    expect(s.discard).toEqual([9]);
+    expect([...s.deck, s.drawn].sort()).toEqual([3, 4, 5]);
+  });
+});
+
+describe("game end and next round", () => {
+  it("R14: reaching 100 ends the game; lowest total wins", () => {
+    const s = finishRound(A20, B10, [90, 0]);
+    expect(s.phase).toBe("gameOver");
+    expect(s.winners).toEqual([1]);
+  });
+
+  it("R14: ties share the win", () => {
+    const s = finishRound(B10, A20, [95, 85]);
+    expect(s.players.map((p) => p.total)).toEqual([105, 105]);
+    expect(s.winners).toEqual([0, 1]);
+  });
+
+  it("R15: nextRound redeals a full 150-card deck and returns to flip phase", () => {
+    const s = apply(finishRound(B10, A20), { type: "nextRound" });
+    expect(s.round).toBe(2);
+    expect(s.phase).toBe("flip");
+    expect(s.ender).toBeNull();
+    for (const p of s.players) {
+      expect(p.grid.every((slot) => slot && !slot.up)).toBe(true);
+    }
+    expect(s.deck).toHaveLength(150 - 24 - 1);
+    expect(s.discard).toHaveLength(1);
+    expect(s.players.map((p) => p.total)).toEqual([10, 20]);
+  });
+
+  it("R4: start-player rule also applies in round 2", () => {
+    const s = apply(finishRound(B10, A20), { type: "nextRound" });
+    s.players[0].grid = grid([1, 2, ...ZEROS.slice(2)]);
+    s.players[1].grid = grid([6, 6, ...ZEROS.slice(2)]);
+    const flipped = run(
+      s,
+      { type: "flip", seat: 0, pos: 0 },
+      { type: "flip", seat: 0, pos: 1 },
+      { type: "flip", seat: 1, pos: 0 },
+      { type: "flip", seat: 1, pos: 1 },
+    );
+    expect(flipped.current).toBe(1);
+  });
+
+  it("rejects every action after game over, and nextRound outside roundOver", () => {
+    const over = finishRound(A20, B10, [90, 0]);
+    expect(legalActions(over)).toEqual([]);
+    expect(() => apply(over, { type: "nextRound" })).toThrow(RuleError);
+    expect(() => apply(over, { type: "draw", seat: over.current, source: "deck" })).toThrow(
+      RuleError,
+    );
+    expect(() => apply(inPlay(2), { type: "nextRound" })).toThrow(RuleError);
   });
 });

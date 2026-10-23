@@ -125,6 +125,10 @@ export function apply(state: GameState, action: Action): GameState {
       endTurn(s, action.seat);
       break;
     }
+    case "nextRound":
+      check(s.phase === "roundOver", `Not allowed now (${s.phase})`);
+      deal(s);
+      break;
     default:
       throw new RuleError("Unknown action");
   }
@@ -157,6 +161,8 @@ export function legalActions(s: GameState): Action[] {
           : []),
       ];
     }
+    case "roundOver":
+      return [{ type: "nextRound" }];
     default:
       return [];
   }
@@ -237,10 +243,37 @@ function removeColumns(s: GameState, seat: number): void {
   }
 }
 
+/** R10: the first player with nothing face down becomes the ender; play stops when it is their turn again. */
 function endTurn(s: GameState, seat: number): void {
   s.drawn = null;
   s.drawnFrom = null;
   removeColumns(s, seat);
+  if (s.ender === null && !s.players[seat].grid.some((slot) => slot && !slot.up)) s.ender = seat;
   s.current = (seat + 1) % s.players.length;
-  s.phase = "draw";
+  if (s.current === s.ender) endRound(s, s.ender);
+  else s.phase = "draw";
+}
+
+/** R11 reveal, R12 scoring and doubling, R14 game end. */
+function endRound(s: GameState, ender: number): void {
+  s.players.forEach((p, seat) => {
+    for (const slot of p.grid) if (slot) slot.up = true;
+    removeColumns(s, seat);
+  });
+  const scores = s.players.map((p) => visibleSum(p.grid));
+  const enderScore = scores[ender];
+  s.doubled = enderScore > 0 && scores.some((score, seat) => seat !== ender && score <= enderScore);
+  if (s.doubled) scores[ender] = enderScore * 2;
+  s.players.forEach((p, seat) => {
+    p.scores.push(scores[seat]);
+    p.total += scores[seat];
+  });
+  const totals = s.players.map((p) => p.total);
+  if (totals.some((total) => total >= TARGET)) {
+    const best = Math.min(...totals);
+    s.winners = totals.flatMap((total, seat) => (total === best ? [seat] : []));
+    s.phase = "gameOver";
+  } else {
+    s.phase = "roundOver";
+  }
 }
