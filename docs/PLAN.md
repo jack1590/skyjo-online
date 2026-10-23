@@ -86,7 +86,7 @@ Each milestone is one PR from a feature branch `m<N>-<slug>`, except M0.
 - Playwright projects: iPhone 13 (WebKit), Pixel 7 (Chromium), Desktop Chrome.
 - **Languages** (added at the user's request, 2026-10-23): English, Spanish (Latin America), Portuguese (Brazil). Auto-detected from the browser, switchable on Home, remembered. Applies to every later milestone's UI too.
 
-**Acceptance:** a full hot-seat game to 100 is playable at 390×844 with no horizontal scroll. A Playwright hot-seat round passes on all 3 projects. Every UI string exists in all 3 languages (enforced by the type checker), and E2E covers switching and browser detection.
+**Acceptance:** a full hot-seat game to 100 is playable at 390×844 with no horizontal scroll. On all 3 Playwright projects, at least one hot-seat round is played through the UI to its round summary and into the next round (starting from an engine-built near-end game is fine); full play-throughs to 100 run on Pixel only (user request, 2026-10-23). Every UI string exists in all 3 languages (enforced by the type checker), and E2E covers switching and browser detection.
 
 ### M3 — Online rooms
 
@@ -103,6 +103,7 @@ Moved ahead of polish (the brief listed it last) so hosting risk is retired earl
 - **Stop and ask the user:** Cloudflare account (free plan, no card), API token, and the GitHub secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
 - CI deploys on push to `main` to `skyjo-online.<subdomain>.workers.dev`. A post-deploy smoke test runs the 2-player Playwright game against the live URL.
 - Self-host fallback: `src/server/node.ts` (Node + `ws`, serves `dist/`, rooms in memory). The README documents running it behind `cloudflared tunnel`. It is never exposed without asking the user first.
+- CI's `concurrency` group cancels in-progress runs. A deploy on `main` must never be cancelled halfway, so `cancel-in-progress` applies to PRs only.
 
 **Acceptance:** the public URL works on a real phone. The smoke test passes against it. The Node fallback passes the same E2E locally.
 
@@ -111,8 +112,9 @@ Moved ahead of polish (the brief listed it last) so hosting risk is retired earl
 - Animations: card flip (3D rotate), draw, discard and swap travel, column removal, score count-up. All honor `prefers-reduced-motion`.
 - PWA: manifest, generated icons, service worker for the app shell, an offline page explaining the game needs a connection, and an "Add to Home Screen" hint on iOS.
 - Art v2 pass. README completed: how to play, run locally, deploy, self-host.
+- Small phones: at 375×548 the acting player's whole grid is on screen when their turn starts, either because it fits or because it is scrolled into view, and cards stay ≥ 44 px. In M2 the bottom row ended at 592 px with 2 players and at 615 px with 8, so it had to be scrolled to every turn.
 
-**Acceptance:** Playwright verifies the manifest and service worker are installable. Reduced motion disables animations. The README covers every section listed in the brief. The PO scores visual polish ≥ 4.
+**Acceptance:** Playwright verifies the manifest and service worker are installable. Reduced motion disables animations. The README covers every section listed in the brief. At 375×548, Playwright asserts the acting player's grid is fully in view at the start of a turn for 2 and 8 players. The PO scores visual polish ≥ 4.
 
 ## Process
 
@@ -130,13 +132,16 @@ Per milestone:
 
 Each criterion is scored 1–5, or N/A when the milestone has no surface for it (multiplayer in M1–M2, for example).
 
-| Criterion             | 5 means                                                                   |
-| --------------------- | ------------------------------------------------------------------------- |
-| Rules correctness     | Every rule R1–R15 behaves as specified in play and in tests               |
-| Mobile UX             | One-handed portrait play, clear turn state, ≥ 44 px targets, no dead ends |
-| Visual polish         | Original, cohesive art; readable cards; smooth, purposeful motion         |
-| Multiplayer stability | No desyncs; reload and network drop recover; no leaked hidden info        |
-| Code health           | Small, tested, readable; matches `AGENTS.md`; no dead code                |
+| Criterion             | 5 means                                                                                                                                 |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Rules correctness     | Every rule R1–R15 behaves as specified in play and in tests                                                                             |
+| Mobile UX             | One-handed portrait play, clear turn state, ≥ 44 px targets, no dead ends                                                               |
+| Visual polish         | Original, cohesive art; readable cards; smooth, purposeful motion                                                                       |
+| Multiplayer stability | No desyncs; reload and network drop recover; no leaked hidden info                                                                      |
+| Code health           | Small, tested, readable; matches `AGENTS.md`; no dead code                                                                              |
+| Delivery health       | PR CI wall time ≤ 3 min; no flaky, retried or timed-out jobs; every CI job has `timeout-minutes`; `npm run e2e` runs locally in ≤ 2 min |
+
+The PO measures delivery health on every review, using `gh run view --json jobs` for wall and per-job times and a timed local `npm run e2e`, and reports the numbers with the score.
 
 **Approve when** no applicable criterion is below 3, no blocking defect is open, and CI is green.
 
