@@ -16,7 +16,7 @@ One npm package (no monorepo tooling). Four areas:
 | ---------------------- | -------------------------------------------------------------------------------------------- | ------------------------ |
 | `src/engine/`          | Pure, deterministic rules engine. No DOM, no Node APIs, no `Math.random`/`Date`. Seeded RNG. | client + server          |
 | `src/client/`          | React app (hot-seat and online modes)                                                        | browser                  |
-| `src/server/room.ts`   | Platform-agnostic room: seats, protocol, reconnection, per-player view projection            | server                   |
+| `src/server/room.ts`   | Platform-agnostic room: seats, protocol, reconnection, view projection                       | server                   |
 | `src/server/worker.ts` | Cloudflare Worker + Durable Object adapter around `room.ts`                                  | Cloudflare               |
 | `src/server/node.ts`   | Self-host adapter (Node + `ws`) around `room.ts`                                             | this computer (fallback) |
 | `e2e/`                 | Playwright tests                                                                             | CI + local               |
@@ -70,7 +70,7 @@ Each milestone is one PR from a feature branch `m<N>-<slug>`, except M0.
 
 ### M1 — Rules engine
 
-- `createGame(seats, seed)`, `apply(state, action)` returning a new state or a typed error, round scoring, `viewFor(state, seat)` projection, and a seeded RNG.
+- `createGame(names, seed)`, `apply(state, action)` (returns a new state, throws `RuleError` on illegal actions), round scoring, `toView(state)` public projection (identical for every viewer, since nobody sees face-down values), and a seeded RNG with 128-bit state.
 - Unit tests named after each rule R1–R15.
 - Simulation test: 1,000 seeded games, 2–8 players, random legal moves. Checks: 150 cards always accounted for, every game terminates, totals add up, illegal actions are rejected, and projections never leak face-down values.
 

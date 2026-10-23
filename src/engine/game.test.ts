@@ -10,8 +10,10 @@ import {
   newDeck,
   RuleError,
 } from "./game";
+import type { Rng } from "./rng";
 
 const names = (n: number) => Array.from({ length: n }, (_, i) => `P${i}`);
+const seed = (n: number): Rng => [n, 0, 0, 0];
 const ZEROS = Array<Card>(12).fill(0);
 
 /** 12 cards in reading order; positions in `up` start face up ("all" = every card); null = removed. */
@@ -23,7 +25,7 @@ function grid(cards: (Card | null)[], up: number[] | "all" = []): Grid {
 
 /** A game past the flip phase with `current` about to draw. Push onto `deck` to set the next draw. */
 function inPlay(players: number, current = 0): GameState {
-  const s = createGame(names(players), 1);
+  const s = createGame(names(players), seed(1));
   s.phase = "draw";
   s.current = current;
   return s;
@@ -48,7 +50,7 @@ describe("setup", () => {
   });
 
   it("R2: deals 12 face-down cards per player and starts the discard with one card", () => {
-    const s = createGame(names(3), 7);
+    const s = createGame(names(3), seed(7));
     for (const p of s.players) {
       expect(p.grid).toHaveLength(12);
       expect(p.grid.every((slot) => slot && !slot.up)).toBe(true);
@@ -60,14 +62,14 @@ describe("setup", () => {
   });
 
   it("createGame is deterministic for a seed and differs across seeds", () => {
-    expect(createGame(names(4), 42)).toEqual(createGame(names(4), 42));
-    expect(createGame(names(4), 42).deck).not.toEqual(createGame(names(4), 43).deck);
+    expect(createGame(names(4), seed(42))).toEqual(createGame(names(4), seed(42)));
+    expect(createGame(names(4), seed(42)).deck).not.toEqual(createGame(names(4), seed(43)).deck);
   });
 });
 
 describe("flip phase", () => {
   it("R3: each player flips exactly two cards; a third flip is rejected", () => {
-    let s = createGame(names(2), 1);
+    let s = createGame(names(2), seed(1));
     s = run(s, { type: "flip", seat: 0, pos: 0 }, { type: "flip", seat: 0, pos: 5 });
     expect(() => apply(s, { type: "flip", seat: 0, pos: 3 })).toThrow(RuleError);
     expect(s.phase).toBe("flip");
@@ -77,7 +79,7 @@ describe("flip phase", () => {
   });
 
   const flipFirstTwo = (pairs: [Card, Card][]) => {
-    const s = createGame(names(pairs.length), 1);
+    const s = createGame(names(pairs.length), seed(1));
     pairs.forEach(([a, b], seat) => {
       s.players[seat].grid = grid([a, b, ...ZEROS.slice(2)]);
     });
@@ -176,6 +178,19 @@ describe("turns", () => {
     expect([0, 4, 8].map((i) => s.players[0].grid[i])).toEqual([null, null, null]);
   });
 
+  it("R9: a flip can complete a column; the discarded card lands under the column", () => {
+    const s0 = inPlay(2);
+    s0.players[0].grid = grid([5, 1, 2, 3, 5, 2, 3, 4, 5, 3, 4, 1], [0, 4]);
+    s0.deck.push(9);
+    const s = run(
+      s0,
+      { type: "draw", seat: 0, source: "deck" },
+      { type: "discardAndFlip", seat: 0, pos: 8 },
+    );
+    expect(s.discard.slice(-4)).toEqual([9, 5, 5, 5]);
+    expect([0, 4, 8].map((i) => s.players[0].grid[i])).toEqual([null, null, null]);
+  });
+
   it("R9: no removal when a matching column has a face-down card", () => {
     const s0 = inPlay(2);
     s0.players[0].grid = grid([5, 1, 2, 3, 5, 2, 3, 4, 9, 3, 4, 1], [0]);
@@ -205,12 +220,12 @@ describe("guards", () => {
     s0.players[0].grid = grid(ZEROS, [0]);
     const s = apply(s0, { type: "draw", seat: 0, source: "deck" });
     expect(() => apply(s, { type: "discardAndFlip", seat: 0, pos: 0 })).toThrow(RuleError);
-    const f = apply(createGame(names(2), 1), { type: "flip", seat: 0, pos: 0 });
+    const f = apply(createGame(names(2), seed(1)), { type: "flip", seat: 0, pos: 0 });
     expect(() => apply(f, { type: "flip", seat: 0, pos: 0 })).toThrow(RuleError);
   });
 
   it("rejects invalid seats, sources, and action types", () => {
-    const f = createGame(names(2), 1);
+    const f = createGame(names(2), seed(1));
     for (const seat of [-1, 2, 0.5]) {
       expect(() => apply(f, { type: "flip", seat, pos: 0 })).toThrow(RuleError);
     }
@@ -220,9 +235,9 @@ describe("guards", () => {
   });
 
   it("rejects fewer than 2 or more than 8 players, and blank names", () => {
-    expect(() => createGame(names(1), 1)).toThrow(RuleError);
-    expect(() => createGame(names(9), 1)).toThrow(RuleError);
-    expect(() => createGame(["A", "  "], 1)).toThrow(RuleError);
+    expect(() => createGame(names(1), seed(1))).toThrow(RuleError);
+    expect(() => createGame(names(9), seed(1))).toThrow(RuleError);
+    expect(() => createGame(["A", "  "], seed(1))).toThrow(RuleError);
   });
 
   it("never mutates the input state", () => {
@@ -239,7 +254,7 @@ describe("legalActions", () => {
     const fromDeck = apply(inPlay(2), { type: "draw", seat: 0, source: "deck" });
     const fromDiscard = apply(inPlay(2), { type: "draw", seat: 0, source: "discard" });
     const cases: [GameState, number][] = [
-      [createGame(names(2), 1), 24],
+      [createGame(names(2), seed(1)), 24],
       [inPlay(2), 2],
       [fromDeck, 24],
       [fromDiscard, 12],
@@ -356,7 +371,7 @@ describe("round end", () => {
     s0.discard = [3, 4, 5, 9];
     const s = apply(s0, { type: "draw", seat: 0, source: "deck" });
     expect(s.discard).toEqual([9]);
-    expect([...s.deck, s.drawn].sort()).toEqual([3, 4, 5]);
+    expect([...s.deck, s.drawn].sort((a, b) => (a as number) - (b as number))).toEqual([3, 4, 5]);
   });
 });
 

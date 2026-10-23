@@ -1,4 +1,4 @@
-import { shuffle } from "./rng";
+import { type Rng, seedRng, shuffle } from "./rng";
 
 export type Card = number;
 export interface Slot {
@@ -16,7 +16,7 @@ export interface Player {
 }
 export type Phase = "flip" | "draw" | "place" | "roundOver" | "gameOver";
 export interface GameState {
-  rng: number;
+  rng: Rng;
   round: number;
   phase: Phase;
   current: number;
@@ -28,7 +28,7 @@ export interface GameState {
   drawn: Card | null;
   drawnFrom: "deck" | "discard" | null;
   ender: number | null;
-  /** Whether the ender's score was doubled in the last finished round. */
+  /** Whether the ender's score was doubled; set at round end, cleared by the next deal. */
   doubled: boolean;
   winners: number[];
 }
@@ -39,7 +39,9 @@ export type Action =
   | { type: "discardAndFlip"; seat: number; pos: number }
   | { type: "nextRound" };
 
-export class RuleError extends Error {}
+export class RuleError extends Error {
+  override name = "RuleError";
+}
 
 export const ROWS = 3;
 export const COLS = 4;
@@ -59,13 +61,14 @@ export function newDeck(): Card[] {
   return deck;
 }
 
-export function createGame(names: string[], seed: number): GameState {
+/** `seed` must come from a CSPRNG (e.g. crypto.getRandomValues) in real games. */
+export function createGame(names: string[], seed: Rng): GameState {
   if (names.length < MIN_PLAYERS || names.length > MAX_PLAYERS) {
     throw new RuleError(`A game needs ${MIN_PLAYERS}–${MAX_PLAYERS} players`);
   }
   if (names.some((name) => !name.trim())) throw new RuleError("Names cannot be blank");
   const state: GameState = {
-    rng: seed | 0,
+    rng: seedRng(seed),
     round: 0,
     phase: "flip",
     current: 0,

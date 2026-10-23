@@ -11,11 +11,13 @@ import {
   legalActions,
   newDeck,
   RuleError,
+  type Slot,
 } from "./game";
-import { nextRandom } from "./rng";
+import { nextRandom, type Rng } from "./rng";
 import { toView } from "./view";
 
 const names = (n: number) => Array.from({ length: n }, (_, i) => `P${i}`);
+const seed = (n: number): Rng => [n, 0, 0, 0];
 
 /** Count of each card value, index = value + 2. */
 function histogram(cards: Card[]): number[] {
@@ -36,13 +38,13 @@ type Pick = (n: number) => number;
 
 /** Plays one game choosing uniformly among legal actions; `onStep` sees each state before its move. */
 function playRandom(players: number, seed: number, onStep?: (s: GameState, pick: Pick) => void) {
-  let rng = seed;
+  let rng: Rng = [seed, 7, 7, 7];
   const pick: Pick = (n) => {
     let v: number;
     [v, rng] = nextRandom(rng);
     return Math.floor(v * n);
   };
-  let s = createGame(names(players), seed);
+  let s = createGame(names(players), [seed, 0, 0, 0]);
   const actions: Action[] = [];
   while (s.phase !== "gameOver") {
     onStep?.(s, pick);
@@ -119,6 +121,19 @@ describe("simulation", () => {
   });
 });
 
+/** Same public state, different secrets: hidden cards (face-down + deck) reversed, new RNG state. */
+function withHiddenCardsReversed(s: GameState): GameState {
+  const t = structuredClone(s);
+  const faceDown = t.players.flatMap((p) =>
+    p.grid.filter((slot): slot is Slot => slot !== null && !slot.up),
+  );
+  const hidden = [...faceDown.map((slot) => slot.card), ...t.deck].reverse();
+  for (const slot of faceDown) slot.card = hidden.shift() as Card;
+  t.deck = hidden;
+  t.rng = [1, 2, 3, 4];
+  return t;
+}
+
 describe("view", () => {
   it("toView never exposes face-down values or deck order", () => {
     for (let seed = 0; seed < 50; seed++) {
@@ -130,6 +145,7 @@ describe("view", () => {
           );
           expect(view.players[i]?.grid).toEqual(expected);
         });
+        expect(toView(withHiddenCardsReversed(s))).toEqual(view);
         expect(view.deckCount).toBe(s.deck.length);
         expect(view.discardTop).toBe(s.discard.at(-1) ?? null);
         expect(Object.keys(view)).not.toContain("deck");
@@ -140,7 +156,7 @@ describe("view", () => {
 
   it("R6: the drawn card is visible to everyone", () => {
     const s = apply(
-      { ...createGame(names(2), 1), phase: "draw", current: 0 },
+      { ...createGame(names(2), seed(1)), phase: "draw" as const, current: 0 },
       { type: "draw", seat: 0, source: "deck" },
     );
     expect(toView(s).drawn).toBe(s.drawn);
@@ -155,7 +171,9 @@ describe("purity", () => {
     expect(files.length).toBeGreaterThanOrEqual(3);
     for (const file of files) {
       const src = readFileSync(join(dir, file), "utf8");
-      for (const [, from] of src.matchAll(/from\s+"([^"]+)"/g)) expect(from).toMatch(/^\.\//);
+      for (const [, from] of src.matchAll(/(?:from|import)\s*\(?\s*"([^"]+)"/g)) {
+        expect(from).toMatch(/^\.\//);
+      }
       expect(src).not.toMatch(/Math\.random|\bDate\b|\bwindow\b|\bdocument\b|\bprocess\b/);
     }
   });
