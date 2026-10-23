@@ -26,16 +26,19 @@ Engine API: `createGame(names, seed)` (`seed` is 4 int32s from `crypto.getRandom
 
 ## Commands
 
-| Command             | Does                                             |
-| ------------------- | ------------------------------------------------ |
-| `npm run dev`       | Dev server                                       |
-| `npm run lint`      | Biome lint + format check                        |
-| `npm run format`    | Biome autofix                                    |
-| `npm run typecheck` | `tsc --noEmit`                                   |
-| `npm test`          | Vitest (with engine coverage gate once M1 lands) |
-| `npm run build`     | Production build                                 |
+| Command               | Does                                                                           |
+| --------------------- | ------------------------------------------------------------------------------ |
+| `npm run dev`         | Dev server                                                                     |
+| `npm run lint`        | Biome lint + format check                                                      |
+| `npm run format`      | Biome autofix                                                                  |
+| `npm run typecheck`   | `tsc --noEmit`                                                                 |
+| `npm test`            | Vitest unit tests with the engine coverage gate (95% lines/branches)           |
+| `npm run build`       | Production build                                                               |
+| `npm run e2e`         | Playwright on iPhone 13, Pixel 7, Desktop Chrome (builds + previews first)     |
+| `npm run screenshots` | Refreshes `docs/screenshots/m<N>/` at iPhone size                              |
+| `npm run art`         | Regenerates missing card art with Gemini (local only; needs `.env` and ffmpeg) |
 
-CI runs lint, typecheck, test, and build on every PR and on `main`. The job is named `ci` and is a required check.
+CI runs lint, typecheck, unit tests, build, and Playwright E2E on every PR and on `main`. The job is named `ci` and is a required check.
 
 ## Conventions
 
