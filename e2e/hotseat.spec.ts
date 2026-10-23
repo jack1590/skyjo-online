@@ -1,4 +1,5 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page, type TestInfo, test } from "@playwright/test";
+import { apply, createGame, type GameState, legalActions } from "../src/engine/game";
 
 type Done = (phase: string) => boolean | Promise<boolean>;
 
@@ -46,6 +47,35 @@ async function start(page: Page, players: number, seed: number) {
   await page.getByRole("button", { name: "Start game" }).click();
 }
 
+/**
+ * A game one move into its last turns: someone has revealed every card and the next player is
+ * about to draw. Built with the engine so layout checks don't click through a whole round.
+ */
+function lastTurnGame(players: number, seed: number) {
+  const names = Array.from({ length: players }, (_, i) => `Player ${i + 1}`);
+  let state: GameState = createGame(names, [seed, 0, 0, 0]);
+  while (state.ender === null || state.phase !== "draw") {
+    const legal = legalActions(state);
+    // Discard-and-flip (listed last) always reveals a card, so the round heads for its end.
+    state = apply(state, legal[state.phase === "place" ? legal.length - 1 : 0]);
+  }
+  return { names, state, seat: state.current };
+}
+
+async function loadGame(page: Page, game: ReturnType<typeof lastTurnGame>) {
+  await page.goto("/");
+  await page.evaluate(
+    (saved) => localStorage.setItem("skyjo:hotseat:v2", JSON.stringify(saved)),
+    game,
+  );
+  await page.reload();
+  await expect(page.getByText(/^Last turn · /)).toBeVisible();
+}
+
+/** Full play-throughs are slow and engine-independent, so CI runs them on one device. */
+const longPlayThrough = (info: TestInfo) =>
+  test.skip(info.project.name !== "pixel", "long play-throughs run on Pixel only");
+
 const lastTurn = (page: Page) => async (phase: string) =>
   phase === "draw" && (await page.getByText(/^Last turn · /).count()) > 0;
 
@@ -64,7 +94,8 @@ async function expectMobileFriendly(page: Page) {
   expect(small).toEqual([]);
 }
 
-test("2-player hot-seat game runs to 100 points", async ({ page }) => {
+test("2-player hot-seat game runs to 100 points", async ({ page }, info) => {
+  longPlayThrough(info);
   await start(page, 2, 7);
   await playUntil(page, (phase) => phase === "roundOver" || phase === "gameOver");
   await page.getByRole("button", { name: "View table" }).click();
@@ -83,14 +114,21 @@ test("8 players fit: no horizontal scroll, every tap target at least 44px", asyn
   await expectMobileFriendly(page);
   await playUntil(page, (phase) => phase === "draw");
   await expectMobileFriendly(page);
-  await playUntil(page, lastTurn(page));
-  await expectMobileFriendly(page);
 });
 
-test("2 players: cards stay at least 44px during the last turns", async ({ page }) => {
-  await start(page, 2, 4);
+for (const players of [2, 8]) {
+  test(`${players} players: cards stay at least 44px during the last turns`, async ({ page }) => {
+    await loadGame(page, lastTurnGame(players, 4));
+    await expectMobileFriendly(page);
+    await page.getByTestId("deck").click();
+    await expectMobileFriendly(page);
+  });
+}
+
+test("8-player hot-seat play-through reaches the last turns", async ({ page }, info) => {
+  longPlayThrough(info);
+  await start(page, 8, 3);
   await playUntil(page, lastTurn(page));
-  await page.getByTestId("deck").click();
   await expectMobileFriendly(page);
 });
 
@@ -98,8 +136,7 @@ test.describe("small phone (375×548)", () => {
   test.use({ viewport: { width: 375, height: 548 } });
 
   test("the table scrolls instead of shrinking cards", async ({ page }) => {
-    await start(page, 8, 3);
-    await playUntil(page, lastTurn(page));
+    await loadGame(page, lastTurnGame(8, 3));
     await expectMobileFriendly(page);
   });
 });

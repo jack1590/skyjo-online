@@ -38,7 +38,11 @@ Engine API: `createGame(names, seed)` (`seed` is 4 int32s from `crypto.getRandom
 | `npm run screenshots` | Refreshes `docs/screenshots/m<N>/` at iPhone size                              |
 | `npm run art`         | Regenerates missing card art with Gemini (local only; needs `.env` and ffmpeg) |
 
-CI runs lint, typecheck, unit tests, build, and Playwright E2E on every PR and on `main`. The job is named `ci` and is a required check.
+CI (`.github/workflows/ci.yml`) runs on every PR and on `main`, as four parallel jobs that are all required checks:
+- `ci`: lint, typecheck, unit tests, build (~1 min).
+- `e2e (iphone)`, `e2e (pixel)`, `e2e (desktop)`: Playwright, one device per job, inside the `mcr.microsoft.com/playwright` container (browsers preinstalled). Long full-game play-throughs run on Pixel only; layout, 44px, i18n, reload, and interaction tests run on all three.
+
+`@playwright/test` is pinned to an exact version. When bumping it, change the container tag in `ci.yml` to the same version.
 
 ## Conventions
 
