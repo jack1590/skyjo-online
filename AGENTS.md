@@ -45,6 +45,7 @@ CI runs lint, typecheck, unit tests, build, and Playwright E2E on every PR and o
 - TypeScript strict. Biome formatting (2 spaces, double quotes, width 100).
 - Tests live next to the code as `*.test.ts`. Rule tests are named with the rule id first: `"R9: removes a column of three equal face-up cards"`.
 - Engine state is plain JSON-serializable data. `apply` clones with `structuredClone` and mutates the clone.
+- All user-facing text goes through `t()` from `src/client/i18n.tsx`. Add every new key to `en`, `es` (Latin American Spanish) and `pt` (Brazilian Portuguese); the type checker rejects a missing one. Never hardcode UI strings.
 - Grid positions are `0–11`, index `row * 4 + col` (3 rows × 4 columns). A removed slot is `null`.
 - Prefer deleting code to adding it. No abstractions with one user, no speculative config.
 - Never commit `.env` or any secret. `GEMINI_API_KEY` in `.env` is for `scripts/` only.

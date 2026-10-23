@@ -1,6 +1,6 @@
 # Skyjo Online
 
-A free, phone-first multiplayer card game based on Skyjo's mechanics. Open a link, pick a name, and play with 2–8 friends in real time. No accounts.
+A free, phone-first multiplayer card game based on Skyjo's mechanics. Open a link, pick a name, and play with 2–8 friends in real time. No accounts. Available in English, Spanish (Latin America), and Portuguese (Brazil).
 
 > Work in progress. See [`docs/PLAN.md`](docs/PLAN.md) for the roadmap. Today you can play on one phone, passing it around (hot-seat). Online rooms, deploy, and self-host sections land with their milestones.
 

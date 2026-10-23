@@ -3,6 +3,7 @@ import { apply, createGame, type GameState } from "../engine/game";
 import type { Rng } from "../engine/rng";
 import { type GameView, toView } from "../engine/view";
 import { Home } from "./Home";
+import { useI18n } from "./i18n";
 import { Table } from "./Table";
 
 interface LocalGame {
@@ -47,6 +48,7 @@ function loadSaved(): LocalGame | null {
 }
 
 export function App() {
+  const { t } = useI18n();
   const [game, setGame] = useState<LocalGame | null>(loadSaved);
 
   useEffect(() => {
@@ -78,7 +80,7 @@ export function App() {
             className="btn primary pass"
             onClick={() => setGame({ ...game, seat: next })}
           >
-            Pass to {view.players[next].name} →
+            {t("passTo", { name: view.players[next].name })}
           </button>
         ) : undefined
       }
@@ -103,14 +105,18 @@ export class Recover extends Component<{ children: ReactNode }, { failed: boolea
   }
 
   render() {
-    if (!this.state.failed) return this.props.children;
-    return (
-      <main className="home">
-        <p>Something went wrong, so the saved game was cleared.</p>
-        <button type="button" className="btn primary" onClick={() => window.location.reload()}>
-          Start over
-        </button>
-      </main>
-    );
+    return this.state.failed ? <Crashed /> : this.props.children;
   }
+}
+
+function Crashed() {
+  const { t } = useI18n();
+  return (
+    <main className="home">
+      <p>{t("crashed")}</p>
+      <button type="button" className="btn primary" onClick={() => window.location.reload()}>
+        {t("startOver")}
+      </button>
+    </main>
+  );
 }

@@ -84,8 +84,9 @@ Each milestone is one PR from a feature branch `m<N>-<slug>`, except M0.
 - Turn banner and phase prompts ("Flip 2 cards", "Draw or take the discard", "Swap, or discard and flip"). Tap only, targets ≥ 44 px, no hover-only actions.
 - Art v1 from `npm run art`. Card faces are color-coded by value band.
 - Playwright projects: iPhone 13 (WebKit), Pixel 7 (Chromium), Desktop Chrome.
+- **Languages** (added at the user's request, 2026-10-23): English, Spanish (Latin America), Portuguese (Brazil). Auto-detected from the browser, switchable on Home, remembered. Applies to every later milestone's UI too.
 
-**Acceptance:** a full hot-seat game to 100 is playable at 390×844 with no horizontal scroll. A Playwright hot-seat round passes on all 3 projects.
+**Acceptance:** a full hot-seat game to 100 is playable at 390×844 with no horizontal scroll. A Playwright hot-seat round passes on all 3 projects. Every UI string exists in all 3 languages (enforced by the type checker), and E2E covers switching and browser detection.
 
 ### M3 — Online rooms
 

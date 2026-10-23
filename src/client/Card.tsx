@@ -5,6 +5,7 @@ import low from "./art/band-low.webp";
 import mid from "./art/band-mid.webp";
 import neg from "./art/band-neg.webp";
 import zero from "./art/band-zero.webp";
+import { useI18n } from "./i18n";
 
 function art(card: number): string {
   if (card < 0) return neg;
@@ -27,12 +28,13 @@ interface CardProps {
 }
 
 export function Card({ slot, size, label, onClick, highlight, testId }: CardProps) {
+  const { t } = useI18n();
   const face = slot === null ? "gone" : slot === "down" ? "down" : "up";
   const description =
     slot === null
-      ? `${label}: empty`
+      ? t("empty", { label })
       : slot === "down"
-        ? `${label}: face down`
+        ? t("faceDown", { label })
         : `${label}: ${formatCard(slot)}`;
   const props = {
     className: `card ${size} ${face}${highlight ? " hl" : ""}`,

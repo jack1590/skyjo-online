@@ -53,7 +53,7 @@ async function expectMobileFriendly(page: Page) {
   const { scrollWidth, innerWidth, small } = await page.evaluate(() => ({
     scrollWidth: document.documentElement.scrollWidth,
     innerWidth: window.innerWidth,
-    small: [...document.querySelectorAll("button:not(:disabled), input, summary")]
+    small: [...document.querySelectorAll("button:not(:disabled), input, select, summary")]
       .map((el) => {
         const r = el.getBoundingClientRect();
         return { label: el.getAttribute("aria-label") ?? el.textContent, w: r.width, h: r.height };
@@ -175,4 +175,13 @@ test("screenshots", async ({ page }, info) => {
   await start(page, 6, 11);
   await playUntil(page, (phase) => phase === "draw");
   await shot("11-six-players");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Quit to home" }).click();
+  for (const [code, name] of [
+    ["es", "12-home-es"],
+    ["pt", "13-home-pt"],
+  ]) {
+    await page.getByRole("combobox").selectOption(code);
+    await shot(name);
+  }
 });

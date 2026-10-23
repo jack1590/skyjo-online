@@ -2,6 +2,7 @@ import { type CSSProperties, type ReactNode, useEffect, useState } from "react";
 import type { Action } from "../engine/game";
 import type { GameView, ViewSlot } from "../engine/view";
 import { Card } from "./Card";
+import { type T, useI18n } from "./i18n";
 
 interface TableProps {
   view: GameView;
@@ -14,10 +15,12 @@ interface TableProps {
   banner?: ReactNode;
 }
 
-const where = (pos: number) => `row ${Math.floor(pos / 4) + 1}, column ${(pos % 4) + 1}`;
+const where = (t: T, pos: number) =>
+  t("where", { row: Math.floor(pos / 4) + 1, col: (pos % 4) + 1 });
 const upCount = (grid: ViewSlot[]) => grid.filter((slot) => typeof slot === "number").length;
 
 export function Table({ view, seat, onAction, onPlayAgain, onExit, banner }: TableProps) {
+  const { t } = useI18n();
   const { phase, players } = view;
   const summary = phase === "roundOver" || phase === "gameOver";
   const [discarding, setDiscarding] = useState(false);
@@ -67,16 +70,20 @@ export function Table({ view, seat, onAction, onPlayAgain, onExit, banner }: Tab
   const lastTurns = view.ender !== null && playing;
 
   let pill = "";
-  if (playing) pill = `${lastTurns ? "Last turn · " : ""}${players[view.current].name}`;
-  else if (phase === "flip") pill = "Flip 2 cards";
+  if (playing) {
+    const name = players[view.current].name;
+    pill = lastTurns ? t("lastTurnPill", { name }) : name;
+  } else if (phase === "flip") {
+    pill = t("flipTwo");
+  }
 
   return (
     <div className="table" data-testid="table" data-phase={phase} data-current={view.current}>
       <header className="bar">
-        <span className="round">Round {view.round}</span>
+        <span className="round">{t("round", { n: view.round })}</span>
         {summary && peek ? (
           <button type="button" className="btn primary" onClick={() => setPeek(false)}>
-            Show scores
+            {t("showScores")}
           </button>
         ) : (
           <span className={`turn${lastTurns ? " final" : ""}`} key={`${phase}-${view.current}`}>
@@ -86,8 +93,8 @@ export function Table({ view, seat, onAction, onPlayAgain, onExit, banner }: Tab
         <button
           type="button"
           className="btn icon"
-          aria-label="Quit to home"
-          onClick={() => window.confirm("Leave this game?") && onExit()}
+          aria-label={t("quit")}
+          onClick={() => window.confirm(t("confirmLeave")) && onExit()}
         >
           ✕
         </button>
@@ -109,7 +116,7 @@ export function Table({ view, seat, onAction, onPlayAgain, onExit, banner }: Tab
               <div className="mini">
                 {p.grid.map((slot, pos) => (
                   // biome-ignore lint/suspicious/noArrayIndexKey: grid position is the identity
-                  <Card key={pos} slot={slot} size="sm" label={`${p.name}, ${where(pos)}`} />
+                  <Card key={pos} slot={slot} size="sm" label={`${p.name}, ${where(t, pos)}`} />
                 ))}
               </div>
             </div>
@@ -122,49 +129,49 @@ export function Table({ view, seat, onAction, onPlayAgain, onExit, banner }: Tab
           <Card
             slot="down"
             size="md"
-            label="Deck"
+            label={t("deck")}
             testId="deck"
             highlight={!!onDeck}
             onClick={onDeck}
           />
-          <span className="pile-label">Deck · {view.deckCount}</span>
+          <span className="pile-label">{t("deckCount", { n: view.deckCount })}</span>
         </div>
         {view.drawn !== null && (
           <div className="pile">
             <Card
               slot={view.drawn}
               size="md"
-              label="Drawn card"
+              label={t("drawnCard")}
               testId="drawn"
               highlight={!discardMode}
               onClick={discardMode ? () => setDiscarding(false) : undefined}
             />
-            <span className="pile-label">{discardMode ? "Tap to keep" : "Drawn"}</span>
+            <span className="pile-label">{discardMode ? t("tapToKeep") : t("drawn")}</span>
           </div>
         )}
         <div className="pile">
           <Card
             slot={view.discardTop}
             size="md"
-            label="Discard pile"
+            label={t("discardPile")}
             testId="discard"
             highlight={!!onDiscard}
             onClick={onDiscard}
           />
-          <span className="pile-label">Discard</span>
+          <span className="pile-label">{t("discard")}</span>
         </div>
       </section>
 
       {banner ?? (
         <p className="prompt" aria-live="polite">
-          {prompt(view, seat, myTurn, discardMode)}
+          {prompt(t, view, seat, myTurn, discardMode)}
         </p>
       )}
 
       <section className="mine">
         <div className="mine-head">
           <strong>{me.name}</strong>
-          <span>{me.total} pts</span>
+          <span>{t("pts", { n: me.total })}</span>
         </div>
         <div className="grid-wrap">
           <div className={`grid${myTurn ? " active" : ""}`} data-testid="my-grid" data-seat={seat}>
@@ -174,7 +181,7 @@ export function Table({ view, seat, onAction, onPlayAgain, onExit, banner }: Tab
                 key={pos}
                 slot={slot}
                 size="lg"
-                label={`${me.name}, ${where(pos)}`}
+                label={`${me.name}, ${where(t, pos)}`}
                 onClick={onMyCard(pos, slot)}
               />
             ))}
@@ -195,26 +202,22 @@ export function Table({ view, seat, onAction, onPlayAgain, onExit, banner }: Tab
   );
 }
 
-function prompt(view: GameView, seat: number, myTurn: boolean, discardMode: boolean): string {
+function prompt(t: T, view: GameView, seat: number, myTurn: boolean, discardMode: boolean) {
   const me = view.players[seat];
-  const last = view.ender !== null ? "Last turn! " : "";
+  const waiting = t("waiting", { name: view.players[view.current].name });
   switch (view.phase) {
     case "flip": {
-      const left = 2 - upCount(me.grid);
-      return myTurn
-        ? `${me.name}: flip ${left} card${left === 1 ? "" : "s"}`
-        : "Waiting for others to flip…";
+      const n = 2 - upCount(me.grid);
+      if (!myTurn) return t("waitingFlip");
+      return n === 1 ? t("flipOne", { name: me.name }) : t("flipMany", { name: me.name, n });
     }
     case "draw":
-      return myTurn
-        ? `${last}${me.name}: draw from the deck or take the discard`
-        : `Waiting for ${view.players[view.current].name}…`;
+      if (!myTurn) return waiting;
+      return (view.ender !== null ? t("lastTurn") : "") + t("draw", { name: me.name });
     case "place":
-      if (!myTurn) return `Waiting for ${view.players[view.current].name}…`;
-      if (view.drawnFrom === "discard") return "Tap a card in your grid to swap it in";
-      return discardMode
-        ? "Tap a face-down card to flip it, or the drawn card to keep it"
-        : "Tap a grid card to swap, or the discard pile to throw it away";
+      if (!myTurn) return waiting;
+      if (view.drawnFrom === "discard") return t("swapIn");
+      return discardMode ? t("discardMode") : t("place");
     default:
       return "";
   }
@@ -229,6 +232,7 @@ interface SummaryProps {
 }
 
 function Summary({ view, onPeek, onNext, onPlayAgain, onExit }: SummaryProps) {
+  const { t } = useI18n();
   const over = view.phase === "gameOver";
   const winners = view.winners.map((i) => view.players[i].name);
   const rows = view.players.map((p, seat) => ({ ...p, seat }));
@@ -245,19 +249,19 @@ function Summary({ view, onPeek, onNext, onPlayAgain, onExit }: SummaryProps) {
         <div className="sheet-head">
           <h2 id="summary-title">
             {over
-              ? `${winners.join(" & ")} win${winners.length === 1 ? "s" : ""}!`
-              : `Round ${view.round} over`}
+              ? t(winners.length === 1 ? "winsOne" : "winsMany", { names: winners.join(" & ") })
+              : t("roundOver", { n: view.round })}
           </h2>
           <button type="button" className="btn" onClick={onPeek}>
-            View table
+            {t("viewTable")}
           </button>
         </div>
         <table className="scores">
           <thead>
             <tr>
-              <th>Player</th>
-              <th>Round</th>
-              <th>Total</th>
+              <th>{t("colPlayer")}</th>
+              <th>{t("colRound")}</th>
+              <th>{t("colTotal")}</th>
             </tr>
           </thead>
           <tbody>
@@ -265,7 +269,7 @@ function Summary({ view, onPeek, onNext, onPlayAgain, onExit }: SummaryProps) {
               <tr key={p.seat} className={view.winners.includes(p.seat) ? "win" : undefined}>
                 <td>
                   {p.name}
-                  {p.seat === view.ender && <span className="tag">ended</span>}
+                  {p.seat === view.ender && <span className="tag">{t("ended")}</span>}
                 </td>
                 <td>
                   {p.scores.at(-1)}
@@ -279,15 +283,15 @@ function Summary({ view, onPeek, onNext, onPlayAgain, onExit }: SummaryProps) {
         {over ? (
           <div className="actions">
             <button type="button" className="btn" onClick={onExit}>
-              Home
+              {t("home")}
             </button>
             <button type="button" className="btn primary" onClick={onPlayAgain}>
-              Play again
+              {t("playAgain")}
             </button>
           </div>
         ) : (
           <button type="button" className="btn primary" onClick={onNext}>
-            Next round
+            {t("nextRound")}
           </button>
         )}
       </div>

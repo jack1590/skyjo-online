@@ -8,7 +8,7 @@ export default defineConfig({
   forbidOnly: CI,
   retries: CI ? 1 : 0,
   reporter: CI ? [["list"], ["html", { open: "never" }]] : "list",
-  use: { baseURL: "http://localhost:4173", trace: "retain-on-failure" },
+  use: { baseURL: "http://localhost:4173", trace: "retain-on-failure", locale: "en-US" },
   webServer: {
     // CI builds in an earlier step.
     command: `${CI ? "" : "npm run build && "}npm run preview -- --port 4173 --strictPort`,
