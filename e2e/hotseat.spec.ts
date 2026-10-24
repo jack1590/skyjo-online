@@ -153,6 +153,24 @@ test("8-player hot-seat play-through reaches the last turns", async ({ page }, i
 test.describe("small phone (375×548)", () => {
   test.use({ viewport: { width: 375, height: 548 } });
 
+  test.describe("with motion allowed (smooth scroll)", () => {
+    test.use({ reducedMotion: "no-preference" });
+
+    for (const players of [2, 8]) {
+      test(`${players} players: the grid scrolls fully into view`, async ({ page }, info) => {
+        // Headless WebKit never animates smooth scrolling in an overflow container (a Playwright
+        // limit, not an app bug), so the smooth path is checked in Chromium only.
+        test.skip(info.project.name !== "pixel", "smooth scroll is checked in Chromium");
+        await loadGame(page, lastTurnGame(players, 3));
+        await expect(async () => {
+          const box = await page.getByTestId("my-grid").boundingBox();
+          expect(box?.y).toBeGreaterThanOrEqual(0);
+          expect((box?.y ?? 0) + (box?.height ?? 0)).toBeLessThanOrEqual(548 + 1);
+        }).toPass();
+      });
+    }
+  });
+
   for (const players of [2, 8]) {
     test(`${players} players: your whole grid is on screen when your turn starts`, async ({
       page,

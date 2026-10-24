@@ -8,18 +8,19 @@ A phone-first, real-time multiplayer card game based on Skyjo's mechanics. 2–8
 
 ## Architecture
 
-| Path                   | Responsibility                                                                                       | Rules                                                                                    |
-| ---------------------- | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `src/engine/`          | Rules engine: state, actions, scoring, view projection, seeded RNG                                   | Pure and deterministic. Imports only `./…`. No `Math.random`, `Date`, DOM, or Node APIs. |
-| `src/client/`          | React UI (hot-seat and online)                                                                       | Renders `GameView`, sends actions. Never decides rules.                                  |
-| `src/server/room.ts`   | Room: seats, protocol, reconnection, stall guard                                                     | Platform-agnostic. Runs the engine; is the only authority.                               |
-| `src/server/worker.ts` | Cloudflare Worker + Durable Object adapter                                                           | Thin.                                                                                    |
-| `src/protocol.ts`      | Wire messages (`ClientMsg`, `ServerMsg`, `RoomView`) and `parseClientMsg`                            | Shared by client and server. Validates shape only; never trusts `seat` from the client.  |
-| `src/server/node.ts`   | Self-host adapter (Node + `ws`)                                                                      | Thin.                                                                                    |
-| `e2e/`                 | Playwright tests                                                                                     | Mobile (iPhone, Pixel) and desktop projects.                                             |
-| `src/client/motion.ts` | Card-flight animations: diff two `GameView`s, then FLIP-animate                                      | Honors reduced motion. Pure diff (`flightsBetween`) is unit-tested.                      |
-| `public/`              | PWA: `manifest.webmanifest`, `sw.js` (shell cache, network-first navigations), `offline.html`, icons | Generated icons come from `npm run art -- icon`.                                         |
-| `scripts/`             | Local-only tooling (e.g. art generation)                                                             | May read `.env`. Never runs in CI.                                                       |
+| Path                   | Responsibility                                                                    | Rules                                                                                                                         |
+| ---------------------- | --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `src/engine/`          | Rules engine: state, actions, scoring, view projection, seeded RNG                | Pure and deterministic. Imports only `./…`. No `Math.random`, `Date`, DOM, or Node APIs.                                      |
+| `src/client/`          | React UI (hot-seat and online)                                                    | Renders `GameView`, sends actions. Never decides rules.                                                                       |
+| `src/server/room.ts`   | Room: seats, protocol, reconnection, stall guard                                  | Platform-agnostic. Runs the engine; is the only authority.                                                                    |
+| `src/server/worker.ts` | Cloudflare Worker + Durable Object adapter                                        | Thin.                                                                                                                         |
+| `src/protocol.ts`      | Wire messages (`ClientMsg`, `ServerMsg`, `RoomView`) and `parseClientMsg`         | Shared by client and server. Validates shape only; never trusts `seat` from the client.                                       |
+| `src/server/node.ts`   | Self-host adapter (Node + `ws`)                                                   | Thin.                                                                                                                         |
+| `e2e/`                 | Playwright tests                                                                  | Mobile (iPhone, Pixel) and desktop projects.                                                                                  |
+| `src/client/motion.ts` | Card-flight animations: diff two `GameView`s, then FLIP-animate                   | Honors reduced motion. Pure diff (`flightsBetween`) is unit-tested.                                                           |
+| `public/`              | PWA manifest (`manifest.webmanifest`) and icons                                   | Generated icons come from `npm run art -- icon`.                                                                              |
+| `src/client/sw.js`     | Service-worker template: precache, network-first navigations, inline offline page | The build (`precacheServiceWorker` in `vite.config.ts`) fills in the file list and a per-build cache name and emits `/sw.js`. |
+| `scripts/`             | Local-only tooling (e.g. art generation)                                          | May read `.env`. Never runs in CI.                                                                                            |
 
 Data flow: client sends an `Action` → server calls `apply(state, action)` → server broadcasts `toView(state)`. `GameView` never contains face-down values, deck order, or RNG state. (No player, including the owner, knows their own face-down cards, so the view is the same for everyone.)
 
