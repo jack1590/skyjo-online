@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { botStep, createRoom, phones, playToEnd, seatedRoom, startGame } from "./helpers";
+import { botStep, createRoom, join, phones, playToEnd, seatedRoom, startGame } from "./helpers";
 
 test("two phones create, join, and play a full game to 100", async ({ browser }, info) => {
   test.skip(info.project.name !== "pixel", "long play-throughs run on Pixel only");
@@ -213,6 +213,58 @@ test("a network over the server's per-IP limit is asked to wait, not to check it
   if (process.env.SHOTS && info.project.name === "iphone") {
     await page.screenshot({ path: "docs/screenshots/sec1/01-too-many-requests.jpg", scale: "css" });
   }
+});
+
+test("a room with 20 connections turns a spectator away for good, and a player who reloads still gets in", async ({
+  browser,
+}, info) => {
+  const [host, filler, late] = await phones(browser, info, 3);
+  const code = await createRoom(host);
+  await join(host, code, "Ana");
+  // 19 more spectators' sockets, from one page: the room is at its cap of 20.
+  await filler.goto("/");
+  await filler.evaluate(
+    ({ code, n }) => {
+      const url = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/rooms/${code}/ws`;
+      const sockets = Array.from({ length: n }, () => new WebSocket(url));
+      (window as unknown as { sockets: WebSocket[] }).sockets = sockets;
+      return Promise.all(
+        sockets.map(
+          (ws, i) =>
+            new Promise((done) => {
+              ws.onopen = () =>
+                ws.send(JSON.stringify({ t: "hello", token: `watcher-${i}-abcdef` }));
+              ws.onmessage = done;
+            }),
+        ),
+      );
+    },
+    { code, n: 19 },
+  );
+  let opened = 0;
+  late.on("websocket", () => opened++);
+  await late.goto(`/r/${code}`);
+  const full = `Room ${code} is full: too many people are connected. Try again later.`;
+  await expect(late.getByText(full)).toBeVisible();
+  await expect(late.getByRole("button", { name: "Home" })).toBeVisible();
+  if (process.env.SHOTS && info.project.name === "iphone") {
+    await late.screenshot({ path: "docs/screenshots/sec2/01-room-full.jpg", scale: "css" });
+  }
+  // Whether or not the server sees the old socket close first, the player gets its seat back
+  // and no spectator loses their place.
+  await host.reload();
+  await expect(host.getByTestId("seats")).toContainText("you");
+  const open = await filler.evaluate(
+    () =>
+      (window as unknown as { sockets: WebSocket[] }).sockets.filter(
+        (ws) => ws.readyState === WebSocket.OPEN,
+      ).length,
+  );
+  expect(open).toBe(19);
+  // The turned-away phone doesn't retry (a retry would come within 0.5 s).
+  await late.waitForTimeout(2_000);
+  expect(opened).toBe(1);
+  await expect(late.getByText(full)).toBeVisible();
 });
 
 test("the host can remove a player who left without leaving", async ({ browser }, info) => {

@@ -1,11 +1,13 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { type Action, legalActions } from "../engine/game";
-import type { ClientMsg, RoomView, ServerMsg } from "../protocol";
+import { CLOSE_ROOM_FULL, type ClientMsg, type RoomView, type ServerMsg } from "../protocol";
 import {
   type Conn,
   EMPTY_IDLE_MS,
+  HELLO_MS,
   IDLE_MS,
   IP_MESSAGES_PER_MINUTE,
+  MAX_SOCKETS,
   type Room,
   STALE_MS,
   STALL_MS,
@@ -342,8 +344,8 @@ describe("RoomDO alarms", () => {
 
   it("SEC-3: an empty room still expires 10 min after its last message", async () => {
     const t = await harness();
-    const visitor = await t.connect();
     await t.advance(60_000);
+    const visitor = await t.connect();
     await t.send(visitor, { t: "hello", token: token(9) }); // last message: never joins
     await t.advance(60_000);
     await t.close(visitor);
@@ -519,6 +521,94 @@ describe("RoomDO event order", () => {
     ]);
     expect(ws.sent.filter((m) => m.t === "error")).toEqual([]);
     expect(lastView(ws).you).toBe(0);
+  });
+});
+
+describe("RoomDO socket cap (SEC-2, SEC-6)", () => {
+  const AWAY = "198.51.100.1";
+  /** `n` sockets from AWAY that say hello as spectators, `gap` ms apart. */
+  const watch = async (t: Awaited<ReturnType<typeof harness>>, n: number, gap = 0) => {
+    const conns: FakeSocket[] = [];
+    for (let i = 0; i < n; i++) {
+      await t.advance(gap);
+      const ws = await t.connect(AWAY);
+      await t.send(ws, { t: "hello", token: token(100 + i) });
+      conns.push(ws);
+    }
+    return conns;
+  };
+  /** How many messages `run` delivers to `sockets`, all told. */
+  const fanOut = async (sockets: FakeSocket[], run: () => Promise<unknown>) => {
+    const before = sockets.map((ws) => ws.sent.length);
+    await run();
+    return sockets.reduce((n, ws, i) => n + ws.sent.length - before[i], 0);
+  };
+
+  it("SEC-2: 8 players and 12 spectators get in; the 21st, a spectator, is told the room is full, writes nothing, and gets no broadcast", async () => {
+    const t = await harness();
+    const players = await t.seat(8);
+    const watchers = await watch(t, MAX_SOCKETS - 8);
+    expect([...players, ...watchers].filter((ws) => ws.closed !== null)).toEqual([]);
+    const [rows, requests] = [t.rows(), t.requests];
+    const late = await t.connect(AWAY);
+    await t.send(late, { t: "hello", token: token(99) });
+    expect(late.sent).toEqual([{ t: "full" }]);
+    expect(late.closed).toBe(CLOSE_ROOM_FULL);
+    expect(t.rows()).toBe(rows);
+    expect(t.requests - requests).toBeCloseTo(1 + 1 / 20); // its upgrade and its hello
+    // Until its client answers the close, the runtime still holds it; it gets no broadcast.
+    const everyone = [...players, ...watchers, late];
+    expect(await fanOut(everyone, () => t.send(players[7], { t: "leave" }))).toBe(MAX_SOCKETS);
+    expect(late.sent).toHaveLength(1);
+    const left = t.rows();
+    await t.close(late);
+    expect(t.rows()).toBe(left);
+  });
+
+  it("SEC-2: at the cap a seated player's reconnect replaces its own lingering socket; one that was away takes the least recently seen spectator's place", async () => {
+    const t = await harness();
+    const players = await t.seat(8);
+    const watchers = await watch(t, MAX_SOCKETS - 8, 1_000);
+    // Seat 3's phone dropped without closing; it reconnects while its old socket lingers.
+    const back = await t.connect();
+    await t.send(back, { t: "hello", token: token(3) });
+    expect(lastView(back).you).toBe(3);
+    expect(players[3].closed).toBe(CLOSE_ROOM_FULL);
+    await t.close(players[3]);
+    // Seat 5 left, and the room filled up while it was away.
+    await t.close(players[5]);
+    const extra = await t.connect(AWAY);
+    await t.send(extra, { t: "hello", token: token(150) });
+    const five = await t.connect();
+    await t.send(five, { t: "hello", token: token(5) });
+    expect(lastView(five).you).toBe(5);
+    expect(watchers[0].sent.at(-1)).toEqual({ t: "full" });
+    expect(watchers[0].closed).toBe(CLOSE_ROOM_FULL);
+    expect(t.sockets.filter((ws) => ws.closed === null)).toHaveLength(MAX_SOCKETS);
+    const rows = t.rows();
+    await t.close(watchers[0]);
+    expect(t.rows()).toBe(rows);
+  });
+
+  it("SEC-6: sockets that never say hello get no broadcast, hold no place, and are closed once 10 s old when the next socket arrives", async () => {
+    const t = await harness();
+    const players = await t.seat(2);
+    const quiet: FakeSocket[] = [];
+    for (let i = 0; i < 30; i++) quiet.push(await t.connect(AWAY));
+    const watchers = await watch(t, MAX_SOCKETS - 2);
+    expect(watchers.filter((ws) => ws.closed !== null)).toEqual([]);
+    await t.send(players[1], { t: "leave" });
+    await t.advance(HELLO_MS - 1, quiet); // their pings aren't a hello
+    t.wake(); // when each socket opened survives hibernation
+    await t.connect(AWAY);
+    expect(quiet.filter((ws) => ws.closed !== null)).toEqual([]);
+    await t.advance(1);
+    const rows = t.rows();
+    await t.connect(AWAY);
+    expect(quiet.map((ws) => ws.closed)).toEqual(quiet.map(() => 1000));
+    expect(quiet.flatMap((ws) => ws.sent)).toEqual([]);
+    for (const ws of quiet) await t.close(ws);
+    expect(t.rows()).toBe(rows);
   });
 });
 

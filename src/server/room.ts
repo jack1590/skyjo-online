@@ -53,6 +53,8 @@ export interface Conn {
   windowCount: number;
   /** The client's `ipKey`, which its messages count against; null = a local run, not limited. */
   ip: string | null;
+  /** When the socket opened (ms). A deploy closes every socket, so no attachment predates it. */
+  openedAt: number;
 }
 
 export interface Deps {
@@ -93,6 +95,17 @@ const WINDOW_MAX = 120;
  * MESSAGES binding, which must match (room.test.ts).
  */
 export const IP_MESSAGES_PER_MINUTE = 120;
+/**
+ * Sockets per room that said hello (SEC-2): 8 players and a dozen spectators. Each one gets every
+ * broadcast and can send its own writes, so a room can't take as many as a script opens.
+ */
+export const MAX_SOCKETS = 20;
+/** A socket that hasn't said hello this long after opening is closed (SEC-6); the client says it at once. */
+export const HELLO_MS = 10_000;
+
+/** Never said hello, HELLO_MS after opening: it holds no place in the room and is closed. */
+export const silent = (conn: Conn, now: number) =>
+  conn.token === null && now - conn.openedAt >= HELLO_MS;
 
 /** Real clock and CSPRNG; both runtimes (Workers, Node 22) have a global `crypto`. */
 export const systemDeps: Deps = {
@@ -122,6 +135,7 @@ export const newConn = (now: number, ip: string | null): Conn => ({
   windowStart: now,
   windowCount: 0,
   ip,
+  openedAt: now,
 });
 
 interface Window {
@@ -269,6 +283,23 @@ export class Room {
         }
         return "data";
     }
+  }
+
+  /**
+   * The socket to close so `conn`, saying its first hello as `token`, fits under MAX_SOCKETS
+   * (SEC-2), or null. Only sockets that said hello count. In a full room a spectator is turned away
+   * (`conn` itself). A seated player always gets in, in place of its own seat's least recently seen
+   * socket (a phone that dropped without closing leaves one behind), else of the least recently
+   * seen spectator. So seats can't grow a room past the cap by more than one each.
+   */
+  admit(conn: Conn, token: string, live: Conn[]): Conn | null {
+    const others = live.filter((c) => c !== conn && c.token !== null);
+    if (others.length < MAX_SOCKETS) return null;
+    if (!this.data.seats.some((s) => s.token === token)) return conn;
+    others.sort((a, b) => a.seenAt - b.seenAt);
+    return (
+      others.find((c) => c.token === token) ?? others.find((c) => this.seatOf(c) === null) ?? null
+    );
   }
 
   /** A socket closed: its seat was last alive when that socket was. Returns whether it had a seat. */

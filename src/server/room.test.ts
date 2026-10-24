@@ -8,9 +8,11 @@ import {
   allowMessage,
   type Conn,
   EMPTY_IDLE_MS,
+  HELLO_MS,
   IDLE_MS,
   IP_MESSAGES_PER_MINUTE,
   ipKey,
+  MAX_SOCKETS,
   newConn,
   newRoom,
   peerKey,
@@ -18,6 +20,7 @@ import {
   RoomError,
   STALE_MS,
   STALL_MS,
+  silent,
 } from "./room";
 
 function setup() {
@@ -438,6 +441,82 @@ describe("scheduling", () => {
     expect(t.room.nextAlarm(t.live)).toBe(conns[0].seenAt + STALE_MS);
     t.advance(STALE_MS, [conns[1]]);
     expect(t.room.view(conns[1], t.live).lead).toBe(true);
+  });
+});
+
+describe("socket cap", () => {
+  /**
+   * A new socket says its first hello as `token`, through the admit rule as the adapters run it.
+   * Returns the socket and the one admit chose to close (itself, when it's turned away).
+   */
+  const enter = (t: Setup, token: string) => {
+    const conn = newConn(t.now(), null);
+    t.live.push(conn);
+    const out = t.room.admit(conn, token, t.live);
+    if (out) t.live.splice(t.live.indexOf(out), 1);
+    if (out !== conn) t.send(conn, { t: "hello", token });
+    return { conn, out };
+  };
+  const watcher = (i: number) => `watcher-${i}-abcdef`;
+
+  it("SEC-2: 8 players and 12 spectators get in; the 21st socket, a spectator, is turned away", () => {
+    const t = setup();
+    t.seated(8);
+    for (let i = 0; i < MAX_SOCKETS - 8; i++) expect(enter(t, watcher(i)).out).toBeNull();
+    const late = enter(t, watcher(99));
+    expect(late.out).toBe(late.conn);
+    expect(t.live).toHaveLength(MAX_SOCKETS);
+  });
+
+  it("SEC-2: at the cap a seated player always gets in, in place of its own lingering socket, else of the least recently seen spectator", () => {
+    const t = setup();
+    const players = t.seated(8);
+    const watchers = Array.from({ length: MAX_SOCKETS - 8 }, (_, i) => {
+      t.advance(1_000, players); // the players ping; watchers are seen when they arrive
+      return enter(t, watcher(i)).conn;
+    });
+    // Seat 3's phone dropped without closing, and it reconnects while its old socket lingers.
+    const back = enter(t, "token-3-abcdef");
+    expect(back.out).toBe(players[3]);
+    expect(t.room.view(back.conn, t.live).you).toBe(3);
+    // Seat 5 left, and the room filled up while it was away.
+    t.drop(players[5]);
+    expect(enter(t, watcher(50)).out).toBeNull();
+    const five = enter(t, "token-5-abcdef");
+    expect(five.out).toBe(watchers[0]);
+    expect(t.room.view(five.conn, t.live).you).toBe(5);
+    expect(t.live).toHaveLength(MAX_SOCKETS);
+  });
+
+  it("SEC-2: in a full room a seat's new tab replaces its own oldest one, so seats can't grow it by more than one each", () => {
+    const t = setup();
+    const players = t.seated(8);
+    t.drop(players[2]);
+    t.advance(1_000, []); // seat 0's first socket is now its least recently seen
+    const tabs = Array.from({ length: MAX_SOCKETS - 7 }, () => enter(t, "token-0-abcdef"));
+    expect(tabs.map((tab) => tab.out)).toEqual(tabs.map(() => null));
+    // Seat 2 has no socket to replace and no spectator to displace, and still gets in.
+    expect(enter(t, "token-2-abcdef").out).toBeNull();
+    expect(t.live).toHaveLength(MAX_SOCKETS + 1);
+    expect(enter(t, "token-0-abcdef").out).toBe(players[0]);
+    expect(enter(t, "token-2-abcdef").out?.token).toBe("token-2-abcdef");
+    expect(t.live).toHaveLength(MAX_SOCKETS + 1);
+  });
+
+  it("SEC-6: sockets that never said hello hold no place, and are silent once 10 s old", () => {
+    const t = setup();
+    t.seated(2);
+    const quiet = Array.from({ length: 30 }, () => {
+      const conn = newConn(t.now(), null);
+      t.live.push(conn);
+      return conn;
+    });
+    for (let i = 0; i < MAX_SOCKETS - 2; i++) expect(enter(t, watcher(i)).out).toBeNull();
+    t.advance(HELLO_MS - 1); // pings don't count as a hello
+    expect(quiet.some((c) => silent(c, t.now()))).toBe(false);
+    t.advance(1);
+    expect(quiet.every((c) => silent(c, t.now()))).toBe(true);
+    expect(t.live.filter((c) => silent(c, t.now()))).toEqual(quiet);
   });
 });
 

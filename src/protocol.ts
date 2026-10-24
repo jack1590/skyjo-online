@@ -13,6 +13,8 @@ export const NAME_MAX = 16;
 export const CLOSE_UNKNOWN_ROOM = 4004;
 /** Closing code (policy violation) for a socket over the per-socket or per-IP message limit. */
 export const CLOSE_TOO_MANY = 1008;
+/** Closing code for a socket turned away from a room at its socket cap (SEC-2), after a "full" message. */
+export const CLOSE_ROOM_FULL = 4029;
 
 /** Keep-alive frames. Cloudflare answers them without waking the room; other adapters must too. */
 export const PING = "ping";
@@ -60,7 +62,8 @@ export interface RoomView {
 export type ServerMsg =
   | { t: "state"; room: RoomView; ack: number }
   | { t: "error"; code: ErrorCode; ack: number }
-  | { t: "missing" };
+  | { t: "missing" }
+  | { t: "full" };
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
