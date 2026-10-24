@@ -8,7 +8,11 @@
     "lint": "biome check .",
     "format": "biome check --write .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --coverage"
+    "test": "vitest run --coverage",
+    "art": "node scripts/gen-art.ts",
+    "e2e": "playwright test",
+    "screenshots": "SHOTS=1 playwright test --project=iphone -g screenshots",
+    "preview": "vite preview"
   },
   "license": "MIT",
   "private": true,
@@ -19,6 +23,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.2",
+    "@playwright/test": "1.64.1",
     "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
@@ -29,6 +34,6 @@
     "vitest": "^5.0.5"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.18"
   }
 }

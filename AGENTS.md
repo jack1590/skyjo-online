@@ -26,22 +26,30 @@ Engine API: `createGame(names, seed)` (`seed` is 4 int32s from `crypto.getRandom
 
 ## Commands
 
-| Command             | Does                                             |
-| ------------------- | ------------------------------------------------ |
-| `npm run dev`       | Dev server                                       |
-| `npm run lint`      | Biome lint + format check                        |
-| `npm run format`    | Biome autofix                                    |
-| `npm run typecheck` | `tsc --noEmit`                                   |
-| `npm test`          | Vitest (with engine coverage gate once M1 lands) |
-| `npm run build`     | Production build                                 |
+| Command               | Does                                                                           |
+| --------------------- | ------------------------------------------------------------------------------ |
+| `npm run dev`         | Dev server                                                                     |
+| `npm run lint`        | Biome lint + format check                                                      |
+| `npm run format`      | Biome autofix                                                                  |
+| `npm run typecheck`   | `tsc --noEmit`                                                                 |
+| `npm test`            | Vitest unit tests with the engine coverage gate (95% lines/branches)           |
+| `npm run build`       | Production build                                                               |
+| `npm run e2e`         | Playwright on iPhone 13, Pixel 7, Desktop Chrome (builds + previews first)     |
+| `npm run screenshots` | Refreshes `docs/screenshots/m<N>/` at iPhone size                              |
+| `npm run art`         | Regenerates missing card art with Gemini (local only; needs `.env` and ffmpeg) |
 
-CI runs lint, typecheck, test, and build on every PR and on `main`. The job is named `ci` and is a required check.
+CI (`.github/workflows/ci.yml`) runs on every PR and on `main`, as four parallel jobs that are all required checks:
+- `ci`: lint, typecheck, unit tests, build (~1 min).
+- `e2e (iphone)`, `e2e (pixel)`, `e2e (desktop)`: Playwright, one device per job, inside the `mcr.microsoft.com/playwright` container (browsers preinstalled). Long full-game play-throughs run on Pixel only; layout, 44px, i18n, reload, and interaction tests run on all three.
+
+`@playwright/test` is pinned to an exact version. When bumping it, change the container tag in `ci.yml` to the same version.
 
 ## Conventions
 
 - TypeScript strict. Biome formatting (2 spaces, double quotes, width 100).
 - Tests live next to the code as `*.test.ts`. Rule tests are named with the rule id first: `"R9: removes a column of three equal face-up cards"`.
 - Engine state is plain JSON-serializable data. `apply` clones with `structuredClone` and mutates the clone.
+- All user-facing text goes through `t()` from `src/client/i18n.tsx`. Add every new key to `en`, `es` (Latin American Spanish) and `pt` (Brazilian Portuguese); the type checker rejects a missing one. Never hardcode UI strings.
 - Grid positions are `0–11`, index `row * 4 + col` (3 rows × 4 columns). A removed slot is `null`.
 - Prefer deleting code to adding it. No abstractions with one user, no speculative config.
 - Never commit `.env` or any secret. `GEMINI_API_KEY` in `.env` is for `scripts/` only.

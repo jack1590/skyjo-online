@@ -15,6 +15,8 @@ concurrency:
 jobs:
   ci:
     runs-on: ubuntu-latest
+    # Fail fast: a healthy run takes about a minute; a hung one shouldn't burn half an hour.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -26,3 +28,26 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+  e2e:
+    name: e2e (${{ matrix.project }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Browsers and their system libraries are preinstalled. The tag must equal the exact
+    # @playwright/test version pinned in package.json.
+    container: mcr.microsoft.com/playwright:v1.64.1-noble
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [iphone, pixel, desktop]
+    steps:
+      - uses: actions/checkout@v5
+      - run: npm ci
+      - run: npm run build
+      - run: npx playwright test --project=${{ matrix.project }}
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report-${{ matrix.project }}
+          path: playwright-report/
+          retention-days: 7
