@@ -13,10 +13,10 @@ function table(grid: number[], up: number[], nextDraw: number): GameState {
   return s;
 }
 
+/** Flights for the last action, as seen by someone who watched every earlier one. */
 const flights = (s: GameState, ...actions: Action[]) => {
-  const before = toView(s);
-  const after = toView(actions.reduce(apply, s));
-  return flightsBetween(before, after);
+  const before = actions.slice(0, -1).reduce(apply, s);
+  return flightsBetween(toView(before), toView(apply(before, actions.at(-1) as Action)));
 };
 
 const GRID = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
@@ -58,6 +58,28 @@ describe("flightsBetween", () => {
       source: "deck",
     });
     expect(flights(s, { type: "swap", seat: 0, pos: 8 }).moves.get("discard")).toMatch(/^slot-0-/);
+  });
+
+  it("the round's last swap flies into its own slot even though the final reveal changes others", () => {
+    for (const source of ["deck", "discard"] as const) {
+      const s = createGame(["A", "B"], [1, 0, 0, 0]);
+      s.phase = "draw";
+      s.current = 1;
+      s.ender = 0;
+      s.players[0].grid = GRID.map((card) => ({ card, up: true }));
+      s.players[1].grid = [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 0].map((card, i) => ({
+        card,
+        up: i < 2,
+      }));
+      (source === "deck" ? s.deck : s.discard).push(7);
+      const { moves } = flights(
+        s,
+        { type: "draw", seat: 1, source },
+        { type: "swap", seat: 1, pos: 5 },
+      );
+      expect(moves.get(slotKey(1, 5))).toBe("drawn");
+      expect(moves.get("discard")).toBe(slotKey(1, 5));
+    }
   });
 
   it("a new deal animates nothing", () => {

@@ -1,11 +1,9 @@
-import { animate } from "motion";
-import { useReducedMotion } from "motion/react";
 import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from "react";
 import type { Action } from "../engine/game";
 import type { GameView, ViewSlot } from "../engine/view";
 import { Card } from "./Card";
 import { type T, useI18n } from "./i18n";
-import { slotKey, useFlights } from "./motion";
+import { slotKey, useCountUp, useFlights, useReducedMotion } from "./motion";
 
 interface TableProps {
   view: GameView;
@@ -66,12 +64,7 @@ export function Table(props: TableProps) {
   }, [online, myTurn]);
   const discardMode = discarding && myTurn && phase === "place" && view.drawnFrom === "deck";
 
-  const els = useRef(new Map<string, HTMLElement>());
-  const reg = (key: string) => (el: HTMLElement | null) => {
-    if (el) els.current.set(key, el);
-    else els.current.delete(key);
-  };
-  useFlights(view, els);
+  const reg = useFlights(view);
 
   // On short screens the grid can be below the fold: bring it into view when your turn starts.
   const gridRef = useRef<HTMLDivElement>(null);
@@ -85,9 +78,7 @@ export function Table(props: TableProps) {
     }
   }, [myTurn, reduced]);
 
-  const waitText = useCountdown(wait, (s) =>
-    wait ? t("offlineWait", { name: players[wait.seat]?.name ?? "", s }) : "",
-  );
+  const waitSeconds = useCountdown(wait);
 
   const act = (action: Action) => {
     setDiscarding(false);
@@ -240,9 +231,11 @@ export function Table(props: TableProps) {
         </div>
       </section>
 
-      {waitText && wait?.seat !== seat && (
-        <p className="offline-note" role="status">
-          {waitText}
+      {wait && waitSeconds !== null && wait.seat !== seat && (
+        <p className="offline-note">
+          {/* Announce who is offline once; the ticking seconds would be re-read every second. */}
+          <span role="status">{t("offlineNote", { name: players[wait.seat]?.name ?? "" })}</span>
+          <span aria-hidden="true"> · {t("autoMoveIn", { s: waitSeconds })}</span>
         </p>
       )}
 
@@ -414,24 +407,11 @@ function Summary({ view, lead, onPeek, onNext, onPlayAgain, onExit }: SummaryPro
 
 /** Totals tick up from last round's value. */
 function CountUp({ from, to }: { from: number; to: number }) {
-  const reduced = useReducedMotion();
-  const [n, setN] = useState(reduced ? to : from);
-  useEffect(() => {
-    if (reduced) {
-      setN(to);
-      return;
-    }
-    const controls = animate(from, to, { duration: 0.8, onUpdate: (v) => setN(Math.round(v)) });
-    return () => controls.stop();
-  }, [from, to, reduced]);
-  return <>{n}</>;
+  return <>{useCountUp(from, to)}</>;
 }
 
-/** Ticks once a second toward `wait.inMs` from when it arrived; returns the rendered text. */
-function useCountdown(
-  wait: { seat: number; inMs: number } | null | undefined,
-  render: (seconds: number) => string,
-): string {
+/** Seconds left until `wait.inMs` (counted from when it arrived), ticking once a second. */
+function useCountdown(wait: { seat: number; inMs: number } | null | undefined): number | null {
   const [deadline, setDeadline] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -443,5 +423,5 @@ function useCountdown(
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, [deadline]);
-  return deadline === null ? "" : render(Math.max(0, Math.ceil((deadline - now) / 1000)));
+  return deadline === null ? null : Math.max(0, Math.ceil((deadline - now) / 1000));
 }

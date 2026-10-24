@@ -1,7 +1,8 @@
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useState } from "react";
 import { MAX_PLAYERS, MIN_PLAYERS } from "../engine/game";
 import { CODE_LENGTH, isRoomCode } from "../protocol";
 import { LOCALES, type Locale, useI18n } from "./i18n";
+import { useOnline } from "./useOnline";
 
 const NAMES_KEY = "skyjo:names";
 const IOS_HINT_KEY = "skyjo:ios-hint-dismissed";
@@ -17,20 +18,6 @@ function shouldShowIosHint(): boolean {
   } catch {
     return false;
   }
-}
-
-function useOnline(): boolean {
-  const [online, setOnline] = useState(() => navigator.onLine);
-  useEffect(() => {
-    const update = () => setOnline(navigator.onLine);
-    window.addEventListener("online", update);
-    window.addEventListener("offline", update);
-    return () => {
-      window.removeEventListener("online", update);
-      window.removeEventListener("offline", update);
-    };
-  }, []);
-  return online;
 }
 
 /** Last hot-seat names, so a rematch after Quit doesn't mean retyping everyone. */

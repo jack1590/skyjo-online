@@ -114,7 +114,8 @@ Moved ahead of polish (the brief listed it last) so hosting risk is retired earl
 
 - Animations: card flip (3D rotate), draw, discard and swap travel, column removal, score count-up. All honor `prefers-reduced-motion`.
 - PWA: manifest, generated icons, service worker for the app shell, an offline page explaining the game needs a connection, and an "Add to Home Screen" hint on iOS.
-- Art v2 pass. README completed: how to play, run locally, deploy, self-host.
+- ~~Art v2 pass~~ **Descoped (author, M5):** the PO scored Visual polish 4 on the v1 card art in M2, M3 and M4 with no art complaints, so M5 spends its polish on motion (card flights, flips, count-up) and the new app icon instead. Revisit if the PO asks for it.
+- README completed: how to play, run locally, deploy, self-host, install.
 - Small phones: at 375×548 the acting player's whole grid is on screen when their turn starts, either because it fits or because it is scrolled into view, and cards stay ≥ 44 px. In M2 the bottom row ended at 592 px with 2 players and at 615 px with 8, so it had to be scrolled to every turn.
 - Waiting on an offline player: when the seat the table waits on is offline, everyone sees that it is offline and when the stall guard will move for it (for example "Cris is offline · auto-move in 42 s"). In M3 the table showed only "Waiting for Cris…" and a dimmed tile for the whole 60 s, on every one of that player's turns (PO, M3 review).
 
