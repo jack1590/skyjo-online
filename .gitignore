@@ -10,3 +10,6 @@ test-results/
 .env.*
 blob-report/
 worker-configuration.d.ts
+
+# rtk vitest wrapper output
+.vitest/

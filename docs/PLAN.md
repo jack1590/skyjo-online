@@ -140,7 +140,7 @@ The user asked for four things on 2026-10-24: a 30 s turn timer that switches a 
 
 Players on iPhone heard no sound. Branch `m7-ios-sound` unlocks audio the way iOS expects and resumes it when the app comes back from the background, a lock or a call. The ring/silent switch still silences the game.
 
-**Acceptance:** unit tests and the release checklist as usual, plus: a real iPhone plays sound, and the user confirms it.
+**Acceptance:** unit tests and the release checklist as usual, plus: a real iPhone plays sound, and the user confirms it. If it doesn't, `/sound-check.html` (hidden, unlinked) shows on the phone which step fails: unlock, decode, the audio session type, or the silent switch (`?session=playback` to compare).
 
 ### M8 — Turn timer and auto-play (user request, 2026-10-24) · v2.1.0
 
