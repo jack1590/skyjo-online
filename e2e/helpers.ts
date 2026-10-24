@@ -86,12 +86,15 @@ export async function seatedRoom(
  * returning true.
  */
 export async function botStep(page: Page): Promise<boolean> {
+  // A bot doesn't check tap targets, and CI's WebKit takes ~0.5 s per click to call an element
+  // "stable"; forcing skips that wait. Each move is still confirmed by the expect after it.
+  const tap = { force: true };
   const table = page.getByTestId("table");
   const phase = await table.getAttribute("data-phase");
   const next = page.getByRole("button", { name: "Next round" });
   if (phase === "roundOver") {
     if (!(await next.count())) return false;
-    await next.click();
+    await next.click(tap);
     await expect(table).not.toHaveAttribute("data-phase", "roundOver");
     return true;
   }
@@ -100,13 +103,13 @@ export async function botStep(page: Page): Promise<boolean> {
   const faceDown = grid.locator('button[data-face="down"]');
   if (phase === "flip") {
     const before = await grid.locator('[data-face="down"]').count();
-    await faceDown.first().click();
+    await faceDown.first().click(tap);
     await expect(grid.locator('[data-face="down"]')).toHaveCount(before - 1);
   } else if (phase === "draw") {
-    await page.getByTestId("deck").click();
+    await page.getByTestId("deck").click(tap);
     await expect(page.getByTestId("drawn")).toBeVisible();
   } else if (phase === "place") {
-    await faceDown.first().click();
+    await faceDown.first().click(tap);
     await expect(table).not.toHaveAttribute("data-phase", "place");
   }
   return true;
