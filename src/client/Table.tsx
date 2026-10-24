@@ -371,8 +371,15 @@ function Summary({ view, lead, onPeek, onNext, onPlayAgain, onExit }: SummaryPro
                   {p.seat === view.ender && <span className="tag">{t("ended")}</span>}
                 </td>
                 <td>
-                  {p.scores.at(-1)}
-                  {p.seat === view.ender && view.doubled && <span className="tag x2">×2</span>}
+                  {p.seat === view.ender && view.doubled ? (
+                    // "57 ×2 = 114": the doubling already happened, and the base is visible.
+                    <>
+                      {(p.scores.at(-1) ?? 0) / 2}
+                      <span className="tag x2">×2</span> = {p.scores.at(-1)}
+                    </>
+                  ) : (
+                    p.scores.at(-1)
+                  )}
                 </td>
                 <td>
                   <CountUp from={p.total - (p.scores.at(-1) ?? 0)} to={p.total} />

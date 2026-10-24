@@ -25,3 +25,38 @@ test.describe("with motion allowed", () => {
 test("reduced motion: nothing animates", async ({ page }) => {
   expect(await flipAnimates(page)).toBe(false);
 });
+
+test("flights video for the PR", async ({ browser }, info) => {
+  test.skip(!process.env.SHOTS || info.project.name !== "iphone", "run with SHOTS=1");
+  const context = await browser.newContext({
+    ...info.project.use,
+    reducedMotion: "no-preference",
+    recordVideo: { dir: "test-results/flights-video", size: { width: 390, height: 664 } },
+  });
+  const page = await context.newPage();
+  const pause = () => page.waitForTimeout(700);
+  await page.goto("/?seed=11");
+  await page.getByRole("button", { name: "Start game" }).click();
+  const grid = page.getByTestId("my-grid");
+  for (let i = 0; i < 2; i++) {
+    await grid.locator('button[data-face="down"]').first().click(); // flip
+    await pause();
+  }
+  await page.getByRole("button", { name: /^Pass to / }).click();
+  for (let i = 0; i < 2; i++) {
+    await grid.locator('button[data-face="down"]').first().click();
+    await pause();
+  }
+  await page.getByRole("button", { name: /^Pass to / }).click();
+  await page.getByTestId("deck").click(); // deck → drawn
+  await pause();
+  await grid.locator("button").nth(5).click(); // drawn → grid, old card → discard
+  await pause();
+  await page.getByRole("button", { name: /^Pass to / }).click();
+  await page.getByTestId("deck").click();
+  await pause();
+  await page.getByTestId("discard").click(); // discard mode
+  await grid.locator('button[data-face="down"]').first().click(); // drawn → discard, flip
+  await page.waitForTimeout(1200);
+  await context.close();
+});

@@ -33,20 +33,20 @@ Engine API: `createGame(names, seed)` (`seed` is 4 int32s from `crypto.getRandom
 
 ## Commands
 
-| Command                                                              | Does                                                                           |
-| -------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `npm run dev`                                                        | Dev server                                                                     |
-| `npm run lint`                                                       | Biome lint + format check                                                      |
-| `npm run format`                                                     | Biome autofix                                                                  |
-| `npm run typecheck`                                                  | `tsc --noEmit`                                                                 |
-| `npm test`                                                           | Vitest unit tests with the engine coverage gate (95% lines/branches)           |
-| `npm run build`                                                      | Production build                                                               |
-| `npm run e2e`                                                        | Playwright on iPhone 13, Pixel 7, Desktop Chrome (builds + previews first)     |
-| `npm run screenshots`                                                | Refreshes `docs/screenshots/m<N>/` at iPhone size                              |
-| `npm run art`                                                        | Regenerates missing card art with Gemini (local only; needs `.env` and ffmpeg) |
-| `npm run build:node` / `npm start`                                   | Self-host build / run (Node + `ws`, port 8787)                                 |
-| `SERVER=node npx playwright test e2e/online.spec.ts --project=pixel` | Online suite against the Node server                                           |
-| `BASE_URL=https://… npx playwright test …`                           | Run tests against a deployed site (no local server)                            |
+| Command                                                              | Does                                                                                                                         |
+| -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `npm run dev`                                                        | Dev server                                                                                                                   |
+| `npm run lint`                                                       | Biome lint + format check                                                                                                    |
+| `npm run format`                                                     | Biome autofix                                                                                                                |
+| `npm run typecheck`                                                  | `tsc --noEmit`                                                                                                               |
+| `npm test`                                                           | Vitest unit tests with the engine coverage gate (95% lines/branches)                                                         |
+| `npm run build`                                                      | Production build                                                                                                             |
+| `npm run e2e`                                                        | Playwright on iPhone 13, Pixel 7, Desktop Chrome (builds + previews first)                                                   |
+| `npm run screenshots`                                                | Refreshes `docs/screenshots/m<N>/` at iPhone size                                                                            |
+| `npm run art`                                                        | Regenerates missing card art with Gemini (local only; needs `.env` and ffmpeg)                                               |
+| `npm run build:node` / `npm start`                                   | Self-host build / run (Node + `ws`, `127.0.0.1:8787`; `PORT`, and `HOST=0.0.0.0` only to open it to your network on purpose) |
+| `SERVER=node npx playwright test e2e/online.spec.ts --project=pixel` | Online suite against the Node server                                                                                         |
+| `BASE_URL=https://… npx playwright test …`                           | Run tests against a deployed site (no local server)                                                                          |
 
 CI (`.github/workflows/ci.yml`) runs on every PR and on `main`, as parallel jobs; the first five are required checks:
 - `ci`: lint, typecheck, unit tests, build (~1 min).
