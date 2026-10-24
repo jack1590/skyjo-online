@@ -33,10 +33,10 @@ One npm package (no monorepo tooling). Four areas:
 - **Workers static assets instead of Pages.** Same free tier, one deploy, one origin for app and WebSocket. Cloudflare now recommends this path for new projects.
 - **Direct Durable Objects instead of PartyKit.** PartyKit runs on Durable Objects anyway; going direct removes a layer and a vendor.
 - **Biome instead of ESLint + Prettier.** One dependency for lint and format.
-- **`motion`** (the current package name of Framer Motion) for animations. CSS 2D, no PixiJS unless profiling demands it.
+- **The browser's Web Animations API** for card motion (FLIP in `src/client/motion.ts`). No animation library and no PixiJS. M5 tried `motion` (Framer Motion) and dropped it (PO, M5 review: this line still named it).
 - **No router or state library.** `/r/:code` is parsed by hand; state lives in `useReducer` (hot-seat) or server snapshots (online).
 - **Hand-written message validation.** The protocol has fewer than 10 message types.
-- **`vite-plugin-pwa`** for the manifest and service worker.
+- **A hand-written service worker** instead of `vite-plugin-pwa`. `src/client/sw.js` is a template; a small plugin in `vite.config.ts` fills in the build's precache list and a per-build cache name. The manifest is the static `public/manifest.webmanifest` (PO, M5 review).
 - **npm** (pnpm is not installed here).
 - **Art via Gemini image generation.** `npm run art` reads `GEMINI_API_KEY` from the local `.env` (gitignored) and writes optimized WebP files that are committed. The key is never used in the client, CI, or repo. Generated: card back, face textures per value band, table background, logo, and PWA icons. Card numbers are rendered in CSS so they stay crisp. Prompts never mention Skyjo or imitate its official art.
 
@@ -114,12 +114,21 @@ Moved ahead of polish (the brief listed it last) so hosting risk is retired earl
 
 - Animations: card flip (3D rotate), draw, discard and swap travel, column removal, score count-up. All honor `prefers-reduced-motion`.
 - PWA: manifest, generated icons, service worker for the app shell, an offline page explaining the game needs a connection, and an "Add to Home Screen" hint on iOS.
-- ~~Art v2 pass~~ **Descoped (author, M5):** the PO scored Visual polish 4 on the v1 card art in M2, M3 and M4 with no art complaints, so M5 spends its polish on motion (card flights, flips, count-up) and the new app icon instead. Revisit if the PO asks for it.
+- ~~Art v2 pass~~ **Descoped (author, M5):** the PO scored Visual polish 4 on the v1 card art in M2, M3 and M4 with no art complaints, so M5 spends its polish on motion (card flights, flips, count-up) and the new app icon instead. Revisit if the PO asks for it. **Accepted (PO, M5 review):** the v1 art is original, cohesive and readable, and motion was the bigger gap in visual polish.
 - README completed: how to play, run locally, deploy, self-host, install.
 - Small phones: at 375×548 the acting player's whole grid is on screen when their turn starts, either because it fits or because it is scrolled into view, and cards stay ≥ 44 px. In M2 the bottom row ended at 592 px with 2 players and at 615 px with 8, so it had to be scrolled to every turn.
 - Waiting on an offline player: when the seat the table waits on is offline, everyone sees that it is offline and when the stall guard will move for it (for example "Cris is offline · auto-move in 42 s"). In M3 the table showed only "Waiting for Cris…" and a dimmed tile for the whole 60 s, on every one of that player's turns (PO, M3 review).
 
 **Acceptance:** Playwright verifies the manifest and service worker are installable. Reduced motion disables animations. The README covers every section listed in the brief. At 375×548, Playwright asserts the acting player's grid is fully in view at the start of a turn for 2 and 8 players. Playwright asserts the offline notice and countdown appear when the current player's phone closes. The PO scores visual polish ≥ 4.
+
+### After M5: follow-ups
+
+Non-blocking items from the M5 PO review. Do them in one small PR if the project continues.
+
+- `AGENTS.md`'s `public/` row says `sw.js` and `offline.html` live there. The worker template is `src/client/sw.js`, built by `vite.config.ts`, and the offline fallback page is inline in it.
+- Column removal: only one of the three removed cards flies to the discard. `flightsBetween` keeps one source per target, so the other two vanish.
+- Small-phone scroll with motion allowed has no E2E. Playwright's headless WebKit never animates `scrollIntoView({ behavior: "smooth" })` inside an overflow container: a 10-line page failed 5 out of 5. So the iPhone project can only check the reduced-motion path. Add the 375×548 turn-start check with `reducedMotion: "no-preference"` on the Pixel project. Chromium had 0 failures in 100 online turn starts in the PO run. Also confirm on a real iPhone SE.
+- The Spanish install hint says "Agregar a inicio". Check the share-sheet label on an iPhone set to Latin American Spanish.
 
 ## Process
 
