@@ -10,6 +10,7 @@ import {
 } from "../protocol";
 import {
   allowMessage,
+  type Change,
   type Conn,
   systemDeps as deps,
   newConn,
@@ -55,6 +56,8 @@ export default {
 export class RoomDO extends DurableObject<Env> {
   /** undefined = not loaded yet; null = no such room. */
   private room: Room | null | undefined;
+  /** The scheduled alarm, as last read or set; null = none. */
+  private alarmAt: number | null = null;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -65,7 +68,7 @@ export class RoomDO extends DurableObject<Env> {
   async create(code: string): Promise<boolean> {
     if (await this.load()) return false;
     this.room = new Room(newRoom(code, Date.now()), deps);
-    await this.commit(new Map(), true);
+    await this.commit(new Map(), "data");
     return true;
   }
 
@@ -91,11 +94,11 @@ export class RoomDO extends DurableObject<Env> {
       ws.close(1008, "Too many messages");
       return;
     }
-    let changed: boolean;
+    let change: Change;
     try {
       const msg = parseClientMsg(raw);
       if (!msg) throw new RoomError("bad-message");
-      changed = room.receive(conn, msg, [...live.values()]);
+      change = room.receive(conn, msg, [...live.values()]);
     } catch (e) {
       if (!(e instanceof RoomError)) throw e;
       ws.serializeAttachment(conn);
@@ -104,8 +107,8 @@ export class RoomDO extends DurableObject<Env> {
     }
     ws.serializeAttachment(conn);
     // A returning player may unblock a stall that was waiting for someone to be present.
-    changed = room.tick([...live.values()]) || changed;
-    await this.commit(live, changed);
+    if (room.tick([...live.values()])) change = "data";
+    await this.commit(live, change, ws);
   }
 
   async webSocketClose(ws: WebSocket) {
@@ -114,8 +117,7 @@ export class RoomDO extends DurableObject<Env> {
     const conn = live.get(ws);
     live.delete(ws);
     if (!room || !conn) return;
-    room.closed(conn);
-    await this.commit(live, true);
+    await this.commit(live, room.closed(conn) ? "data" : "none");
   }
 
   async webSocketError(ws: WebSocket) {
@@ -124,6 +126,7 @@ export class RoomDO extends DurableObject<Env> {
 
   async alarm() {
     const room = await this.load();
+    this.alarmAt = null; // this one just fired
     if (!room) return;
     const live = this.live();
     if (room.isIdle([...live.values()])) {
@@ -136,13 +139,14 @@ export class RoomDO extends DurableObject<Env> {
       return;
     }
     // Re-broadcast even without a move: presence and who may lead can change with time alone.
-    await this.commit(live, room.tick([...live.values()]));
+    await this.commit(live, room.tick([...live.values()]) ? "data" : "view");
   }
 
   private async load(): Promise<Room | null> {
     if (this.room === undefined) {
       const data = await this.ctx.storage.get<RoomData>("room");
       this.room = data ? new Room(data, deps) : null;
+      this.alarmAt = await this.ctx.storage.getAlarm();
     }
     return this.room;
   }
@@ -159,15 +163,24 @@ export class RoomDO extends DurableObject<Env> {
     return live;
   }
 
-  /** Persists if needed, sends every socket its own view, and schedules the next check. */
-  private async commit(live: Map<WebSocket, Conn>, persist: boolean) {
+  /**
+   * Persists and broadcasts only what changed (to `from` alone for "none"), and makes sure an
+   * alarm comes by the room's next check. Each put and each setAlarm is a row written.
+   */
+  private async commit(live: Map<WebSocket, Conn>, change: Change, from?: WebSocket) {
     const room = this.room;
     if (!room) return;
     const conns = [...live.values()];
-    if (persist) await this.ctx.storage.put("room", room.data);
+    if (change === "data") await this.ctx.storage.put("room", room.data);
     for (const [ws, conn] of live) {
+      if (change === "none" && ws !== from) continue;
       send(ws, { t: "state", room: room.view(conn, conns), ack: conn.ack });
     }
-    await this.ctx.storage.setAlarm(room.nextAlarm(conns));
+    // An alarm that comes early just re-checks and re-arms, so only an earlier time needs a write.
+    const next = room.nextAlarm(conns);
+    if (this.alarmAt === null || next < this.alarmAt) {
+      this.alarmAt = next;
+      await this.ctx.storage.setAlarm(next);
+    }
   }
 }

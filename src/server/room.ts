@@ -59,6 +59,13 @@ export interface Deps {
   seed: () => Rng;
 }
 
+/**
+ * What a handled event changed, so adapters write and broadcast only when needed (each storage
+ * write is a row on the free plan's daily quota): "none" = only the sender's own view, "view" =
+ * other sockets' views too, "data" = persisted state, which every view also reflects.
+ */
+export type Change = "none" | "view" | "data";
+
 export class RoomError extends Error {
   constructor(readonly code: ErrorCode) {
     super(code);
@@ -132,10 +139,11 @@ export class Room {
 
   /**
    * Applies one client message and records its `seq` as acknowledged, even when it fails.
-   * Returns whether state worth persisting changed. Throws RoomError for that socket only.
+   * Returns what changed. Throws RoomError for that socket only.
    */
-  receive(conn: Conn, msg: ClientMsg, live: Conn[]): boolean {
+  receive(conn: Conn, msg: ClientMsg, live: Conn[]): Change {
     const now = this.deps.now();
+    const online = this.online(live);
     conn.seenAt = now;
     if (msg.seq !== undefined) conn.ack = Math.max(conn.ack, msg.seq);
     if (msg.t === "hello") conn.token = msg.token;
@@ -148,7 +156,8 @@ export class Room {
     const lobby = game === null;
     switch (msg.t) {
       case "hello":
-        return false;
+        // A repeated hello, or a second tab, only refreshes signs of life: nobody else sees it.
+        return this.online(live) === online ? "none" : "view";
       case "join": {
         if (seat !== null || !lobby) throw new RoomError("not-allowed");
         if (seats.length >= MAX_PLAYERS) throw new RoomError("room-full");
@@ -158,12 +167,12 @@ export class Room {
           throw new RoomError("name-taken");
         }
         seats.push({ token: conn.token, name, seenAt: now });
-        return true;
+        return "data";
       }
       case "leave":
         if (seat === null || !lobby) throw new RoomError("not-allowed");
         this.removeSeat(seat);
-        return true;
+        return "data";
       case "kick":
         // Clears ghost seats (someone who closed the tab without leaving); online players stay.
         if (!lobby || !this.canLead(seat, live) || msg.seat === seat) {
@@ -171,7 +180,7 @@ export class Room {
         }
         if (!seats[msg.seat] || this.connected(msg.seat, live)) throw new RoomError("not-allowed");
         this.removeSeat(msg.seat);
-        return true;
+        return "data";
       case "start":
         if (!lobby || seats.length < MIN_PLAYERS || !this.canLead(seat, live)) {
           throw new RoomError("not-allowed");
@@ -181,14 +190,14 @@ export class Room {
           this.deps.seed(),
         );
         this.data.waitSince = now;
-        return true;
+        return "data";
       case "rematch":
         // Back to the lobby with the same seats, where people can join, leave, or be removed.
         if (game?.phase !== "gameOver" || !this.canLead(seat, live)) {
           throw new RoomError("not-allowed");
         }
         this.data.game = null;
-        return true;
+        return "data";
       case "act":
         if (game === null || seat === null) throw new RoomError("not-allowed");
         if (msg.action.type === "nextRound") {
@@ -198,17 +207,17 @@ export class Room {
         } else {
           this.play(game, { ...msg.action, seat });
         }
-        return true;
+        return "data";
     }
   }
 
-  /** A socket closed: its seat was last alive when that socket was. */
-  closed(conn: Conn): void {
+  /** A socket closed: its seat was last alive when that socket was. Returns whether it had a seat. */
+  closed(conn: Conn): boolean {
     const seat = this.seatOf(conn);
-    if (seat !== null) {
-      const s = this.data.seats[seat];
-      s.seenAt = Math.max(s.seenAt, conn.seenAt);
-    }
+    if (seat === null) return false;
+    const s = this.data.seats[seat];
+    s.seenAt = Math.max(s.seenAt, conn.seenAt);
+    return true;
   }
 
   view(conn: Conn, live: Conn[]): RoomView {
@@ -281,6 +290,11 @@ export class Room {
     const now = this.deps.now();
     const token = this.data.seats[seat]?.token;
     return live.some((c) => c.token === token && now - c.seenAt < STALE_MS);
+  }
+
+  /** Who is online, the only part of anyone else's view a hello can change. */
+  private online(live: Conn[]): string {
+    return this.data.seats.map((_, i) => this.connected(i, live)).join();
   }
 
   /** The host leads; if the host is away anyone seated may, so one dropped phone can't freeze the table. */

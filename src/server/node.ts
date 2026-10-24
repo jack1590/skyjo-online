@@ -54,12 +54,13 @@ const send = (ws: WebSocket, msg: ServerMsg) => {
   if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg));
 };
 
-/** Sends every socket its own view and schedules the next stall/idle check (the DO alarm's job). */
-function commit(code: string) {
+/** Sends each socket (or only `only`) its own view and schedules the next stall/idle check (the DO alarm's job). */
+function commit(code: string, only?: WebSocket) {
   const live = rooms.get(code);
   if (!live) return;
   const conns = [...live.sockets.values()];
   for (const [ws, conn] of live.sockets) {
+    if (only && ws !== only) continue;
     send(ws, { t: "state", room: live.room.view(conn, conns), ack: conn.ack });
   }
   clearTimeout(live.timer);
@@ -176,9 +177,9 @@ function onConnection(ws: WebSocket, code: string) {
     try {
       const msg = parseClientMsg(raw);
       if (!msg) throw new RoomError("bad-message");
-      live.room.receive(conn, msg, conns);
-      live.room.tick(conns);
-      commit(code);
+      let change = live.room.receive(conn, msg, conns);
+      if (live.room.tick(conns)) change = "data";
+      commit(code, change === "none" ? ws : undefined);
     } catch (e) {
       if (e instanceof RoomError) {
         send(ws, { t: "error", code: e.code, ack: conn.ack });
