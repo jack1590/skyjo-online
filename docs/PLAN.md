@@ -141,6 +141,16 @@ Non-blocking items from the M5 PO review. Do them in one small PR if the project
 - **Open, needs the user:** the Spanish install hint says "Agregar a inicio". Check the share-sheet label on an iPhone set to Latin American Spanish.
 - **Open, needs the user:** on a real iPhone SE (or any phone about 548 px tall in the browser), check that your whole grid scrolls into view when your turn starts, with motion on. Headless WebKit can't test this.
 
+### After M6: follow-ups
+
+Game-feel items from the M6 PO review (Game feel scored 4). None blocks; do them in one small PR if the project continues.
+- **Let the final reveal play before the round summary.** At round end the summary sheet is fully opaque 200 ms after the last move, while the R11 flips are still animating under it (4 running animations at 0 ms; WebKit, 2 phones). Nobody sees the last hidden cards turn over or who gets doubled. Hold the sheet about 1 s, or until the flips finish (no hold with reduced motion).
+- **A real game-over moment.** `public/sfx/end.mp3` lasts 0.16 s, a click rather than an ending (`win.mp3` is 0.52 s). Give game over a fuller cue.
+- **Last-round cue.** When someone reveals their whole grid, only the header pill turns red. Play a short cue for everyone (and vibrate where supported), since everyone's next turn is now their last.
+- **Spectators lose the piles at 8 seats.** At 390×664 with 8 players, a spectator's deck, discard and drawn card were off screen on 16 of 16 turns while the table followed whoever was playing, and R6 makes the drawn card public. Keep the piles in view, for example above the grids.
+- **Nits:** `CHANGELOG.md` 2.0.0 lists the deal sound twice. `AGENTS.md` says `release` checks for the tag, but it checks for the Release (which is better: a tag without a Release still gets one). `sound.ts` swallows decode errors in an empty `.catch` with no comment.
+- **Idea, the user's call:** quick reactions (👏 😂 😱) for friends who aren't in the same room or on a call.
+
 ## Process
 
 Per milestone:
