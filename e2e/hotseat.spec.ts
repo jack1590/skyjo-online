@@ -131,6 +131,10 @@ test("a round runs to its summary and the next round starts", async ({ page }) =
   await loadGame(page, lastTurnGame(2, 11)); // seed 11: round 1 ends at 39–52, no game over
   await playUntil(page, (phase) => phase === "roundOver");
   await expect(page.getByTestId("round-summary")).toBeVisible();
+  const rows = page.getByRole("row");
+  await expect(rows).toHaveCount(3); // header + 2 players
+  await expect(page.getByTestId("round-summary").getByText("ended")).toBeVisible();
+  await expect(rows.nth(1)).toHaveText(/^Player 1/);
   await page.getByRole("button", { name: "View table" }).click();
   await expect(page.getByRole("table")).toBeHidden();
   await page.getByRole("button", { name: "Show scores" }).click();
@@ -148,6 +152,19 @@ test("8-player hot-seat play-through reaches the last turns", async ({ page }, i
 
 test.describe("small phone (375×548)", () => {
   test.use({ viewport: { width: 375, height: 548 } });
+
+  for (const players of [2, 8]) {
+    test(`${players} players: your whole grid is on screen when your turn starts`, async ({
+      page,
+    }) => {
+      await loadGame(page, lastTurnGame(players, 3));
+      await expect(async () => {
+        const box = await page.getByTestId("my-grid").boundingBox();
+        expect(box?.y).toBeGreaterThanOrEqual(0);
+        expect((box?.y ?? 0) + (box?.height ?? 0)).toBeLessThanOrEqual(548 + 1); // subpixel rounding
+      }).toPass();
+    });
+  }
 
   test("the table scrolls instead of shrinking cards", async ({ page }) => {
     await loadGame(page, lastTurnGame(8, 3));
@@ -171,6 +188,17 @@ test("discard mode can be cancelled and the drawn card swapped in", async ({ pag
   await expect(page.getByRole("button", { name: /^Pass to / })).toBeVisible();
 });
 
+test("names are remembered after quitting", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("textbox", { name: "Player 1 name" }).fill("Ana");
+  await page.getByRole("textbox", { name: "Player 2 name" }).fill("Ben");
+  await page.getByRole("button", { name: "Start game" }).click();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Quit to home" }).click();
+  await expect(page.getByRole("textbox", { name: "Player 1 name" })).toHaveValue("Ana");
+  await expect(page.getByRole("textbox", { name: "Player 2 name" })).toHaveValue("Ben");
+});
+
 test("a hot-seat game survives a reload", async ({ page }) => {
   await start(page, 3, 5);
   await playUntil(page, (phase) => phase === "draw");
@@ -187,6 +215,24 @@ test("a corrupt saved game falls back to the home screen", async ({ page }) => {
   );
   await page.reload();
   await expect(page.getByRole("button", { name: "Start game" })).toBeVisible();
+});
+
+test.describe("m5 small-phone screenshots", () => {
+  test.use({ viewport: { width: 375, height: 548 } });
+
+  test("small phone", async ({ page }, info) => {
+    test.skip(!process.env.SHOTS || info.project.name !== "iphone", "run with SHOTS=1");
+    for (const players of [2, 8]) {
+      await loadGame(page, lastTurnGame(players, 3));
+      await page.screenshot({
+        path: `docs/screenshots/m5/0${players === 2 ? 3 : 4}-small-phone-${players}p.jpg`,
+        type: "jpeg",
+        quality: 80,
+        scale: "css",
+        animations: "disabled",
+      });
+    }
+  });
 });
 
 test("screenshots", async ({ page }, info) => {

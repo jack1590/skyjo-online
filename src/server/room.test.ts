@@ -335,6 +335,35 @@ describe("stall guard", () => {
   });
 });
 
+describe("offline wait", () => {
+  it("tells everyone which awaited seat is offline and when it will be moved for", () => {
+    const t = setup();
+    const conns = startedGame(t, 2);
+    pastFlips(t, conns);
+    const current = t.room.data.game?.current ?? 0;
+    const other = conns[1 - current];
+    expect(t.room.view(other, t.live).wait).toBeNull();
+    t.drop(conns[current]);
+    t.advance(20_000, [other]);
+    expect(t.room.view(other, t.live).wait).toEqual({ seat: current, inMs: STALL_MS - 20_000 });
+  });
+
+  it("during the opening flip, an offline seat shows up as awaited", () => {
+    const t = setup();
+    const conns = startedGame(t, 3);
+    t.drop(conns[2]);
+    expect(t.room.view(conns[0], t.live).wait?.seat).toBe(2);
+  });
+
+  it("a phone going silent mid-turn gets a broadcast when it turns stale", () => {
+    const t = setup();
+    const conns = startedGame(t, 2);
+    pastFlips(t, conns);
+    const current = t.room.data.game?.current ?? 0;
+    expect(t.room.nextAlarm(t.live)).toBe(conns[current].seenAt + STALE_MS);
+  });
+});
+
 describe("scheduling", () => {
   it("nextAlarm is always in the future after tick, through a whole game", () => {
     const t = setup();
@@ -354,16 +383,23 @@ describe("scheduling", () => {
   it("a room nobody joined is dropped after 10 minutes", () => {
     const t = setup();
     t.advance(EMPTY_IDLE_MS - 1);
-    expect(t.room.isIdle()).toBe(false);
+    expect(t.room.isIdle(t.live)).toBe(false);
     t.advance(1);
-    expect(t.room.isIdle()).toBe(true);
+    expect(t.room.isIdle(t.live)).toBe(true);
+  });
+
+  it("a creator waiting in an empty lobby keeps the room past 10 minutes", () => {
+    const t = setup();
+    t.connect("token-host-abcdef"); // created the room, hasn't joined yet
+    t.advance(EMPTY_IDLE_MS);
+    expect(t.room.isIdle(t.live)).toBe(false);
   });
 
   it("an idle room is idle after 24 h even with a forgotten tab open", () => {
     const t = setup();
     t.seated(2);
     t.advance(IDLE_MS); // tabs keep pinging, nobody sends a message
-    expect(t.room.isIdle()).toBe(true);
+    expect(t.room.isIdle(t.live)).toBe(true);
     expect(t.room.nextAlarm(t.live)).toBeGreaterThan(t.now());
   });
 

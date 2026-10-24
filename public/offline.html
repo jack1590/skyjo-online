@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Skyjo Online · offline</title>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        box-sizing: border-box;
+        background: #0d1b2a;
+        color: #f5f1e6;
+        font-family: system-ui, sans-serif;
+        text-align: center;
+      }
+      img { border-radius: 22%; }
+      button {
+        min-height: 48px;
+        padding: 0 24px;
+        border: 0;
+        border-radius: 12px;
+        background: #f2c14e;
+        color: #1f1a0e;
+        font: inherit;
+        font-weight: 700;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <img src="/icons/icon-192.png" width="96" height="96" alt="" />
+      <h1>You're offline</h1>
+      <p>Skyjo Online needs a connection to load and to play with friends.</p>
+      <p lang="es">Skyjo Online necesita conexión para cargar y jugar con amigos.</p>
+      <p lang="pt-BR">O Skyjo Online precisa de conexão para carregar e jogar com amigos.</p>
+      <button type="button" onclick="location.reload()">Try again · Reintentar · Tentar de novo</button>
+    </main>
+  </body>
+</html>

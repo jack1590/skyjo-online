@@ -126,7 +126,7 @@ export class RoomDO extends DurableObject<Env> {
     const room = await this.load();
     if (!room) return;
     const live = this.live();
-    if (room.isIdle()) {
+    if (room.isIdle([...live.values()])) {
       for (const ws of live.keys()) {
         send(ws, { t: "missing" });
         ws.close(CLOSE_UNKNOWN_ROOM, "Room expired");

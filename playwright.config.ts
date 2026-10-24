@@ -5,12 +5,14 @@ const CI = !!process.env.CI;
 const BASE_URL = process.env.BASE_URL;
 /** SERVER=node runs the suite against the Node self-host adapter instead of the local Worker. */
 const NODE = process.env.SERVER === "node";
+/** Local port for the server under test; change it when another checkout is already serving 4173. */
+const PORT = Number(process.env.E2E_PORT ?? 4173);
 /** The Node server binds loopback IPv4 only; vite preview answers on "localhost". */
-const ORIGIN = `http://${NODE ? "127.0.0.1" : "localhost"}:4173`;
+const ORIGIN = `http://${NODE ? "127.0.0.1" : "localhost"}:${PORT}`;
 const build = CI ? "" : NODE ? "npm run build && npm run build:node && " : "npm run build && ";
 const serve = NODE
-  ? "PORT=4173 node dist/node/node.js"
-  : "npm run preview -- --port 4173 --strictPort";
+  ? `PORT=${PORT} node dist/node/node.js`
+  : `npm run preview -- --port ${PORT} --strictPort`;
 
 export default defineConfig({
   testDir: "e2e",
@@ -24,6 +26,9 @@ export default defineConfig({
     baseURL: BASE_URL ?? ORIGIN,
     trace: "retain-on-failure",
     locale: "en-US",
+    // Card-flight animations would make every click wait for movement to settle; motion.spec.ts
+    // opts back in to test them.
+    reducedMotion: "reduce",
   },
   webServer: BASE_URL
     ? undefined
@@ -31,7 +36,9 @@ export default defineConfig({
         // CI builds in an earlier step.
         command: build + serve,
         url: ORIGIN,
-        reuseExistingServer: !CI,
+        // Never test a server we didn't start: a stale build on the port would pass or fail for
+        // the wrong reasons. A busy port fails loudly instead.
+        reuseExistingServer: false,
       },
   projects: [
     { name: "iphone", use: { ...devices["iPhone 13"] } },

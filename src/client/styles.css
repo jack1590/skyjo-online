@@ -104,6 +104,17 @@ button {
   font: inherit;
 }
 
+.hint {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.hint p {
+  margin: 0;
+}
+
 .room-code {
   margin: 0;
   text-align: center;
@@ -369,6 +380,8 @@ button {
 }
 
 .pile {
+  /* Fixed width: a long label (e.g. pt "Toque para ficar com ela") wraps instead of shifting the piles. */
+  width: 84px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -378,6 +391,18 @@ button {
 .pile-label {
   font-size: 12px;
   color: var(--muted);
+  text-align: center;
+}
+
+.offline-note {
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgb(255 122 89 / 0.16);
+  border: 1px solid rgb(255 122 89 / 0.45);
+  text-align: center;
+  font-size: 14px;
+  font-weight: 700;
 }
 
 .pass {
@@ -393,7 +418,8 @@ button {
 
 .mine {
   flex: 1;
-  min-height: 0;
+  /* Never shorter than its 44px-card grid, so the table's scroll height (and padding) covers it. */
+  min-height: min-content;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -416,6 +442,11 @@ button {
   /* Three rows of 44px-wide cards plus gaps. */
   min-height: calc(3 * 44px * 7 / 5 + 16px);
   container-type: size;
+}
+
+.grid,
+.mini {
+  perspective: 700px;
 }
 
 .grid {
@@ -448,9 +479,8 @@ button {
   box-shadow:
     0 1px 0 rgb(255 255 255 / 0.25) inset,
     0 3px 8px rgb(0 0 0 / 0.4);
-  transition:
-    transform 0.15s,
-    box-shadow 0.15s;
+  /* transform is left to the move animations (motion); only shadows transition in CSS. */
+  transition: box-shadow 0.15s;
 }
 
 .card.lg {
@@ -623,6 +653,39 @@ button.card:active {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
+}
+
+/* Short screens (iPhone SE with browser bars): tighten everything above your grid. */
+@media (max-height: 620px) {
+  .table {
+    gap: 4px;
+  }
+
+  .round {
+    font-size: 12px;
+  }
+
+  .turn {
+    padding: 4px 12px;
+    font-size: 14px;
+  }
+
+  .card.md {
+    --w: clamp(44px, 12vw, 58px);
+  }
+
+  .pile-label {
+    font-size: 11px;
+  }
+
+  .prompt {
+    min-height: 2.4em;
+    font-size: 14px;
+  }
+
+  .mine-head {
+    font-size: 13px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

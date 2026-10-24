@@ -69,7 +69,7 @@ function commit(code: string) {
 function alarm(code: string) {
   const live = rooms.get(code);
   if (!live) return;
-  if (live.room.isIdle()) {
+  if (live.room.isIdle([...live.sockets.values()])) {
     for (const ws of live.sockets.keys()) {
       send(ws, { t: "missing" });
       ws.close(CLOSE_UNKNOWN_ROOM, "Room expired");

@@ -76,6 +76,7 @@ export function Online({ code }: { code: string }) {
         seat={room.you}
         lead={room.lead}
         connected={room.seats.map((s) => s.connected)}
+        wait={room.wait}
         online
         onAction={(action) => send({ t: "act", action })}
         onPlayAgain={() => send({ t: "rematch" })}

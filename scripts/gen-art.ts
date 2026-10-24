@@ -36,7 +36,20 @@ const ART: Record<string, string> = {
   "band-high": band("coral, red and orange", "Volcanic ridges at sunset with drifting embers"),
 };
 
-async function generate(prompt: string, key: string): Promise<Buffer> {
+const ICON_PROMPT =
+  "App icon: two fanned playing cards, the front one showing a compass-rose star above a " +
+  "mountain silhouette, on a deep navy background that fills the whole square edge to edge " +
+  "(a plain square: no rounded corners, no border, no white margin; the OS masks the shape), " +
+  "warm gold and teal accents, flat layered paper-cut style with soft depth. Keep the emblem " +
+  "centered inside the middle 70% of the square. Absolutely no text, letters, digits or logos.";
+/** PWA and iOS home-screen icons, all from one square image. */
+const ICONS: [path: string, size: number][] = [
+  ["public/icons/icon-512.png", 512],
+  ["public/icons/icon-192.png", 192],
+  ["public/icons/apple-touch-icon.png", 180],
+];
+
+async function generate(prompt: string, key: string, aspectRatio = "2:3"): Promise<Buffer> {
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`,
     {
@@ -44,7 +57,7 @@ async function generate(prompt: string, key: string): Promise<Buffer> {
       headers: { "content-type": "application/json", "x-goog-api-key": key },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { responseModalities: ["IMAGE"], imageConfig: { aspectRatio: "2:3" } },
+        generationConfig: { responseModalities: ["IMAGE"], imageConfig: { aspectRatio } },
       }),
     },
   );
@@ -81,4 +94,16 @@ for (const [name, prompt] of Object.entries(ART)) {
     out,
   ]);
   console.log(`  wrote ${out}`);
+}
+
+if (requested.length ? requested.includes("icon") : !existsSync(ICONS[0][0])) {
+  console.log("generating icon…");
+  const png = join(tmp, "icon.png");
+  writeFileSync(png, await generate(ICON_PROMPT, key, "1:1"));
+  for (const [out, size] of ICONS) {
+    // The model insists on drawing a rounded tile; keep the central 74% so the OS mask gets a full-bleed square.
+    const crop = `crop=iw*0.74:ih*0.74,scale=${size}:${size}:flags=lanczos`;
+    execFileSync("ffmpeg", ["-loglevel", "error", "-y", "-i", png, "-vf", crop, out]);
+    console.log(`  wrote ${out}`);
+  }
 }

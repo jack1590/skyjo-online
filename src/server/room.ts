@@ -219,8 +219,16 @@ export class Room {
       host: this.data.host,
       you,
       lead: this.canLead(you, live),
+      wait: this.offlineWait(live),
       game: this.data.game && toView(this.data.game),
     };
+  }
+
+  /** The offline seat the table waits on, and how long until the stall guard moves for it. */
+  private offlineWait(live: Conn[]): RoomView["wait"] {
+    const now = this.deps.now();
+    const seat = this.awaited().find((s) => !this.connected(s, live) && this.canStall(s, live));
+    return seat === undefined ? null : { seat, inMs: Math.max(0, this.deadline(seat, live) - now) };
   }
 
   /** Stall guard: plays default moves for seats gone too long. Returns whether anything changed. */
@@ -245,8 +253,13 @@ export class Room {
   /** When the adapter should call tick() and re-broadcast next (ms). Always in the future. */
   nextAlarm(live: Conn[]): number {
     const now = this.deps.now();
-    const due = [this.data.updatedAt + this.idleAfter()];
-    for (const s of this.awaited()) if (this.canStall(s, live)) due.push(this.deadline(s, live));
+    const due = [this.data.updatedAt + this.idleAfter(live)];
+    for (const s of this.awaited()) {
+      if (!this.canStall(s, live)) continue;
+      due.push(this.deadline(s, live));
+      // A phone that goes silent mid-turn: re-broadcast when it turns stale, so the table sees it's offline.
+      if (this.connected(s, live)) due.push(this.lastSeen(s, live) + STALE_MS);
+    }
     // If the host goes quiet while the table needs a lead, others must learn they may step in.
     if (this.needsLead() && this.connected(this.data.host, live)) {
       due.push(this.lastSeen(this.data.host, live) + STALE_MS);
@@ -255,12 +268,13 @@ export class Room {
     return future.length ? Math.min(...future) : now + STALE_MS;
   }
 
-  isIdle(): boolean {
-    return this.deps.now() - this.data.updatedAt >= this.idleAfter();
+  isIdle(live: Conn[]): boolean {
+    return this.deps.now() - this.data.updatedAt >= this.idleAfter(live);
   }
 
-  private idleAfter(): number {
-    return this.data.seats.length === 0 ? EMPTY_IDLE_MS : IDLE_MS;
+  /** A room with no seats and no open socket was abandoned; one with a waiting creator wasn't. */
+  private idleAfter(live: Conn[]): number {
+    return this.data.seats.length === 0 && live.length === 0 ? EMPTY_IDLE_MS : IDLE_MS;
   }
 
   private connected(seat: number, live: Conn[]): boolean {
