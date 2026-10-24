@@ -134,7 +134,7 @@ The user asked for three things after M5: remove the local mode, add effects for
 
 ### Order after M6 (PO, 2026-10-24)
 
-The user asked for four things on 2026-10-24: a 30 s turn timer that switches a player to auto-play until they untick a checkbox, smooth animations, a UX expert pass shipped step by step, and the PO organizing the work. They ship as M8 → M9 → M10+, after M7 (the iPhone sound fix, already in progress), one PR at a time (see Process). The After-M6 follow-ups are folded in where they fit: the discard-and-flip E2E goes into M8 (auto-play makes that move), the final-reveal hold goes into M9 (it is an animation fix), and the rest join the M10+ triage pool. A security hardening track (SEC, below) was added the same day at the user's request. Its critical and high findings may go ahead of M9.
+The user asked for four things on 2026-10-24: a 30 s turn timer that switches a player to auto-play until they untick a checkbox, smooth animations, a UX expert pass shipped step by step, and the PO organizing the work. The same day they added a security hardening track (SEC). The UX and security audits were triaged into this plan the same day (PO): **§ Queue after M7** below is the order, one PR at a time (see Process).
 
 ### M7 — iPhone sound (merged in PR #10, awaiting the user's iPhone) · v2.0.1
 
@@ -148,96 +148,293 @@ Players on iPhone heard no sound. PR #10 unlocks audio the way iOS expects and r
 
 One slow or absent player shouldn't stall the table. After 30 s with no move, the server starts playing for that seat, and keeps doing it until the player unticks **Auto-play**. The server is the authority on the clock; the client only displays it.
 
-Decisions (PO, 2026-10-24), each with its reason:
-- **What the 30 s covers:** every step the table waits on a seat: draw, place (swap or discard-and-flip), and the R3 initial flip. Each move restarts the clock (the room's existing `waitSince`), so a player who draws at 29 s still gets 30 s to place the card; a turn takes at most 60 s. In the flip phase, all seats that haven't flipped share the clock and any flip restarts it, so the deal waits at most 30 s after the last flip. The round summary, game over and the lobby have no timer. _Reason: reuses `waitSince`, and a drawn card is never a rushed decision._
-- **Who sees the countdown, and when:** for the first 20 s, nobody sees a clock (most steps take less). For the last 10 s, everyone (players and spectators) sees a shrinking bar on the waited-on seat's name tag, and that player's prompt reads "Auto-play in N s". If the seat is offline, the M5 notice stays up for the whole wait ("Cris is offline · auto-play in 24 s"). _Reason: nobody feels rushed while thinking, and the others can see that help is coming._
-- **Last-seconds warning:** at 10 s left, the waited-on player's phone plays one short cue (it respects mute and the silent switch) and vibrates once where `navigator.vibrate` exists (iOS Safari doesn't have it). At 5 s the bar turns red. Everyone else gets the visual only. _Reason: one nudge you notice without looking, and no ticking alarm for the whole table._
-- **The auto-move:** the stall guard's `autoMove`, unchanged. It draws from the deck, discards that card, then flips the first face-down card in reading order; during the initial flip it flips the first face-down cards. _Reason: the user asked for "like disconnected players"; the move is already tested, neutral, and reveals nothing about the player._ A smarter bot is out of scope; add one only if the PO sees auto-played seats losing badly in play.
-- **Pacing once on:** a seat on auto-play makes one move every 1.5 s (`AUTO_STEP_MS`). 1.5 s after its turn begins it draws (everyone sees the card, per R6), and 1.5 s later it discards and flips. When the 30 s run out, the first move is played at once. _Reason: everyone can follow each move and its card flight (≤ 380 ms), and an auto turn still takes only 3 s._
-- **The checkbox:** one **Auto-play** checkbox in the header row of your own grid, next to your name and points. Every seated player always has it, and its label is a tap target of at least 44 px. The server ticks it when your 30 s run out, and you can tick it yourself before stepping away. Only you can untick it (the user's request); playing a card yourself doesn't. While it's on, your prompt reads "Auto-play is on · untick it to play" and your grid is marked as auto-play. Unticking during your turn gives you a fresh 30 s. Reconnecting doesn't untick it, so when you come back the ticked box tells you why your cards moved. _Reason: the row already exists, so the checkbox adds no height at 375×548. Ticking it yourself uses the same control, and it lets E2E test auto-play without waiting 30 s._
-- **How others see it:** players and spectators see an "Auto" tag next to that player's name on their panel and in the turn pill ("Ana · auto"). _Reason: otherwise a player seems to be moving instantly, and nobody knows why._
-- **The 60 s stall guard is folded in.** The turn timer replaces it: whether a seat is offline or not, it gets 30 s from `waitSince` and then goes on auto-play. Delete `STALL_MS` and the deadline rule that counts absence from when the seat went quiet. Keep `canStall` (an empty table doesn't play itself) and the `STALE_MS` presence check. _Reason: one rule and one countdown instead of two, and an offline seat now moves after 30 s instead of 60 s._
-- **Leading while on auto-play:** a host on auto-play counts as away, so any seated player may advance to the next round, start a rematch, or start the game. _Reason: the host-away rule only notices a dropped socket, so a host who stepped away with the screen on would freeze the round summary._
-- **Spectators** see the countdown and the Auto tags. They have no checkbox and don't affect the timer.
-- **No host setting to turn the timer off** (AGENTS: no speculative config). 30 s per step is generous for Skyjo, and a player who times out loses one move and then unticks. Revisit if the user asks.
-- **Protocol:** a client message `{ t: "auto", on: boolean }` that applies only to the sender's seat; `Seat.auto`, persisted in `RoomData`; and `SeatView.auto`. `RoomView.wait` now covers every waited-on seat, online or offline, with the ms until auto-play moves for it.
-- Lands the After-M6 "Do first" test: an E2E for a full draw → discard → flip turn through the UI.
+Decisions (PO, 2026-10-24), refined the same day with the UX expert's advice. Each says where it came from, and each has its reason:
+- **The clock: 30 s per turn, with at least 10 s to place after drawing** (expert; replaces "each move restarts the clock"). The clock starts when the turn starts (a new `RoomData.turnSince`). Drawing doesn't restart it, but the place deadline is never less than 10 s after the draw, so a turn takes at most 40 s. _Reason: the bar drains once per turn, which matches the user's "30 seconds", and the grace keeps the drawn-card decision fair._
+- **The flip phase is covered too: 30 s from the deal** (PO). The clock covers both flips and is shared by every seat that hasn't flipped; other players' flips don't restart it. The round summary, game over and the lobby have no timer. _Reason: one absent player would otherwise hold up the deal for everyone (the stall guard already covers the flip phase today). The expert's report was split on this, so the PO decided._
+- **Every phone shows the same server deadline** (expert). `RoomView.wait` becomes a list of `{ seat, inMs, reason: "timer" | "offline" | "auto" }`, one entry per waited-on seat (there are several in the flip phase). The client draws each countdown as one CSS animation with a negative `animation-delay`, not one render per second. _Reason: every phone agrees, and the bar drains smoothly at no cost._
+- **The acting player** (expert; replaces "no clock for the first 20 s"). A 4 px bar drains above your grid for the whole turn, with no number. At 10 s left it turns orange, the pill reads "Your turn · 10", and screen readers hear "10 seconds left" once (`role=status`). At 5 s it turns red, and the phone vibrates once (where `navigator.vibrate` exists) and plays one soft tick (respecting mute and the silent switch). _Reason: the bar is always visible but never pushy, and the warning is a single nudge._
+- **Everyone else, players and spectators** (expert). The active panel's gold border becomes a draining ring, and the number shows only in the last 10 s. For an offline seat, the prompt line says so ("Cris is offline · auto-play in 24 s").
+- **The auto-move gets smarter, and the stall guard uses it too** (expert; replaces "`autoMove` unchanged"):
+  - It draws from the deck.
+  - If the drawn card is lower than your highest face-up card, it swaps the drawn card in there.
+  - Otherwise it discards the drawn card and flips the first face-down card in reading order. The exception is your last face-down card: flipping that would end the round, so it swaps into your highest face-up card instead. It never ends the round while another legal move exists.
+  - In the initial flip, it flips the first two face-down cards.
+
+  _Reason: today's move (`room.ts:341-350`) fills the grid in reading order and ends the round for an absent player, who then likely gets doubled (R12)._
+- **You can watch auto turns** (expert; replaces "one move every 1.5 s"). An auto-play seat draws 1.5 s after its turn begins, and places 700 ms later. Each step is its own broadcast. Today `tick()` plays the whole turn and broadcasts once (`room.ts:245-247`), so nobody sees the draw. _Reason: everyone sees the drawn card (R6) and each card flight._
+- **The Auto-play checkbox lives in one place: the row right above your grid** (expert and PO, reconciled).
+  - Off: it is a quiet "Auto-play" checkbox in your grid's header row, so you can tick it before stepping away.
+  - On: that row becomes a persistent "Auto-play is on" bar holding the same checkbox, at least 44 px.
+  - The server ticks it when your time runs out, and only you can untick it.
+  - While it's on, tapping your cards does nothing; the bar shakes and the phone vibrates, pointing at the checkbox. No tap is silently swallowed.
+  - Unticking during your turn gives you a fresh 30 s.
+  - If you come back while it's on, the bar reads "Auto-play was on while you were away".
+  - Labels: en "Auto-play", es "Juego automático", pt "Jogada automática".
+
+  _Reason: there is one control, and ticking it yourself is what lets E2E test auto-play without waiting 30 s._
+- **What others see** (expert): 🤖 on the seat's panel and in the round summary, and the pill reads "Beto · auto".
+- **Offline seats get the same 30 s, then go on auto-play** (expert and PO). Today every turn of an offline seat waits a fresh 60 s (`room.ts:304-306`, reset at `:336`), which at 8 seats is about 10 minutes per round. Delete `STALL_MS` and that deadline rule. Keep `canStall` and the `STALE_MS` presence check.
+- **A table only plays itself while someone is really there** (PO, Security row). The timer and auto-play run only while at least one connected seat is not on auto-play. _Reason: auto turns are moves the server makes without any client message, each costing alarm runs and row writes. A room full of auto seats must not play all day on the free plan's quota._
+- **A host on auto-play counts as away,** so any seated player may lead (next round, rematch, start).
+- **Spectators** see everything but have no checkbox and don't affect the timer.
+- **No host setting to turn the timer off** (AGENTS: no speculative config). Revisit if the user asks.
+- **Wake Lock** (UX-6, folded in). Request `navigator.wakeLock` during a game, request it again on `visibilitychange`, and release it on Home. _Reason: at 6–8 seats the wait between your turns is longer than iOS's 30 s auto-lock. A locked phone goes stale after 45 s, and then auto-play would take over._
+- **Cards keep their size** (UX-12, folded in). The offline and countdown text lives in the prompt line, never in a row of its own. The Portuguese discard prompt gets shorter so it fits on 2 lines at 360 px. _Reason: M8 rewrites exactly that text, which today shrinks your cards from 64 to 55 px mid-turn._
+- **The pill pops once per turn** (UX-10, folded in). Its key drops the phase (`Table.tsx:151`). _Reason: M8 rewrites the pill._
+- **Protocol:**
+  - a client message `{ t: "auto", on: boolean }` that applies only to the sender's seat;
+  - `Seat.auto`, persisted;
+  - `SeatView.auto`;
+  - `RoomData.turnSince`;
+  - the `wait` list described above.
+- Lands the After-M6 items marked "→ M8".
 - Update § Multiplayer behavior (stall guard), `AGENTS.md` (online flow) and the README's how-to-play.
 
 **Acceptance:**
 - Room unit tests on the injected clock (`t.advance`), one for each of these:
   - Nothing happens at 30 s − 1 ms. At 30 s, the waited-on seat's move is played and its auto-play is on.
-  - Each move restarts the clock: a draw at 29 s leaves the seat until 59 s.
-  - In the flip phase, seats that haven't flipped are auto-flipped 30 s after the last flip, and seats that have flipped are left alone.
-  - A seat on auto-play makes one move per 1.5 s (a whole turn in 3 s), and `nextAlarm` returns exactly those times.
-  - `auto` with `on: false` from the seat stops auto-play and starts a fresh 30 s; `on: true` works for your own seat. Nobody can change another seat's auto-play, since the message carries no seat.
-  - An offline seat goes on auto-play after 30 s. When nobody else is connected, nothing plays.
+  - A draw at 25 s moves the place deadline to 35 s. A draw at 5 s leaves it at 30 s.
+  - In the flip phase, every seat that hasn't flipped is auto-flipped 30 s after the deal, whoever else flips meanwhile. Seats that have flipped are left alone.
+  - An auto seat draws at +1.5 s and places at +2.2 s, each in its own broadcast, and `nextAlarm` returns exactly those times.
+  - `auto` with `on: false` from the seat stops auto-play and starts a fresh 30 s, and `on: true` works for your own seat. Nobody can change another seat's auto-play.
+  - An offline seat goes on auto-play after 30 s. Nothing plays when nobody else is connected, or when every connected seat is on auto-play.
   - While the host is on auto-play, another seat may send `nextRound` and `rematch`.
+  - `autoMove` swaps a lower drawn card into the highest face-up card. It never flips the last face-down card while a swap is legal. In the flip phase it flips two cards.
+  - In the 1,000-game simulation, a game with one seat always on `autoMove` still ends.
+  - `wait` lists every waited-on seat with the right `reason`.
   - `parseClientMsg` accepts `auto` only with a boolean `on`.
   - The hidden-information test still passes with seats on auto-play.
-- Client unit test: the 10 s cue fires once per wait, only on the waited-on player's phone, and never when muted.
+- Client unit test: the 5 s tick and vibration fire once per turn, only on the acting player's phone, and never when muted.
 - E2E on all 3 devices:
-  - Table harness: with 25 s left there is no countdown. At 9 s, the waited-on player reads "Auto-play in 9 s" and the others see the bar on that seat. At 4 s the bar is red. A seat on auto-play shows the Auto tag, and the checkbox is ≥ 44 px.
-  - Online, 2 phones: A ticks Auto-play, and within 4 s A's turn plays itself (a draw, then a discard and flip, leaving one fewer face-down card). B sees "Auto" on A. A unticks, and A's next turn waits for A.
-  - The discard-and-flip E2E (After M6), on all 3 devices.
-  - The existing offline-countdown test, updated to the new wording.
-- **Delivery health:** no E2E waits for the 30 s in real time: nothing sleeps on the timer, and no test-only timer setting ships to production. The expiry itself is covered by the room unit tests on the injected clock, and the online E2E reaches auto-play by ticking the checkbox. PR CI wall time grows by ≤ 15 s over the M7 merge, and the PR reports per-job times. No existing E2E starts tripping the timer: any test that leaves a seated player idle for more than 10 s mid-game is listed in the PR and asserts the auto-play.
+  - **Table harness:**
+    - At 25 s left, the bar shows with no number.
+    - At 9 s, it is orange and reads "Your turn · 9", and the other players' ring shows 9.
+    - At 4 s it is red.
+    - An auto seat shows 🤖.
+    - The checkbox in the on-bar is ≥ 44 px.
+    - Tapping a card while on auto-play sends nothing and shakes the bar.
+    - At 360 px, card width stays the same (±1 px) across the draw, place and offline-note states, in en, es and pt.
+  - **Online, 2 phones:**
+    - A ticks Auto-play.
+    - Within 4 s, B's own state shows A's drawn card, and then the placement in a later state.
+    - B sees 🤖 on A.
+    - A unticks, and A's next turn waits for A.
+  - **Wake Lock:** a stubbed `navigator.wakeLock.request` is called when the table mounts, and its sentinel is released on Home.
+  - **Updated tests:** the discard-and-flip E2E (After M6) passes, and the offline-countdown test is updated to the new wording.
+- **Delivery health:**
+  - No E2E waits for the 30 s in real time: nothing sleeps on the timer, and no test-only timer setting ships to production.
+  - PR CI wall time grows by ≤ 15 s over the previous merge, with per-job times in the PR.
+  - Any test that leaves a seated player idle for more than 10 s mid-game is listed in the PR and asserts the auto-play.
 - Every new string exists in en, es and pt.
-- Version 2.1.0 with its CHANGELOG section. The README's how-to-play covers the 30 s and auto-play, with fresh images. `docs/screenshots/m8/` has the countdown, the red warning, the Auto tag, and the ticked checkbox at iPhone size.
-- The PO scores Mobile UX ≥ 4 and Game feel ≥ 4.
+- **Release:** version 2.1.0 with its CHANGELOG section. The README's how-to-play covers the timer and auto-play, with fresh images. `docs/screenshots/m8/` has the bar, the orange and red states, the ring, 🤖, and the on-bar, at iPhone size.
+- **Security:** the PR lists the new entry points (the `auto` message, auto-play alarms, their writes) with the bound on each.
+- **PO scores:** Mobile UX ≥ 4 and Game feel ≥ 4.
 
-### M9 — Smooth animations (user request, 2026-10-24) · v2.1.1
+### M9 — Smooth animations, part 1: no jumps (user request, 2026-10-24) · v2.1.1
 
-The user asked for smooth animations. Every card flight, flip and count-up should run at frame rate on a mid-range phone, start exactly where the card was, and land exactly where it goes. A patch release, unless the UX findings turn it into a feature (then 2.2.0).
-- **The diagnosis is pending.** The UX expert's findings (audit started 2026-10-24) name what stutters or jumps, and the PO refines these bullets when they arrive. Until then, the bullets below are the bar.
-- Animate only `transform` and `opacity`; layout and paint properties (`top`, `left`, `width`, `height`, `box-shadow`, `filter`) are never keyframed.
-- Lands the After-M6 item "Let the final reveal play before the round summary".
-- A measuring tool, `e2e/perf.spec.ts`. It runs on Pixel only, with `PERF=1`, and is skipped in CI, because frame timings on shared runners are noise. It throttles the CPU 4× through CDP (`Emulation.setCPUThrottlingRate`), then plays a scripted 8-player sequence with motion on: draw, swap, discard and flip, column removal, the round-end reveal, and the score count-up. It records frame intervals with `requestAnimationFrame` and long tasks with `PerformanceObserver`.
+**Diagnosis (UX expert, live site, 2026-10-24).** Frame rate is fine. In Chromium at 4× CPU throttle, 903 frames measured p50 16.7 ms and p99 16.8 ms, with one frame at 33 ms; WebKit p99 was 21 ms. Everything animates on the compositor, and layout p99 is 6.3 ms. The "not smooth" feeling comes from cards starting in the wrong place and stacking wrong, plus slow taps.
+
+So M9–M11 fix those instead of tuning frame rate. The perf-spec harness planned earlier is dropped: it would be code built for a problem that measured fine. Frame time stays as a regression check that the PO re-measures in M11.
+- **UX-1.** Swapped cards start 51 px off, on 8 of 8 swaps in each engine: `motion.ts` reads the new boxes after `el.animate()` has started, so the first keyframe is already applied. Measure every new position before starting any flight.
+- **UX-2.** The deck and discard jump 51 px on every draw and every turn end, because the drawn pile is inserted between them (`Table.tsx:229`). Always render the middle slot, with a hidden placeholder.
+- **UX-4**, same element as UX-2. The drawn card's highlight is inverted: `highlight={!discardMode}` (`Table.tsx:237`).
+- The After-M6 "final reveal" item: hold the round summary until the R11 flips finish.
 
 **Acceptance:**
-- Perf spec (Pixel, 4× CPU throttle, 8 players, motion on): during flights, the p95 frame interval is ≤ 20 ms, no frame takes more than 50 ms, and there are no long tasks over 50 ms. The PR reports the numbers before (v2.1.0) and after. The PO may move a target if the before numbers show it is wrong; the reason goes in the PR.
-- In CI on all 3 devices, deterministic: during each flight, every running animation (`document.getAnimations()`) keyframes only `transform` and/or `opacity`.
-- No jump, for each flight type (draw from deck, take the discard, swap, discard, column removal): with the Web Animations paused and stepped through `currentTime`, the flying card's box at time 0 matches its source within 1 px and at the end matches its target slot within 1 px. The card is visible in exactly one place on every frame: never in two places, never missing.
-- At round end, the summary sheet appears only after the R11 flips finish (or after about 1 s). With reduced motion it appears at once.
-- Reduced motion still disables every animation (existing test).
-- CI wall time grows by ≤ 10 s; the perf spec doesn't run in CI.
-- Version, CHANGELOG and README per the release checklist.
-- Playing with motion on, the PO scores Visual polish 5 and Game feel ≥ 4, or adds whatever keeps Visual polish from a 5 to this plan as an item.
+- With motion on, on the Pixel and iPhone projects, every swap flight's first frame is within 2 px of the drawn card, on 8 of 8 swaps.
+- The deck and discard boxes are identical (within 0.5 px) in the draw and place phases, with 2 and 8 players, on all 3 devices.
+- In the place phase, every highlighted element is a button.
+- The summary sheet appears only after the R11 flips finish (or about 1 s), and at once with reduced motion.
+- Each new test fails on `main` without the fix; the PR shows this.
+- CI grows by ≤ 10 s. The release checklist is done. The PO plays with motion on and sees no jump.
 
-### M10 onward — UX passes (user request, 2026-10-24) · one patch or minor each
+### M10 — Responsive taps, honest connection state · v2.1.2
+
+The expert counts slow taps as part of the "not smooth" feeling, so they come right after the jumps.
+- **UX-3.** Time from tap to new state: draw p50 97 ms, p90 181 ms, max 372 ms; discard-and-flip p90 401 ms. Extra taps are dropped silently (`useRoom.ts:134`). On a tap, immediately play the sound, vibrate briefly and lift the tapped card, and keep that until the view arrives.
+- **UX-5.** Going offline mid-game is invisible: 20 s offline showed no toast. Only the `online` event is handled (`useRoom.ts:119`), and recovery waits for a 5 s ack or the 45 s stale timeout. Show "Reconnecting…" on `offline`, or when an ack is more than 1.5 s late.
+
+**Acceptance:**
+- With a 500 ms server delay (`page.routeWebSocket`), the pending style shows within 50 ms of the tap, and that tap's sound plays once: not again when the view arrives.
+- "Reconnecting…" shows within 1 s of `context.setOffline(true)` and clears after reconnect, on all 3 devices.
+- The reload and reconnect E2E still pass.
+- The release checklist is done.
+
+### M11 — Smooth animations, part 2: flights read cleanly · v2.1.3
+
+- **UX-7.** A card leaving your grid slides under your other cards. Raise its z-index during the flight.
+- **UX-8.** Flights to opponents are clipped by the strip's overflow (`styles.css:327`). Fly a fixed-position copy instead.
+- **UX-9.** Only the second half of each flip is shown (90° → 0, `motion.ts:86-90`). Rotate from 180° and give cards a back face.
+
+**Acceptance:**
+- At mid-flight, `elementFromPoint` returns the flying card.
+- At mid-flight, no ancestor clips the flying card's box; the PR has a screenshot.
+- At 25% of a flip, the back face is visible.
+- CI regression guard: during each flight, every running animation keyframes only `transform` and/or `opacity`.
+- Reduced motion still disables every animation.
+- The PO re-measures frame timing the way the expert did: Chromium at 4× CPU needs p99 ≤ 20 ms with no frame over 50 ms, and WebKit needs p99 ≤ 25 ms. The PO reports the numbers.
+- Playing with motion on, the PO scores Visual polish 5, or adds to this plan whatever keeps it from a 5.
+
+### UX passes (user request, 2026-10-24) · M9 onward, one patch or minor each
 
 The user asked for a UX expert agent to find improvements and ship them step by step, not all at once.
 1. **Audit.** A UX expert agent audits the live game: phones, 2–8 players, all 3 languages, players and spectators. It returns findings with evidence (screenshots, measurements, steps to reproduce).
-2. **Triage.** The PO puts each finding in the table below with a severity (blocker / major / minor), an effort (S / M / L) and a verdict. A verdict is one of: **do** (with its milestone number), **fold** (into M8 or M9 if one is still open), **defer**, or **decline**. Each verdict gets a one-line reason. The remaining After-M6 follow-ups join the same pool. Triage is a docs-only PR.
-3. **Order.** Blockers first, then by value for effort. A blocker may jump ahead of M9, and the PR that changes the order says why.
-4. **Ship.** One small PR per finding, or per tight group (same screen, same files), numbered M10, M11, … on branches `m<N>-<slug>`. Each goes through the normal loop: review → PR → PO, plus the release checklist. Fixes and polish are a patch version; anything a player would call new is a minor version.
+2. **Triage.** The PO puts each finding in the table below with a severity (blocker / major / minor), an effort (S / M / L) and a verdict. A verdict is one of: **do** (with its milestone), **fold** (into an open milestone), **defer**, or **decline**. Each verdict gets a one-line reason. The remaining After-M6 follow-ups join the same pool. Triage is a docs-only PR.
+3. **Order.** Blockers first, then by value for effort. A blocker may jump ahead of a milestone that hasn't started, and the PR that changes the order says why.
+4. **Ship.** One small PR per finding, or per tight group (same screen, same files), numbered from M9 on branches `m<N>-<slug>`. Each goes through the normal loop: review → PR → PO, plus the release checklist. Fixes and polish are a patch version; anything a player would call new is a minor version.
 5. **Acceptance per item** is written at triage time: the finding's evidence, measured again, no longer reproduces, and a test fails without the fix (E2E for layout and interaction, a unit test for logic).
 6. **Done** when every finding is shipped, deferred or declined. Another audit runs only if the user asks for one.
 
-| #   | Finding                                                        | Severity | Effort | Verdict |
-| --- | -------------------------------------------------------------- | -------- | ------ | ------- |
-| —   | _Pending: the UX expert's audit (2026-10-24) is triaged here._ |          |        |         |
+**Audit (2026-10-24), live site.** The expert ran a 3-phone game in WebKit at 390×664 and in Chromium at 360×740, plus a spectator, a reload, a network drop, and the harness at 5–8 seats. These already pass: contrast at AA, tap targets ≥ 44 px, no horizontal scroll, a reload back on your turn in 0.8 s, and the offline note reaching the others within 0.2 s. Triage (PO):
+
+| #        | Finding                                                                | Severity | Effort | Verdict                                        |
+| -------- | ---------------------------------------------------------------------- | -------- | ------ | ---------------------------------------------- |
+| UX-1     | Swapped cards start 51 px off                                          | major    | S      | do → M9: a visible jump on every swap          |
+| UX-2     | Deck and discard jump 51 px on every draw and turn end                 | major    | S      | do → M9: a visible jump on every turn          |
+| UX-3     | Taps feel dead (p90 181–401 ms); extra taps dropped silently           | major    | S      | do → M10: part of the "not smooth" feeling     |
+| UX-4     | The drawn card's highlight is inverted                                 | major    | S      | do → M9: same element as UX-2                  |
+| UX-5     | Going offline mid-game is invisible                                    | major    | S      | do → M10: same hook as UX-3 (`useRoom.ts`)     |
+| UX-6     | No Wake Lock; phones lock between turns at 6–8 seats                   | major    | S      | fold → M8: a locked phone would trip auto-play |
+| UX-7     | A card leaving your grid slides under your other cards                 | minor    | S      | do → M11                                       |
+| UX-8     | Flights to opponents are clipped by the strip                          | minor    | M      | do → M11                                       |
+| UX-9     | Only the second half of each flip is shown                             | minor    | S      | do → M11                                       |
+| UX-10    | "Your turn" pops twice per turn                                        | minor    | S      | fold → M8: M8 rewrites the pill                |
+| UX-11    | The round summary isn't a real modal (Tab leaves it)                   | minor    | S      | do → M13                                       |
+| UX-12    | Your cards shrink mid-turn (offline note; Portuguese prompt wraps)     | minor    | S      | fold → M8: M8 rewrites that text               |
+| UX-13    | "Leave seat" sits right above "Start game", same size, no confirmation | minor    | S      | do → M15                                       |
+| UX-14    | The summary is in seat order and doesn't mark you                      | minor    | S      | do → M13                                       |
+| UX-15    | No running round sum                                                   | minor    | S      | do → M14 (minor version: new)                  |
+| UX-16    | Nothing explains who starts, or that your last card ends the round     | minor    | S      | do → M14                                       |
+| UX-17    | Game over is impersonal                                                | minor    | S      | do → M13 (minor version: new)                  |
+| After M6 | Game over sounds like a 0.16 s click                                   | minor    | S      | do → M13: same moment as UX-17                 |
+| After M6 | No last-round cue                                                      | minor    | S      | do → M14: same moment as UX-16                 |
+| After M6 | Spectators lose the piles at 8 seats                                   | minor    | M      | do → M12                                       |
+| After M6 | `sound.ts` swallows decode errors without a comment                    | nit      | S      | fold → M8: M8 adds a cue there                 |
+| After M6 | Quick reactions                                                        | idea     | M      | defer: the user's call                         |
+
+Queued UX milestones after M11, each with its acceptance:
+- **M12, spectators keep the piles (v2.1.4).** At 390×664 with 8 players, a spectator sees the deck, the discard pile and the drawn card on every turn of a played round, on all 3 devices.
+- **M13, round summary and game over (v2.2.0).**
+  - UX-11: `<dialog>.showModal()`, and Tab stays inside it.
+  - UX-14: rows sorted by total, with your row tagged.
+  - UX-17: "You win!" or "You placed 2nd", with a unit test for ties (R14 shares the win), plus confetti, none with reduced motion.
+  - A game-over cue of at least 1 s (CC0) that fires once, unit-tested through `soundsBetween`.
+- **M14, round awareness (v2.3.0).**
+  - UX-15: each player's sum of face-up cards, matching the engine (unit test on the `GameView`).
+  - UX-16: "Beto starts: highest pair (17)" (R4, including the tie rule), and "Revealing your last card ends the round", shown exactly when you have one face-down card on your turn.
+  - A last-round cue for everyone, with a vibration, that fires once when the round enters its final turns (unit test).
+- **M15, lobby buttons (v2.3.1).** UX-13: "Start game" comes first, and "Leave seat" is a quiet text button (still ≥ 44 px) that isn't directly below Start.
 
 ### Security hardening (SEC) (user request, 2026-10-24) · one patch each
 
 **Goal:** a bot can't take the service down or ruin other players' games on the free plan. The threats include creating rooms in bulk, flooding sockets, guessing room codes, spamming joins or spectators, griefing games in progress, and burning the Cloudflare free plan's daily quotas (Worker and Durable Object requests, duration, storage writes). What exists today: per-IP room creation is rate-limited (`ROOM_CREATION`), each socket is capped at 120 messages per 10 s, frames over 1000 characters are rejected, and empty rooms expire after 10 min.
 1. **Audit.** A security engineer agent probes a **local** server only, never the live URL: abusing the live URL would burn the same free quotas the game runs on. It returns findings SEC-1, SEC-2, …, each with a severity, a proposed fix, an acceptance criterion, and whether it needs a Cloudflare dashboard action.
-2. **Triage.** The PO puts each finding in the table below, in the same shape as the UX triage: a severity, an effort (S / M / L), a verdict (**do** with its milestone number, **fold** into an open milestone, **defer**, or **decline**), and a one-line reason. The PO also marks whether it needs the user. Triage is a docs-only PR, and it can share one PR with the UX triage.
+2. **Triage.** The PO puts each finding in the table below, in the same shape as the UX triage: a severity, an effort (S / M / L), a verdict (**do**, **fold** into an open item, **defer**, or **decline**), and a one-line reason. The PO also marks whether it needs the user. Triage is a docs-only PR, and it can share one PR with the UX triage.
    - **Critical:** one cheap client can take the service down for everyone, or use up a daily free-plan quota.
    - **High:** one client can ruin other people's games or rooms, or take one room down.
    - **Medium:** the attack needs sustained effort or many clients, or does limited damage.
    - **Low:** defense in depth.
-3. **Order.** Critical and high SEC findings may go ahead of M9 and the M10+ UX passes, the same way UX blockers do; the PR that changes the order says why. Medium and low findings are ordered by value for effort alongside the UX items. Ordering never interrupts an open PR: it is still one PR at a time.
-4. **Ship.** One small PR per finding, or per tight group (for example, every per-socket limit). Each takes the next free milestone number, on a branch `m<N>-sec-<slug>`, and the table records which milestone. It goes through the normal loop (review → PR → PO) with the release checklist; a fix is a patch version. Build it test-first: room limits are unit-tested on the injected clock, and Worker routes through the Worker adapter's tests.
+3. **Order.** Critical and high SEC findings may go ahead of any milestone that hasn't started, the same way UX blockers do; the PR that changes the order says why. Medium and low findings are ordered by value for effort alongside the UX items. Ordering never interrupts an open PR: it is still one PR at a time.
+4. **Ship.** One small PR per finding, or per tight group. Each ships under its SEC id on a branch `sec<N>-<slug>` (for example `sec3-no-op-writes`), not under a milestone number, so the M numbers above don't shift. It goes through the normal loop (review → PR → PO) with the release checklist; a fix is a patch version. Build it test-first: room limits are unit-tested on the injected clock, and Worker routes are tested through the fetch handler with fake bindings.
 5. **Acceptance per item:** the finding's reproduction, run again against a local server, no longer works, and a test fails without the fix. The PR also says how much each blocked attempt still costs on the free plan (requests, storage writes), and confirms that legitimate play is unchanged: the full E2E suite stays green, and no limit trips for 8 friends who share one IP behind a home router.
 6. **Needs the user: Cloudflare dashboard changes.** The PO and authors can't make dashboard changes or create secrets. Examples are a WAF or rate-limiting rule, a Turnstile site key and secret, and usage notifications. Each becomes a "Needs the user" item, listed below and in the report to the user, with exact steps: the dashboard path, every field value, the secret's name if one is needed (set by the user with `wrangler secret put` or as a GitHub secret, never committed), and how to verify the change worked. The code half of such a fix merges only after the user confirms the step, or it must work unchanged without it.
 7. **Done** when every finding is shipped, deferred or declined, and every "needs the user" step is done or declined by the user.
 
-| #   | Finding                                                                | Severity | Effort | Verdict | Needs the user |
-| --- | ---------------------------------------------------------------------- | -------- | ------ | ------- | -------------- |
-| —   | _Pending: the security engineer's audit (2026-10-24) is triaged here._ |          |        |         |                |
+**Audit (2026-10-24).** It was measured against a local Node server; the live site was not load-tested. The engineer found these already well defended: the 8-seat cap; name sanitizing (no XSS); 122-bit tokens, with `seat` set by the server; the 1000-character frame cap and the 120 messages per 10 s flood limit; empty and idle room cleanup; pings answered without waking the object; and path traversal on Node.
 
-**Needs the user (Cloudflare dashboard):** none yet.
+The PO checked the engineer's numbers against the Cloudflare docs:
+- [Workers limits](https://developers.cloudflare.com/workers/platform/limits/#daily-requests) — 100,000 requests a day on the Workers Free plan, reset at 00:00 UTC.
+- [Static assets billing](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/) — `run_worker_first` paths always invoke the Worker and get a 429 once the quota is gone, while static assets are free and keep loading.
+- [Durable Objects pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/) covers four points:
+  - 100,000 requests a day, including WebSocket messages and alarm runs. Incoming messages are billed at 20:1, and outgoing messages are free.
+  - 13,000 GB-s of duration a day. An object that is idle and eligible for hibernation isn't billed for duration.
+  - 100,000 rows written a day.
+  - Each `setAlarm()` is billed as one row written.
+
+| #     | Finding                                                                                                                                                             | Severity                        | Effort | Verdict                                                                                                                                                                                                                                                                                                                                                  | Needs the user            |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| SEC-3 | Cheap traffic writes rows: every handled message, even a repeated `hello`, ends in `setAlarm` (`worker.ts:171`), and each one is a row written                      | critical (PO, raised from high) | M      | do, first. One socket sending `hello` at the flood limit (12/s) writes the day's 100,000 rows in about 2.3 h; 8 sockets do it in about 17 min. No per-IP HTTP limit or WAF rule ever sees WebSocket messages. The duration risk is smaller than reported: the object uses the hibernation API with no timers, so idle time between messages isn't billed | no                        |
+| SEC-1 | No limit on any `/api/*` except room creation (`worker.ts:34-38`): about 100,000 `GET /api/x` from one IP, under an hour at 30 requests/s, stops `/api` for the day | critical                        | S      | do, second. The `ratelimit` binding (60 per 60 s) runs on every `/api/*` before any Durable Object call, keyed by IP (/64 for IPv6). This protects Durable Object requests, row writes and other rooms, but **not** the Workers request quota: a 429 from our own code has already invoked the Worker (see "Needs the user")                             | yes, for the Worker quota |
+| SEC-2 | No cap on sockets or spectators per room (60 measured; one `join` fans out to 60 broadcasts)                                                                        | high                            | M      | do, third, with SEC-6. Cap each room at about 20 sockets. Seated tokens always get in, and a spectator is dropped instead. Outgoing messages are free, so the fan-out costs CPU and duration; the bigger cost is that every extra socket can send its own writes. This goes before M8, whose auto-play broadcasts scale with socket count                | no                        |
+| SEC-6 | Sockets that never send `hello` linger                                                                                                                              | low                             | S      | do, with SEC-2. Otherwise silent sockets could fill the new cap. When a new socket arrives, close any that are more than 10 s old and never sent `hello`; this needs no extra alarm or write                                                                                                                                                             | no                        |
+| SEC-8 | (PO) Nobody is told when a quota runs out                                                                                                                           | low                             | S      | do, fourth: an hourly GitHub Actions check of an `/api` URL that fails on 429 or 1027, so GitHub emails the owner. It costs about 24 requests a day. It is CI-only, so no version bump. The free plan has no usage alert (see below)                                                                                                                     | no                        |
+| SEC-4 | Room creation is loose (60/min per IP, about 86,000 a day) and IPv6 rotation bypasses it                                                                            | medium                          | S      | fold the limit into SEC-1: 10/min, keyed by /64, in the same limiter. Defer Turnstile: it is a third-party widget plus dashboard steps, so revisit it only if bulk room creation shows up                                                                                                                                                                | Turnstile only (deferred) |
+| SEC-5 | Probing WebSocket upgrades can enumerate room codes (32⁵), then squat seats or grief rooms                                                                          | medium                          | —      | fold → SEC-1 and SEC-2. At 60 `/api` requests per minute, one IP finds one of about 10 live rooms roughly once every 40 days, and the cap protects a found room's players                                                                                                                                                                                | no                        |
+| SEC-7 | The Node self-host has no per-IP room-creation limit                                                                                                                | low                             | —      | decline: it binds to 127.0.0.1. Exposing it is the user's decision, and the README warns about that                                                                                                                                                                                                                                                      | no                        |
+
+Acceptance for each SEC item:
+- **SEC-3:**
+  - A unit test with a counting storage stub: 100 `hello`s from a connected socket cause no `put`, no `setAlarm`, and no message to any other socket.
+  - A move causes exactly 1 `put`, and a `setAlarm` only when the next alarm time changes.
+  - The PR reports rows written per 4-player game, before and after.
+  - The Durable Object still holds no timers between events, so it stays eligible for hibernation.
+- **SEC-1:**
+  - Fetch-handler tests with fake bindings: an IP over the limit gets a 429 with no Durable Object stub called; addresses in one IPv6 /64 share a key and different /64s don't; room creation is limited to 10/min.
+  - The E2E suite stays green with the production limits. Any local exemption must be impossible to trigger on Cloudflare (`cf-connecting-ip` is always set there).
+  - The PR states that the Workers request quota is still exposed.
+- **SEC-2 and SEC-6:**
+  - Room unit tests on a pure admit rule in `room.ts`, used by both adapters: the 21st socket is turned away (a spectator first); a seated player's reconnect always gets in; silent sockets older than 10 s are closed when a new socket arrives.
+- **SEC-8:**
+  - The workflow passes against the live site.
+  - It fails against a URL that returns 429; the PR shows both runs.
+  - GitHub disables scheduled workflows after 60 days without repository activity; the README says so.
+
+**Free-plan capacity for honest play (PO estimate).** Rows written is the tightest quota. Each move costs about 2 rows today (`put` plus `setAlarm`), so the free plan holds roughly 75 four-player games a day. SEC-3 should roughly double that, and its PR measures the real number. On the free plan, a bot that plays real games fast in many rooms can still use up the rows. Code can only raise that cost; option (b) below removes the ceiling.
+
+**Needs the user (Cloudflare dashboard).**
+1. **Decision: how to protect the Workers request quota.** Options (a) and (b) need a credit card, so this is a "stop and ask" item.
+   - Our own 429 still counts against the 100,000 requests a day, because `run_worker_first` requests always invoke the Worker.
+   - WAF rate-limiting rules are created [for a zone](https://developers.cloudflare.com/waf/rate-limiting-rules/). `workers.dev` isn't one of your zones: the docs say it ["is treated as a Free website"](https://developers.cloudflare.com/workers/configuration/routing/workers-dev/) and recommend a custom domain for production, and a [Custom Domain](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/) needs "an active Cloudflare zone". So no WAF rule can protect today's URL.
+
+   The three options:
+   - **(a) A custom domain and the free WAF rate-limit rule.**
+     - **Cost:** a domain, about $10 a year on a card, unless you already own one. The Cloudflare zone and the rule are free.
+     - **Covers:** cheap HTTP floods. Requests the WAF blocks never reach the Worker.
+     - **Doesn't cover:** WebSocket-message writes (SEC-3) or many IPs. On the free plan the rule can only count per IP, over a 10 s period, with a 10 s block ([availability table](https://developers.cloudflare.com/waf/rate-limiting-rules/#availability)). At 10 requests per 10 s, one IP still gets about 43,000 requests a day through, so about 3 IPs can still use up the day.
+     - **Steps:**
+       1. Dashboard → Account home → **Add a domain** → enter it → **Free** plan. At your registrar, replace the nameservers with the two Cloudflare shows, then wait for **Active**.
+       2. **Workers & Pages** → `skyjo-online` → **Settings** → **Domains & Routes** → **Add** → **Custom domain** → for example `skyjo.example.com`.
+       3. **Security** → **WAF** → **Rate limiting rules** → **Create rule**, with these values:
+          - Name: `api-per-ip`.
+          - If incoming requests match: Field `URI Path`, Operator `starts with`, Value `/api/`.
+          - With the same characteristics: `IP`.
+          - When rate exceeds: `10` requests per `10 seconds`.
+          - Then: `Block` for `10 seconds`.
+          - **Deploy**.
+       4. Send the PO the hostname. A code PR then sets `workers_dev: false` (otherwise anyone can bypass the WAF through the `workers.dev` URL) and moves the smoke test, the README and the share links to the new hostname.
+       5. Verify: `for i in $(seq 30); do curl -s -o /dev/null -w '%{http_code}\n' https://skyjo.example.com/api/x; done | sort | uniq -c` should show some 404s and then 429s. **Workers & Pages** → `skyjo-online` → **Metrics** should count about 10 new requests, not 30.
+   - **(b) Workers Paid, $5 a month on a card.**
+     - **Covers:** every quota.
+       - Workers: 10 million requests a month, then $0.30 per million.
+       - Durable Objects: 1 million requests a month, then $0.15 per million; 400,000 GB-s a month, then $12.50 per million GB-s.
+       - SQLite: 50 million rows written a month, then $1 per million. - **The catch:** an attack becomes a bill instead of an outage, and the pricing page lists no spending cap. For example, 30 requests/s for a whole month is about 78 million Worker requests, or about $20 extra. - **Steps:** **Workers & Pages** → **Plans** → **Workers Paid** → add a payment method → confirm. No code changes.
+   - **(c) Stay free.**
+     - **Cost:** $0.
+     - **Risk:** a determined bot can stop `/api` (new rooms and joins) until 00:00 UTC. The site still loads, because static assets don't run the Worker. SEC-3, SEC-1 and SEC-2 limit the damage, and SEC-8 emails you when it happens.
+     - **Steps:** none. If SEC-8 emails you, look at **Workers & Pages** → `skyjo-online` → **Metrics**, and pick (a) or (b) if it keeps happening.
+   - **PO recommendation: (c) now, (b) if an outage actually happens.** This is a friends' game with no revenue. (c) costs nothing, and the SEC fixes ship either way. (b) is the only option that also covers WebSocket writes and floods from many IPs, but it takes your card, so it's your call. (a) protects only the HTTP path, and it is free only if you already own a domain.
+2. **Usage notifications are not available on the free plan.** Cloudflare's [notification list](https://developers.cloudflare.com/notifications/notification-available/) has no Workers or Durable Objects type. The only usage alert, "Usage Based Billing", is "Professional plans or higher" and "Pay-as-you-go accounts only". So there is nothing to set up today, and SEC-8 stands in for it. If you choose (b), check **Notifications** → **Add** → **Usage Based Billing** to see whether Workers is offered.
+
+### Queue after M7 (PO, 2026-10-24)
+
+One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for the user to check it on an iPhone.
+
+| #   | PR                      | Contents                                                             | Version | Why here                                                        |
+| --- | ----------------------- | -------------------------------------------------------------------- | ------- | --------------------------------------------------------------- |
+| 1   | SEC-3                   | No-op messages write nothing; `setAlarm` only when the time changes  | 2.0.2   | critical: the cheapest outage, and invisible to any HTTP limit  |
+| 2   | SEC-1 (+ SEC-4's limit) | Per-IP limit on every `/api/*`, /64 keying, room creation at 10/min  | 2.0.3   | critical: a day-long `/api` outage in under an hour from one IP |
+| 3   | SEC-2 + SEC-6           | At most about 20 sockets per room; silent sockets closed             | 2.0.4   | high; bounds M8's auto-play broadcasts                          |
+| 4   | SEC-8                   | Hourly outage check                                                  | none    | completes option (c); CI only                                   |
+| 5   | M8                      | Turn timer and auto-play (+ UX-6, UX-10, UX-12, the → M8 follow-ups) | 2.1.0   | the user's first request                                        |
+| 6   | M9                      | UX-1, UX-2, UX-4, final reveal                                       | 2.1.1   | majors, visible every turn                                      |
+| 7   | M10                     | UX-3, UX-5                                                           | 2.1.2   | majors                                                          |
+| 8   | M11                     | UX-7, UX-8, UX-9                                                     | 2.1.3   | the rest of the smoothness request                              |
+| 9   | M12                     | Spectators keep the piles                                            | 2.1.4   | minor                                                           |
+| 10  | M13                     | UX-11, UX-14, UX-17, game-over cue                                   | 2.2.0   | minor, new                                                      |
+| 11  | M14                     | UX-15, UX-16, last-round cue                                         | 2.3.0   | minor, new                                                      |
+| 12  | M15                     | UX-13                                                                | 2.3.1   | minor                                                           |
+
+Deferred: Turnstile (SEC-4) and quick reactions (the user's call). Declined: SEC-7. Versions assume this order; a PR that reorders says so.
 
 ### After M5: follow-ups
 
@@ -250,7 +447,7 @@ Non-blocking items from the M5 PO review. Do them in one small PR if the project
 
 ### After M6: follow-ups
 
-Follow-ups from the M6 PO reviews (Game feel scored 4): one test gap, then game-feel items. None blocks. **Planned (PO, 2026-10-24):** the first item goes into M8, the final-reveal hold into M9, and the rest into the M10+ triage pool.
+Follow-ups from the M6 PO reviews (Game feel scored 4): one test gap, then game-feel items. None blocks. **Planned (PO, 2026-10-24):** items marked → go to that milestone. The rest were triaged with the UX audit (§ UX passes): the game-over cue → M13, the last-round cue → M14, spectators' piles → M12, the `sound.ts` nit → M8, and quick reactions are deferred.
 - **→ M8. Do first: an E2E for a full discard-and-flip turn.** Since PR #7, `botStep` swaps the drawn card into a face-down slot, so no E2E in CI, and not the live smoke test, ever finishes draw → discard → flip; "discard mode can be cancelled" only enters the mode and leaves it. Add one test on all 3 devices: draw, discard, flip, then check that one fewer card is face down, the drawn card is on the discard pile, and the turn has passed. The PO ran this as a throwaway spec in round 2: it passed in 2.2–3.1 s per device.
 - **→ M8. Fix the race in `e2e/sound.spec.ts`.** It failed the `main` run for PR #8 on Pixel (run 40105073659), and `failOnFlakyTests` blocked that deploy. The check "Ben heard a sound after Ana's flip" already passes on the deal sound, so Ana's second tap can land before her first flip comes back and hit the same card: Ben's table then shows 1 face-up card, not 2. Wait for Ana's grid to show 1 face-up card before the second tap, and count sounds from after the deal (PO, PR #10 review).
 - **→ M9. Let the final reveal play before the round summary.** At round end the summary sheet is fully opaque 200 ms after the last move, while the R11 flips are still animating under it (4 running animations at 0 ms; WebKit, 2 phones). Nobody sees the last hidden cards turn over or who gets doubled. Hold the sheet about 1 s, or until the flips finish (no hold with reduced motion).
