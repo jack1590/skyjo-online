@@ -7,6 +7,7 @@ import {
   allowIp,
   allowMessage,
   type Conn,
+  dead,
   EMPTY_IDLE_MS,
   HELLO_MS,
   IDLE_MS,
@@ -510,6 +511,31 @@ describe("socket cap", () => {
     expect(enter(t, "token-0-abcdef").out).toBe(players[0]);
     expect(enter(t, "token-2-abcdef").out?.token).toBe("token-2-abcdef");
     expect(t.live).toHaveLength(MAX_SOCKETS + 1);
+  });
+
+  it("SEC-2: a socket keeps the token of its first hello", () => {
+    const t = setup();
+    const [a] = t.seated(2);
+    expect(t.errorOf(() => t.send(a, { t: "hello", token: "token-1-abcdef" }))).toBe("bad-message");
+    expect(a.token).toBe("token-0-abcdef");
+    expect(t.errorOf(() => t.send(a, { t: "hello", token: "token-0-abcdef" }))).toBeNull();
+  });
+
+  it("SEC-2: at the cap a socket not seen for 2 × STALE_MS goes before anyone is turned away", () => {
+    const t = setup();
+    const players = t.seated(4);
+    // 16 phones that dropped without closing; the players keep pinging.
+    const dropped = Array.from({ length: MAX_SOCKETS - 4 }, (_, i) => {
+      t.advance(1_000, players);
+      return enter(t, watcher(i)).conn;
+    });
+    t.advance(2 * STALE_MS - 16_000, players);
+    const early = enter(t, watcher(98));
+    expect(early.out).toBe(early.conn);
+    t.advance(1_000, players);
+    expect(enter(t, watcher(99)).out).toBe(dropped[0]);
+    expect(dead(dropped[0], t.now())).toBe(true);
+    expect(players.some((c) => dead(c, t.now()))).toBe(false);
   });
 
   it("SEC-6: sockets that never said hello hold no place, and are silent once 10 s old", () => {

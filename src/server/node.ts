@@ -19,6 +19,7 @@ import {
   allowIp,
   allowMessage,
   type Conn,
+  dead,
   systemDeps as deps,
   newConn,
   newRoom,
@@ -26,7 +27,6 @@ import {
   Room,
   RoomError,
   randomCode,
-  STALE_MS,
   silent,
 } from "./room";
 
@@ -86,7 +86,7 @@ function alarm(code: string) {
   }
   // Phones that vanished without closing would otherwise get every broadcast until TCP gives up.
   for (const [ws, conn] of live.sockets) {
-    if (Date.now() - conn.seenAt > 2 * STALE_MS) ws.terminate();
+    if (dead(conn, Date.now())) ws.terminate();
   }
   live.room.tick([...live.sockets.values()]);
   commit(code);
@@ -195,11 +195,15 @@ function onConnection(ws: WebSocket, code: string, ip: string | null) {
     }
     const msg = parseClientMsg(raw);
     if (msg?.t === "hello" && conn.token === null) {
-      // SEC-2: turned away, or another socket makes room.
+      // SEC-2: turned away, or another socket makes room (a dead one just reconnects if it wakes).
       const out = live.room.admit(conn, msg.token, [...live.sockets.values()]);
       for (const [other, c] of live.sockets) {
         if (c !== out) continue;
         live.sockets.delete(other);
+        if (dead(c, Date.now())) {
+          other.close(1001, "Gone quiet");
+          continue;
+        }
         send(other, { t: "full" });
         other.close(CLOSE_ROOM_FULL, "Room full");
       }

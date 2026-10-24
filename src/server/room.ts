@@ -107,6 +107,9 @@ export const HELLO_MS = 10_000;
 export const silent = (conn: Conn, now: number) =>
   conn.token === null && now - conn.openedAt >= HELLO_MS;
 
+/** No message or ping for 2 × STALE_MS (pings come every 20 s): a phone that dropped without closing. */
+export const dead = (conn: Conn, now: number) => now - conn.seenAt >= 2 * STALE_MS;
+
 /** Real clock and CSPRNG; both runtimes (Workers, Node 22) have a global `crypto`. */
 export const systemDeps: Deps = {
   now: () => Date.now(),
@@ -220,7 +223,11 @@ export class Room {
     const online = this.online(live);
     conn.seenAt = now;
     if (msg.seq !== undefined) conn.ack = Math.max(conn.ack, msg.seq);
-    if (msg.t === "hello") conn.token = msg.token;
+    if (msg.t === "hello") {
+      // A socket keeps its first token, so it can't slip past the socket cap as another (SEC-2).
+      if (conn.token !== null && conn.token !== msg.token) throw new RoomError("bad-message");
+      conn.token = msg.token;
+    }
     if (conn.token === null) throw new RoomError("bad-message");
     const seat = this.seatOf(conn);
     if (seat !== null) this.data.seats[seat].seenAt = now;
@@ -287,16 +294,18 @@ export class Room {
 
   /**
    * The socket to close so `conn`, saying its first hello as `token`, fits under MAX_SOCKETS
-   * (SEC-2), or null. Only sockets that said hello count. In a full room anyone takes the place of
-   * their own least recently seen socket (a phone that dropped without closing leaves one behind).
-   * Without one, a spectator is turned away (`conn` itself), and a seated player still gets in, in
-   * place of the least recently seen spectator. So seats can't grow a room past the cap by more than
-   * one each.
+   * (SEC-2), or null. Only sockets that said hello count. In a full room, in this order:
+   * - a `dead` socket goes first: phones that drop without closing leave sockets behind;
+   * - anyone takes the place of their own least recently seen socket;
+   * - otherwise a spectator is turned away (`conn` itself);
+   * - a seated player always gets in, in place of the least recently seen spectator, or over the
+   *   cap when there's none: one socket at most per seat, since a socket keeps its first token.
    */
   admit(conn: Conn, token: string, live: Conn[]): Conn | null {
     const others = live.filter((c) => c !== conn && c.token !== null);
     if (others.length < MAX_SOCKETS) return null;
     others.sort((a, b) => a.seenAt - b.seenAt);
+    if (dead(others[0], this.deps.now())) return others[0];
     const own = others.find((c) => c.token === token);
     if (own) return own;
     if (!this.data.seats.some((s) => s.token === token)) return conn;

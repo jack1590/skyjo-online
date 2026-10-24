@@ -602,6 +602,38 @@ describe("RoomDO socket cap (SEC-2, SEC-6)", () => {
     expect(t.sockets.filter((ws) => ws.closed === null)).toHaveLength(MAX_SOCKETS);
   });
 
+  it("SEC-2: a socket keeps its first token, so saying hello again as someone else can't grow a room past the cap", async () => {
+    const t = await harness();
+    const [a] = await t.seat(2);
+    for (let i = 0; i < MAX_SOCKETS - 2; i++) {
+      const ws = await t.connect();
+      await t.send(ws, { t: "hello", token: token(1) });
+    }
+    await t.send(a, { t: "hello", token: token(1) });
+    expect(a.sent.at(-1)).toMatchObject({ t: "error", code: "bad-message" });
+    // Before the fix: each round got a socket in as seat 0, then moved it to seat 1 (60 in 80 s).
+    for (let i = 0; i < 10; i++) {
+      const ws = await t.connect();
+      await t.send(ws, { t: "hello", token: token(0) });
+      await t.send(ws, { t: "hello", token: token(1) });
+    }
+    expect(t.sockets.filter((ws) => ws.closed === null)).toHaveLength(MAX_SOCKETS);
+  });
+
+  it("SEC-2: at the cap a socket not seen for 2 × STALE_MS makes room for a newcomer, with an ordinary close", async () => {
+    const t = await harness();
+    const players = await t.seat(4);
+    const dropped = await watch(t, MAX_SOCKETS - 4); // these phones drop without closing
+    await t.advance(2 * STALE_MS, players);
+    const friend = await t.connect(AWAY);
+    await t.send(friend, { t: "hello", token: token(50) });
+    await t.send(friend, { t: "join", name: "P4" });
+    expect(lastView(friend).you).toBe(4);
+    expect(dropped[0].closed).toBe(1001); // a frozen phone that wakes up just reconnects
+    expect(dropped[0].sent.at(-1)?.t).not.toBe("full");
+    expect(t.sockets.filter((ws) => ws.closed === null)).toHaveLength(MAX_SOCKETS);
+  });
+
   it("SEC-6: a hello that comes over 10 s late is closed with an ordinary code, which the app retries, not told the room is full", async () => {
     const t = await harness();
     await t.seat(2);

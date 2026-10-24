@@ -14,6 +14,7 @@ import {
   allowMessage,
   type Change,
   type Conn,
+  dead,
   systemDeps as deps,
   ipKey,
   newConn,
@@ -181,12 +182,16 @@ export class RoomDO extends DurableObject<Env> {
     }
     const msg = parseClientMsg(raw);
     if (msg?.t === "hello" && conn.token === null) {
-      // SEC-2: turned away, or another socket makes room. Told in-band, as close codes can get lost.
+      // SEC-2: turned away, or another socket makes room: a dead one just reconnects if it wakes;
+      // the others are told in-band, as close codes can get lost.
       const out = room.admit(conn, msg.token, [...live.values()]);
       for (const [other, c] of live) {
         if (c !== out) continue;
-        send(other, { t: "full" });
-        shut(other, c, CLOSE_ROOM_FULL, "Room full");
+        if (dead(c, Date.now())) shut(other, c, 1001, "Gone quiet");
+        else {
+          send(other, { t: "full" });
+          shut(other, c, CLOSE_ROOM_FULL, "Room full");
+        }
         live.delete(other);
       }
       if (out === conn) return;
