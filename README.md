@@ -2,12 +2,14 @@
 
 A free, phone-first multiplayer card game based on Skyjo's mechanics. Open a link, pick a name, and play with 2–8 friends in real time. No accounts. Available in English, Spanish (Latin America), and Portuguese (Brazil).
 
-> Work in progress. See [`docs/PLAN.md`](docs/PLAN.md) for the roadmap. Deploy and self-host sections land with their milestones.
+See [`docs/PLAN.md`](docs/PLAN.md) for the roadmap and how it was built.
 
 ## Play
 
 - **Online with friends:** tap **Create a room**, then **Invite friends** to share the link (or read out the 5-letter code). Everyone enters a name and joins. The host taps **Start game**. If you reload or lose signal, you get your seat back automatically. A ninth person, or anyone arriving mid-game, watches until the game ends.
-- **On one phone:** pick 2–8 players and pass the phone around.
+- **On one phone:** pick 2–8 players and pass the phone around. This works offline too, once the app has loaded.
+- **Install it:** on Android, Chrome offers _Install app_. On iPhone, tap **Share → Add to Home Screen**. It then opens full-screen like an app.
+- **If a phone drops:** everyone sees "Cris is offline · auto-move in 42 s". After 60 s the server plays a safe move for them: draw, discard, flip their first face-down card. They get their seat back as soon as they reconnect.
 
 ## How to play
 

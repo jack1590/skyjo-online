@@ -25,9 +25,11 @@ interface CardProps {
   onClick?: () => void;
   highlight?: boolean;
   testId?: string;
+  /** Registers the element so moves can be animated from/to it. */
+  cardRef?: (el: HTMLElement | null) => void;
 }
 
-export function Card({ slot, size, label, onClick, highlight, testId }: CardProps) {
+export function Card({ slot, size, label, onClick, highlight, testId, cardRef }: CardProps) {
   const { t } = useI18n();
   const face = slot === null ? "gone" : slot === "down" ? "down" : "up";
   const description =
@@ -46,11 +48,11 @@ export function Card({ slot, size, label, onClick, highlight, testId }: CardProp
   };
   const content = typeof slot === "number" ? <span className="num">{formatCard(slot)}</span> : null;
   return onClick ? (
-    <button type="button" {...props} onClick={onClick}>
+    <button type="button" {...props} ref={cardRef} onClick={onClick}>
       {content}
     </button>
   ) : (
-    <div role="img" {...props}>
+    <div role="img" {...props} ref={cardRef}>
       {content}
     </div>
   );

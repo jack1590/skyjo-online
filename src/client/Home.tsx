@@ -2,8 +2,23 @@ import { type FormEvent, useState } from "react";
 import { MAX_PLAYERS, MIN_PLAYERS } from "../engine/game";
 import { CODE_LENGTH, isRoomCode } from "../protocol";
 import { LOCALES, type Locale, useI18n } from "./i18n";
+import { useOnline } from "./useOnline";
 
 const NAMES_KEY = "skyjo:names";
+const IOS_HINT_KEY = "skyjo:ios-hint-dismissed";
+
+/** iOS Safari has no install prompt, so say how; once dismissed (or installed), never again. */
+function shouldShowIosHint(): boolean {
+  try {
+    const ios = /iPhone|iPad|iPod/.test(navigator.userAgent);
+    const installed =
+      (navigator as Navigator & { standalone?: boolean }).standalone === true ||
+      window.matchMedia("(display-mode: standalone)").matches;
+    return ios && !installed && !localStorage.getItem(IOS_HINT_KEY);
+  } catch {
+    return false;
+  }
+}
 
 /** Last hot-seat names, so a rematch after Quit doesn't mean retyping everyone. */
 function loadNames(): string[] {
@@ -30,6 +45,16 @@ export function Home({ onStart }: { onStart: (names: string[]) => void }) {
     setNames((prev) => Array.from({ length: count }, (_, i) => prev[i] ?? ""));
 
   const [code, setCode] = useState("");
+  const [iosHint, setIosHint] = useState(shouldShowIosHint);
+  const online = useOnline();
+  const dismissHint = () => {
+    setIosHint(false);
+    try {
+      localStorage.setItem(IOS_HINT_KEY, "1");
+    } catch {
+      // Shown again next visit; harmless.
+    }
+  };
   const [creating, setCreating] = useState(false);
   const [createFailed, setCreateFailed] = useState(false);
 
@@ -81,9 +106,28 @@ export function Home({ onStart }: { onStart: (names: string[]) => void }) {
       </h1>
       <p className="tagline">{t("tagline")}</p>
 
+      {iosHint && (
+        <div className="panel hint" role="note">
+          <p>{t("installHint")}</p>
+          <button type="button" className="btn" onClick={dismissHint}>
+            {t("gotIt")}
+          </button>
+        </div>
+      )}
+
       <section className="panel">
         <h2>{t("playOnline")}</h2>
-        <button type="button" className="btn primary" disabled={creating} onClick={createRoom}>
+        {!online && (
+          <p className="tagline" role="status">
+            {t("offlineHome")}
+          </p>
+        )}
+        <button
+          type="button"
+          className="btn primary"
+          disabled={creating || !online}
+          onClick={createRoom}
+        >
           {t("createRoom")}
         </button>
         {createFailed && (

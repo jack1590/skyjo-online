@@ -1,8 +1,9 @@
-import { type CSSProperties, type ReactNode, useEffect, useState } from "react";
+import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from "react";
 import type { Action } from "../engine/game";
 import type { GameView, ViewSlot } from "../engine/view";
 import { Card } from "./Card";
 import { type T, useI18n } from "./i18n";
+import { slotKey, useCountUp, useFlights, useReducedMotion } from "./motion";
 
 interface TableProps {
   view: GameView;
@@ -14,6 +15,8 @@ interface TableProps {
   connected?: boolean[];
   /** Online play: "Your turn" pill and a buzz when your turn starts. */
   online?: boolean;
+  /** Online: the offline seat the table waits on, and ms until the server moves for it. */
+  wait?: { seat: number; inMs: number } | null;
   onAction: (action: Action) => void;
   onPlayAgain: () => void;
   onExit: () => void;
@@ -36,6 +39,7 @@ export function Table(props: TableProps) {
     lead = true,
     connected,
     online,
+    wait,
   } = props;
   const { t } = useI18n();
   const { phase, players } = view;
@@ -59,6 +63,28 @@ export function Table(props: TableProps) {
     if (online && myTurn && navigator.userActivation?.hasBeenActive) navigator.vibrate?.(40);
   }, [online, myTurn]);
   const discardMode = discarding && myTurn && phase === "place" && view.drawnFrom === "deck";
+
+  const reg = useFlights(view);
+
+  // On short screens the grid can be below the fold: bring it into view when your turn starts.
+  const gridRef = useRef<HTMLDivElement>(null);
+  const reduced = useReducedMotion();
+  useEffect(() => {
+    if (!myTurn) return;
+    // Wait for layout to settle (fonts, the first paint) before deciding whether to scroll.
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => {
+        const grid = gridRef.current;
+        const r = grid?.getBoundingClientRect();
+        if (grid && r && (r.top < 0 || r.bottom > window.innerHeight)) {
+          grid.scrollIntoView({ block: "end", behavior: reduced ? "auto" : "smooth" });
+        }
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [myTurn, reduced]);
+
+  const waitSeconds = useCountdown(wait);
 
   const act = (action: Action) => {
     setDiscarding(false);
@@ -155,8 +181,14 @@ export function Table(props: TableProps) {
               </div>
               <div className="mini">
                 {p.grid.map((slot, pos) => (
-                  // biome-ignore lint/suspicious/noArrayIndexKey: grid position is the identity
-                  <Card key={pos} slot={slot} size="sm" label={`${p.name}, ${where(t, pos)}`} />
+                  <Card
+                    // biome-ignore lint/suspicious/noArrayIndexKey: grid position is the identity
+                    key={pos}
+                    slot={slot}
+                    size="sm"
+                    label={`${p.name}, ${where(t, pos)}`}
+                    cardRef={reg(slotKey(i, pos))}
+                  />
                 ))}
               </div>
             </div>
@@ -173,6 +205,7 @@ export function Table(props: TableProps) {
             testId="deck"
             highlight={!!onDeck}
             onClick={onDeck}
+            cardRef={reg("deck")}
           />
           <span className="pile-label">{t("deckCount", { n: view.deckCount })}</span>
         </div>
@@ -183,6 +216,7 @@ export function Table(props: TableProps) {
               size="md"
               label={t("drawnCard")}
               testId="drawn"
+              cardRef={reg("drawn")}
               highlight={!discardMode}
               onClick={discardMode ? () => setDiscarding(false) : undefined}
             />
@@ -197,10 +231,19 @@ export function Table(props: TableProps) {
             testId="discard"
             highlight={!!onDiscard}
             onClick={onDiscard}
+            cardRef={reg("discard")}
           />
           <span className="pile-label">{t("discard")}</span>
         </div>
       </section>
+
+      {wait && waitSeconds !== null && wait.seat !== seat && (
+        <p className="offline-note">
+          {/* Announce who is offline once; the ticking seconds would be re-read every second. */}
+          <span role="status">{t("offlineNote", { name: players[wait.seat]?.name ?? "" })}</span>
+          <span aria-hidden="true"> · {t("autoMoveIn", { s: waitSeconds })}</span>
+        </p>
+      )}
 
       {banner ?? (
         <p className="prompt" aria-live="polite">
@@ -216,6 +259,7 @@ export function Table(props: TableProps) {
           </div>
           <div className="grid-wrap">
             <div
+              ref={gridRef}
               className={`grid${myTurn ? " active" : ""}`}
               data-testid="my-grid"
               data-seat={seat}
@@ -228,6 +272,7 @@ export function Table(props: TableProps) {
                   size="lg"
                   label={`${me.name}, ${where(t, pos)}`}
                   onClick={onMyCard(seat, pos, slot)}
+                  cardRef={reg(slotKey(seat, pos))}
                 />
               ))}
             </div>
@@ -332,10 +377,19 @@ function Summary({ view, lead, onPeek, onNext, onPlayAgain, onExit }: SummaryPro
                   {p.seat === view.ender && <span className="tag">{t("ended")}</span>}
                 </td>
                 <td>
-                  {p.scores.at(-1)}
-                  {p.seat === view.ender && view.doubled && <span className="tag x2">×2</span>}
+                  {p.seat === view.ender && view.doubled ? (
+                    // "57 ×2 = 114": the doubling already happened, and the base is visible.
+                    <>
+                      {(p.scores.at(-1) ?? 0) / 2}
+                      <span className="tag x2">×2</span> = {p.scores.at(-1)}
+                    </>
+                  ) : (
+                    p.scores.at(-1)
+                  )}
                 </td>
-                <td>{p.total}</td>
+                <td>
+                  <CountUp from={p.total - (p.scores.at(-1) ?? 0)} to={p.total} />
+                </td>
               </tr>
             ))}
           </tbody>
@@ -362,4 +416,25 @@ function Summary({ view, lead, onPeek, onNext, onPlayAgain, onExit }: SummaryPro
       </div>
     </div>
   );
+}
+
+/** Totals tick up from last round's value. */
+function CountUp({ from, to }: { from: number; to: number }) {
+  return <>{useCountUp(from, to)}</>;
+}
+
+/** Seconds left until `wait.inMs` (counted from when it arrived), ticking once a second. */
+function useCountdown(wait: { seat: number; inMs: number } | null | undefined): number | null {
+  const [deadline, setDeadline] = useState<number | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    setDeadline(wait ? Date.now() + wait.inMs : null);
+    setNow(Date.now());
+  }, [wait]);
+  useEffect(() => {
+    if (deadline === null) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [deadline]);
+  return deadline === null ? null : Math.max(0, Math.ceil((deadline - now) / 1000));
 }

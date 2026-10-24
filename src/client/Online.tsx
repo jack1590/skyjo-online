@@ -3,6 +3,7 @@ import { MAX_PLAYERS } from "../engine/game";
 import { type ClientMsg, type ErrorCode, NAME_MAX, type RoomView } from "../protocol";
 import { type Key, useI18n } from "./i18n";
 import { Table } from "./Table";
+import { useOnline } from "./useOnline";
 import { useRoom } from "./useRoom";
 
 const ERRORS: Record<ErrorCode, Key> = {
@@ -19,6 +20,7 @@ const goHome = () => window.location.assign("/");
 export function Online({ code }: { code: string }) {
   const { t } = useI18n();
   const { room, status, error, clearError, send } = useRoom(code);
+  const online = useOnline();
 
   useEffect(() => {
     if (!error) return;
@@ -39,7 +41,12 @@ export function Online({ code }: { code: string }) {
   if (!room) {
     return (
       <main className="home">
-        <p className="tagline">{t("connecting")}</p>
+        <p className="tagline">{online ? t("connecting") : t("offlineRoom")}</p>
+        {!online && (
+          <button type="button" className="btn primary" onClick={goHome}>
+            {t("home")}
+          </button>
+        )}
       </main>
     );
   }
@@ -76,6 +83,7 @@ export function Online({ code }: { code: string }) {
         seat={room.you}
         lead={room.lead}
         connected={room.seats.map((s) => s.connected)}
+        wait={room.wait}
         online
         onAction={(action) => send({ t: "act", action })}
         onPlayAgain={() => send({ t: "rematch" })}

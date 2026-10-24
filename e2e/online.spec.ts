@@ -143,6 +143,15 @@ test("a phone that joins mid-game watches without a grid", async ({ browser }, i
   expect(tooSmall).toBe(0);
 });
 
+test("everyone sees who is offline and when the server will move for them", async ({
+  browser,
+}, info) => {
+  const { pages } = await seatedRoom(browser, info, ["Ana", "Ben"]);
+  await startGame(pages[0]);
+  await pages[1].context().close(); // Ben's phone dies during the opening flip
+  await expect(pages[0].getByText(/^Ben is offline · auto-move in \d+ s$/)).toBeVisible();
+});
+
 test("a 9th phone can't take a seat and watches instead", async ({ browser }, info) => {
   test.skip(info.project.name !== "pixel", "9 contexts; one device is enough");
   const names = ["Ana", "Ben", "Cris", "Dani", "Eli", "Fer", "Gabi", "Hugo"];
@@ -200,6 +209,26 @@ test("bad input doesn't take the server down", async ({ page, request, baseURL }
   // Still serving, and the room still exists.
   await page.goto(`/r/${code}`);
   await expect(page.getByTestId("room-code")).toHaveText(code);
+});
+
+test("m5 screenshots", async ({ browser }, info) => {
+  test.skip(!process.env.SHOTS || info.project.name !== "iphone", "run with SHOTS=1");
+  const shot = (page: Page, name: string) =>
+    page.screenshot({
+      path: `docs/screenshots/m5/${name}.jpg`,
+      type: "jpeg",
+      quality: 80,
+      scale: "css",
+      animations: "disabled",
+    });
+  const [home] = await phones(browser, info, 1);
+  await home.goto("/");
+  await shot(home, "01-home-install-hint");
+  const { pages } = await seatedRoom(browser, info, ["Ana", "Ben", "Cris"]);
+  await startGame(pages[0]);
+  await pages[2].context().close();
+  await expect(pages[0].getByText(/Cris is offline/)).toBeVisible();
+  await shot(pages[0], "02-offline-countdown");
 });
 
 test("an unknown room code says so, including codes that can't exist", async ({ page }) => {

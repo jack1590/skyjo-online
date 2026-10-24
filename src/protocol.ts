@@ -50,6 +50,8 @@ export interface RoomView {
   you: number | null;
   /** Whether you may start, advance rounds, and rematch (the host, or anyone if the host is away). */
   lead: boolean;
+  /** The offline seat the table is waiting on, and ms until the server moves for it. */
+  wait: { seat: number; inMs: number } | null;
   game: GameView | null;
 }
 
