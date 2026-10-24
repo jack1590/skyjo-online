@@ -88,6 +88,10 @@ const en = {
   errNameTaken: "That name is taken.",
   errIllegalMove: "That move isn't allowed.",
   removePlayer: "Remove {name}",
+  playersOne: "1 player",
+  flipOnePlain: "Flip 1 card",
+  flipManyPlain: "Flip {n} cards",
+  drawPlain: "Draw from the deck or take the discard",
 };
 
 export type Key = keyof typeof en;
@@ -181,6 +185,10 @@ const es: Record<Key, string> = {
   errNameTaken: "Ese nombre ya está en uso.",
   errIllegalMove: "Esa jugada no está permitida.",
   removePlayer: "Quitar a {name}",
+  playersOne: "1 jugador",
+  flipOnePlain: "Voltea 1 carta",
+  flipManyPlain: "Voltea {n} cartas",
+  drawPlain: "Roba del mazo o toma el descarte",
 };
 
 /** Brazilian Portuguese. */
@@ -273,6 +281,10 @@ const pt: Record<Key, string> = {
   errNameTaken: "Esse nome já está em uso.",
   errIllegalMove: "Essa jogada não é permitida.",
   removePlayer: "Remover {name}",
+  playersOne: "1 jogador",
+  flipOnePlain: "Vire 1 carta",
+  flipManyPlain: "Vire {n} cartas",
+  drawPlain: "Compre do monte ou pegue o descarte",
 };
 
 export const LOCALES = {

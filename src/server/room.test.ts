@@ -111,6 +111,9 @@ describe("lobby", () => {
     expect(t.errorOf(() => t.send(c, { t: "join", name: "p0" }))).toBe("name-taken");
     t.send(c, { t: "join", name: "  Ana​‮  " });
     expect(t.room.data.seats[1].name).toBe("Ana");
+    const d = t.connect("token-y-abcdef");
+    t.send(d, { t: "join", name: `${"x".repeat(15)}😀😀` });
+    expect(t.room.data.seats[2].name).toBe(`${"x".repeat(15)}😀`);
   });
 
   it("a 9th player stays a spectator", () => {

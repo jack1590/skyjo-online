@@ -94,8 +94,9 @@ export function allowMessage(conn: Conn, now: number): boolean {
   return ++conn.windowCount <= WINDOW_MAX;
 }
 
-/** Strips control/format characters (zero-width, bidi overrides), trims, caps length. */
-const cleanName = (name: string) => name.replace(/\p{C}/gu, "").trim().slice(0, NAME_MAX).trim();
+/** Strips control/format characters (zero-width, bidi overrides), trims, caps length in code points (never splits an emoji). */
+const cleanName = (name: string) =>
+  [...name.replace(/\p{C}/gu, "").trim()].slice(0, NAME_MAX).join("").trim();
 
 export class Room {
   constructor(
