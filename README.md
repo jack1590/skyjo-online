@@ -41,7 +41,7 @@ The app, the Worker and one Durable Object per room deploy together to Cloudflar
 One-time setup:
 1. Create a free Cloudflare account. In **Workers & Pages**, pick a `workers.dev` subdomain. Don't create an application; the first deploy does that.
 2. Create an API token from the **Edit Cloudflare Workers** template.
-3. In the GitHub repo settings, add the secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
+3. In the GitHub repo settings, add the secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. Stricter option: add them as secrets of the `production` environment, and limit that environment's deployment branches to `main`. The deploy job already uses that environment, so only `main` can then read them.
 
 The game is then live at `https://skyjo-online.<your-subdomain>.workers.dev`. To redeploy by hand, run the CI workflow on `main` from the Actions tab. From your own machine, run `npx wrangler login`, then `npm run build && npx wrangler deploy`.
 

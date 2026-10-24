@@ -82,6 +82,8 @@ jobs:
       - run: npm ci
       - run: npm run build
       - id: deploy
+        # bash (not the default `bash -e {0}`) turns on pipefail, so a failed deploy fails here, not behind `tee`.
+        shell: bash
         run: |
           npx wrangler deploy | tee deploy.log
           echo "url=$(grep -oE 'https://[a-z0-9.-]+\.workers\.dev' deploy.log | head -1)" >> "$GITHUB_OUTPUT"
@@ -101,6 +103,15 @@ jobs:
         env:
           BASE_URL: ${{ needs.deploy.outputs.url }}
       - run: npm ci
+      # A brand-new workers.dev route can take a few seconds to answer.
+      - run: |
+          for i in $(seq 1 20); do
+            node -e "fetch(process.env.BASE_URL).then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))" && exit 0
+            sleep 3
+          done
+          exit 1
+        env:
+          BASE_URL: ${{ needs.deploy.outputs.url }}
       # Two phones play a full game to 100 and a reload keeps the seat, against the live site.
       - run: npx playwright test e2e/online.spec.ts --project=pixel -g "two phones|keeps your seat"
         env:

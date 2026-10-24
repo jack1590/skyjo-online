@@ -3,7 +3,7 @@
 // snapshot on commit if self-hosting ever needs to survive restarts.
 import { randomBytes, webcrypto } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
-import { createServer } from "node:http";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { extname, join, resolve, sep } from "node:path";
 import { type WebSocket, WebSocketServer } from "ws";
 import type { Rng } from "../engine/rng";
@@ -17,9 +17,11 @@ import {
   parseClientMsg,
   type ServerMsg,
 } from "../protocol";
-import { allowMessage, type Conn, newConn, newRoom, Room, RoomError } from "./room";
+import { allowMessage, type Conn, newConn, newRoom, Room, RoomError, STALE_MS } from "./room";
 
 const PORT = Number(process.env.PORT ?? 8787);
+/** Memory cap: each room holds state and a timer for up to 24 h. */
+const MAX_ROOMS = 1000;
 const ROOT = resolve(process.env.STATIC_DIR ?? "dist/client");
 const TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -76,9 +78,16 @@ function alarm(code: string) {
     rooms.delete(code);
     return;
   }
+  // Phones that vanished without closing would otherwise get every broadcast until TCP gives up.
+  for (const [ws, conn] of live.sockets) {
+    if (Date.now() - conn.seenAt > 2 * STALE_MS) ws.terminate();
+  }
   live.room.tick([...live.sockets.values()]);
   commit(code);
 }
+
+/** Path without query; never throws (`new URL("//", base)` does). */
+const pathOf = (url: string | undefined) => (url ?? "/").split("?")[0] ?? "/";
 
 async function isFile(path: string) {
   try {
@@ -88,9 +97,21 @@ async function isFile(path: string) {
   }
 }
 
-const server = createServer(async (req, res) => {
-  const url = new URL(req.url ?? "/", "http://localhost");
-  if (url.pathname === "/api/rooms" && req.method === "POST") {
+const server = createServer((req, res) => {
+  handle(req, res).catch((e) => {
+    console.error(e);
+    if (!res.headersSent) res.writeHead(500);
+    res.end("Server error");
+  });
+});
+
+async function handle(req: IncomingMessage, res: ServerResponse) {
+  const pathname = pathOf(req.url);
+  if (pathname === "/api/rooms" && req.method === "POST") {
+    if (rooms.size >= MAX_ROOMS) {
+      res.writeHead(503).end("Too many rooms, try again later");
+      return;
+    }
     let code = randomCode();
     while (rooms.has(code)) code = randomCode();
     rooms.set(code, { room: new Room(newRoom(code, Date.now()), deps), sockets: new Map() });
@@ -98,28 +119,29 @@ const server = createServer(async (req, res) => {
     res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ code }));
     return;
   }
-  if (url.pathname.startsWith("/api/")) {
+  if (pathname.startsWith("/api/")) {
     res.writeHead(404).end("Not found");
     return;
   }
   // Static files; anything else (e.g. /r/CODE) gets the app shell. Paths can't escape ROOT.
   let path = join(ROOT, "index.html");
   try {
-    const candidate = resolve(join(ROOT, decodeURIComponent(url.pathname)));
+    const candidate = resolve(join(ROOT, decodeURIComponent(pathname)));
     if (candidate.startsWith(ROOT + sep) && (await isFile(candidate))) path = candidate;
   } catch {
     res.writeHead(400).end("Bad request");
     return;
   }
+  const body = await readFile(path); // rejects (→ 500) if the app wasn't built
   res.writeHead(200, { "content-type": TYPES[extname(path)] ?? "application/octet-stream" });
-  res.end(await readFile(path));
-});
+  res.end(body);
+}
 
 const wss = new WebSocketServer({ noServer: true, maxPayload: 4096 });
 
 server.on("upgrade", (req, socket, head) => {
-  const path = new URL(req.url ?? "/", "http://localhost").pathname;
-  const code = path.match(/^\/api\/rooms\/([A-Z0-9]+)\/ws$/)?.[1];
+  socket.on("error", () => socket.destroy()); // e.g. a reset mid-handshake
+  const code = pathOf(req.url).match(/^\/api\/rooms\/([A-Z0-9]+)\/ws$/)?.[1];
   if (!code || !isRoomCode(code)) {
     socket.destroy();
     return;
@@ -137,6 +159,9 @@ function onConnection(ws: WebSocket, code: string) {
   }
   const conn = newConn(Date.now());
   live.sockets.set(ws, conn);
+  // Oversized or malformed frames emit 'error'; without a listener that kills the process.
+  // ws closes the socket itself afterwards.
+  ws.on("error", () => {});
   ws.on("message", (data) => {
     const raw = data.toString();
     conn.seenAt = Date.now();
@@ -153,6 +178,8 @@ function onConnection(ws: WebSocket, code: string) {
       const msg = parseClientMsg(raw);
       if (!msg) throw new RoomError("bad-message");
       live.room.receive(conn, msg, conns);
+      live.room.tick(conns);
+      commit(code);
     } catch (e) {
       if (e instanceof RoomError) {
         send(ws, { t: "error", code: e.code, ack: conn.ack });
@@ -160,10 +187,7 @@ function onConnection(ws: WebSocket, code: string) {
         console.error(e);
         ws.close(1011, "Server error");
       }
-      return;
     }
-    live.room.tick(conns);
-    commit(code);
   });
   ws.on("close", () => {
     live.sockets.delete(ws);
