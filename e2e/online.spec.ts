@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { botStep, createRoom, phones, playToEnd, seatedRoom, startGame } from "./helpers";
+import { botStep, createRoom, join, phones, playToEnd, seatedRoom, startGame } from "./helpers";
 
 test("two phones create, join, and play a full game to 100", async ({ browser }, info) => {
   test.skip(info.project.name !== "pixel", "long play-throughs run on Pixel only");
@@ -213,6 +213,143 @@ test("a network over the server's per-IP limit is asked to wait, not to check it
   if (process.env.SHOTS && info.project.name === "iphone") {
     await page.screenshot({ path: "docs/screenshots/sec1/01-too-many-requests.jpg", scale: "css" });
   }
+});
+
+test("a room with 20 connections turns a spectator away for good, and a player who reloads still gets in", async ({
+  browser,
+}, info) => {
+  const [host, filler, late] = await phones(browser, info, 3);
+  const code = await createRoom(host);
+  await join(host, code, "Ana");
+  // 19 more spectators' sockets, from one page: the room is at its cap of 20.
+  await filler.goto("/");
+  await filler.evaluate(
+    ({ code, n }) => {
+      const url = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/rooms/${code}/ws`;
+      const sockets = Array.from({ length: n }, () => new WebSocket(url));
+      (window as unknown as { sockets: WebSocket[] }).sockets = sockets;
+      return Promise.all(
+        sockets.map(
+          (ws, i) =>
+            new Promise((done) => {
+              ws.onopen = () =>
+                ws.send(JSON.stringify({ t: "hello", token: `watcher-${i}-abcdef` }));
+              ws.onmessage = done;
+            }),
+        ),
+      );
+    },
+    { code, n: 19 },
+  );
+  let opened = 0;
+  late.on("websocket", () => opened++);
+  await late.goto(`/r/${code}`);
+  const full = `Room ${code} is full: too many people are connected. Try again later.`;
+  await expect(late.getByText(full)).toBeVisible();
+  await expect(late.getByRole("button", { name: "Home" })).toBeVisible();
+  if (process.env.SHOTS && info.project.name === "iphone") {
+    await late.screenshot({ path: "docs/screenshots/sec2/01-room-full.jpg", scale: "css" });
+  }
+  // Whether or not the server sees the old socket close first, the player gets its seat back
+  // and no spectator loses their place.
+  await host.reload();
+  await expect(host.getByTestId("seats")).toContainText("you");
+  const open = await filler.evaluate(
+    () =>
+      (window as unknown as { sockets: WebSocket[] }).sockets.filter(
+        (ws) => ws.readyState === WebSocket.OPEN,
+      ).length,
+  );
+  expect(open).toBe(19);
+  // The turned-away phone doesn't retry (a retry would come within 0.5 s).
+  await late.waitForTimeout(2_000);
+  expect(opened).toBe(1);
+  await expect(late.getByText(full)).toBeVisible();
+});
+
+test("a socket can't slip past the 20-socket cap by saying hello again as someone else", async ({
+  page,
+}, info) => {
+  test.skip(info.project.name !== "pixel", "a server rule; one device is enough");
+  await page.goto("/");
+  const open = await page.evaluate(async () => {
+    const { code } = (await (await fetch("/api/rooms", { method: "POST" })).json()) as {
+      code: string;
+    };
+    const url = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/rooms/${code}/ws`;
+    const sockets: WebSocket[] = [];
+    /** Sends `msg` and waits for the server's answer. */
+    const say = (ws: WebSocket, msg: object) =>
+      new Promise((done) => {
+        ws.onmessage = done;
+        ws.send(JSON.stringify(msg));
+      });
+    const connect = async (token: string) => {
+      const ws = new WebSocket(url);
+      sockets.push(ws);
+      await new Promise((done) => {
+        ws.onopen = done;
+      });
+      await say(ws, { t: "hello", token });
+      return ws;
+    };
+    const [a, b] = ["seat-a-abcdef", "seat-b-abcdef"];
+    await say(await connect(a), { t: "join", name: "A" });
+    await say(await connect(b), { t: "join", name: "B" });
+    for (let i = 0; i < 18; i++) await connect(b);
+    // Each round gets a socket in as seat A, then says hello again as seat B. Before v2.0.5's fix,
+    // every round added a socket.
+    for (let i = 0; i < 10; i++) await say(await connect(a), { t: "hello", token: b });
+    await new Promise((done) => setTimeout(done, 500));
+    return sockets.filter((ws) => ws.readyState === WebSocket.OPEN).length;
+  });
+  expect(open).toBe(20);
+});
+
+test("a socket that never says hello gets nothing and is closed once it is 10 s old", async ({
+  page,
+}, info) => {
+  test.skip(info.project.name !== "pixel", "a server rule; one device is enough");
+  test.setTimeout(90_000);
+  await page.goto("/");
+  const { quiet, pinged } = await page.evaluate(async () => {
+    const { code } = (await (await fetch("/api/rooms", { method: "POST" })).json()) as {
+      code: string;
+    };
+    const url = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/rooms/${code}/ws`;
+    const wait = (ms: number) => new Promise((done) => setTimeout(done, ms));
+    /** A socket that sends `first` once it opens, if given, and records what it gets. */
+    const watch = (first?: string) => {
+      const ws = new WebSocket(url);
+      const seen = { got: 0, closed: 0, at: 0 };
+      ws.onopen = () => first && ws.send(first);
+      ws.onmessage = (e) => {
+        if (e.data !== "pong") seen.got++;
+      };
+      ws.onclose = (e) => {
+        seen.closed = e.code;
+        seen.at = Date.now();
+      };
+      return { ws, seen };
+    };
+    const host = watch(JSON.stringify({ t: "hello", token: "host-abcdef" }));
+    const quiet = watch();
+    const pinged = watch("ping");
+    await wait(500);
+    host.ws.send(JSON.stringify({ t: "join", name: "Ana" })); // a broadcast the silent ones mustn't get
+    await wait(10_500);
+    const swept = Date.now();
+    watch(); // the next socket's arrival sweeps them
+    for (let i = 0; i < 90 && !quiet.seen.closed; i++) await wait(500);
+    const after = ({ seen }: typeof quiet) => ({ ...seen, after: seen.at - swept });
+    return { quiet: after(quiet), pinged: after(pinged) };
+  });
+  expect(pinged).toMatchObject({ got: 0, closed: 1000 });
+  expect(pinged.after).toBeLessThan(2_000);
+  // On workerd, a socket that never sent a frame only learns of its close once the room's object
+  // goes idle (about 10 s) or after a 30 s close timeout. The server ignores it from the sweep on.
+  expect(quiet).toMatchObject({ got: 0, closed: 1000 });
+  expect(quiet.after).toBeLessThan(35_000);
 });
 
 test("the host can remove a player who left without leaving", async ({ browser }, info) => {

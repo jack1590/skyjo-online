@@ -1,6 +1,7 @@
 // Cloudflare adapter: one Durable Object per room, hibernatable WebSockets, state in DO storage.
 import { DurableObject } from "cloudflare:workers";
 import {
+  CLOSE_ROOM_FULL,
   CLOSE_TOO_MANY,
   CLOSE_UNKNOWN_ROOM,
   isRoomCode,
@@ -13,6 +14,7 @@ import {
   allowMessage,
   type Change,
   type Conn,
+  dead,
   systemDeps as deps,
   ipKey,
   newConn,
@@ -22,6 +24,7 @@ import {
   type RoomData,
   RoomError,
   randomCode,
+  silent,
 } from "./room";
 
 const send = (ws: WebSocket, msg: ServerMsg) => {
@@ -56,17 +59,17 @@ async function spend(env: Env, key: string, units: number): Promise<boolean> {
   return true;
 }
 
-/** A socket's attachment. `shut`: we closed it for a limit, so it is ignored until it's gone. */
+/** A socket's attachment. `shut`: we closed it, so it is ignored until it's gone. */
 type Attachment = Conn & { shut?: true };
 
 /**
- * Closes a socket over its IP's limit; it may be closing already. Marked first, so it stops counting
- * as live (or holding the room open) even if its client never answers the close.
+ * Closes a socket, by default one over its IP's limit; it may be closing already. Marked first, so
+ * it stops counting as live (or holding the room open) even if its client never answers the close.
  */
-function shut(ws: WebSocket, conn: Conn) {
+function shut(ws: WebSocket, conn: Conn, code = CLOSE_TOO_MANY, reason = "Too many messages") {
   ws.serializeAttachment({ ...conn, shut: true } satisfies Attachment);
   try {
-    ws.close(CLOSE_TOO_MANY, "Too many messages");
+    ws.close(code, reason);
   } catch {
     // Its close event cleans up.
   }
@@ -146,6 +149,7 @@ export class RoomDO extends DurableObject<Env> {
       const [client, server] = Object.values(new WebSocketPair());
       this.ctx.acceptWebSocket(server);
       if (await this.load()) {
+        this.live(); // a new socket's arrival closes the silent ones (SEC-6)
         // The attachment keeps the client's key through hibernation.
         server.serializeAttachment(newConn(Date.now(), clientKey(request)));
       } else {
@@ -176,9 +180,24 @@ export class RoomDO extends DurableObject<Env> {
       shut(ws, conn);
       return;
     }
+    const msg = parseClientMsg(raw);
+    if (msg?.t === "hello" && conn.token === null) {
+      // SEC-2: turned away, or another socket makes room: a dead one just reconnects if it wakes;
+      // the others are told in-band, as close codes can get lost.
+      const out = room.admit(conn, msg.token, [...live.values()]);
+      for (const [other, c] of live) {
+        if (c !== out) continue;
+        if (dead(c, Date.now())) shut(other, c, 1001, "Gone quiet");
+        else {
+          send(other, { t: "full" });
+          shut(other, c, CLOSE_ROOM_FULL, "Room full");
+        }
+        live.delete(other);
+      }
+      if (out === conn) return;
+    }
     let change: Change;
     try {
-      const msg = parseClientMsg(raw);
       if (!msg) throw new RoomError("bad-message");
       change = room.receive(conn, msg, [...live.values()]);
     } catch (e) {
@@ -253,12 +272,19 @@ export class RoomDO extends DurableObject<Env> {
     return this.room;
   }
 
-  /** Open sockets as the room sees them, counting runtime-answered pings as signs of life. */
+  /**
+   * Open sockets as the room sees them, counting runtime-answered pings as signs of life. Closes any
+   * that never said hello in time (SEC-6), so each event sweeps them at no extra cost.
+   */
   private live(): Map<WebSocket, Conn> {
     const live = new Map<WebSocket, Conn>();
     for (const ws of this.ctx.getWebSockets()) {
       const conn = ws.deserializeAttachment() as Attachment | null;
       if (!conn || conn.shut) continue;
+      if (silent(conn, Date.now())) {
+        shut(ws, conn, 1000, "No hello");
+        continue;
+      }
       const pinged = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? 0;
       live.set(ws, { ...conn, seenAt: Math.max(conn.seenAt, pinged) });
     }
@@ -276,7 +302,8 @@ export class RoomDO extends DurableObject<Env> {
     const conns = [...live.values()];
     if (change === "data") await this.ctx.storage.put("room", room.data);
     for (const [ws, conn] of live) {
-      if (change === "none" && ws !== from) continue;
+      // A socket that hasn't said hello gets nothing until it does (SEC-6).
+      if (conn.token === null || (change === "none" && ws !== from)) continue;
       send(ws, { t: "state", room: room.view(conn, conns), ack: conn.ack });
     }
     // An alarm that comes early just re-checks and re-arms, so only an earlier time needs a write.
