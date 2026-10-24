@@ -32,20 +32,24 @@ export function Home() {
     }
   };
   const [creating, setCreating] = useState(false);
-  const [createFailed, setCreateFailed] = useState(false);
+  const [createError, setCreateError] = useState<"createFailed" | "tooManyRequests" | null>(null);
 
   const createRoom = async () => {
     setCreating(true);
-    setCreateFailed(false);
+    setCreateError(null);
     try {
       const res = await fetch("/api/rooms", { method: "POST" });
-      if (!res.ok) throw new Error(String(res.status));
-      const { code } = (await res.json()) as { code: string };
-      window.location.assign(`/r/${code}`);
+      if (res.ok) {
+        const { code } = (await res.json()) as { code: string };
+        window.location.assign(`/r/${code}`);
+        return;
+      }
+      // 429: this network hit the server's per-IP limit, not a connection problem.
+      setCreateError(res.status === 429 ? "tooManyRequests" : "createFailed");
     } catch {
-      setCreateFailed(true);
-      setCreating(false);
+      setCreateError("createFailed");
     }
+    setCreating(false);
   };
 
   const joinRoom = (e: FormEvent) => {
@@ -96,9 +100,9 @@ export function Home() {
         >
           {t("createRoom")}
         </button>
-        {createFailed && (
+        {createError && (
           <p className="tagline" role="alert">
-            {t("createFailed")}
+            {t(createError)}
           </p>
         )}
         <form className="join-row" onSubmit={joinRoom}>
