@@ -1,7 +1,98 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { type Action, apply, createGame, type GameState } from "../engine/game";
 import { toView } from "../engine/view";
 import { soundsBetween } from "./sound";
+
+/** A fake AudioContext that records what the unlock does to it. */
+function fakeAudio(state: "suspended" | "running" | "interrupted") {
+  const started: number[] = [];
+  const calls: string[] = [];
+  const ctx = {
+    state,
+    sampleRate: 48000,
+    destination: {},
+    createGain: () => ({ gain: { value: 1 }, connect() {} }),
+    createBuffer: (_c: number, length: number) => ({ length }),
+    createBufferSource: () => ({
+      buffer: null as { length: number } | null,
+      connect() {},
+      start() {
+        started.push(this.buffer?.length ?? -1);
+      },
+    }),
+    decodeAudioData: async () => ({}),
+    async resume() {
+      calls.push("resume");
+      ctx.state = "running";
+    },
+    async suspend() {
+      calls.push("suspend");
+      ctx.state = "suspended";
+    },
+  };
+  // `new AudioContext()` hands back this one object.
+  vi.stubGlobal("AudioContext", function fake() {
+    return ctx;
+  });
+  vi.stubGlobal("fetch", async () => ({ arrayBuffer: async () => new ArrayBuffer(0) }));
+  return { ctx, started, calls };
+}
+
+/** sound.ts keeps the context in module state, so each test gets a fresh module. */
+const load = () => import("./sound");
+
+describe("unlockAudio", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  });
+
+  it("creates the context on the first gesture and unlocks it iOS-style: silent buffer + resume", async () => {
+    const { ctx, started, calls } = fakeAudio("suspended");
+    const { unlockAudio } = await load();
+    unlockAudio();
+    expect(started).toEqual([1]); // a 1-frame silent buffer, started inside the gesture
+    expect(calls).toEqual(["resume"]);
+    expect(ctx.state).toBe("running");
+  });
+
+  it("does nothing once the context runs (no clicks or glitches on every tap)", async () => {
+    const { started, calls } = fakeAudio("running");
+    const { unlockAudio } = await load();
+    unlockAudio();
+    unlockAudio();
+    expect(started).toEqual([]);
+    expect(calls).toEqual([]);
+  });
+
+  it("treats iOS's 'interrupted' like suspended", async () => {
+    const { ctx, calls } = fakeAudio("suspended");
+    const { unlockAudio } = await load();
+    unlockAudio();
+    ctx.state = "interrupted";
+    unlockAudio();
+    expect(calls).toEqual(["resume", "resume"]);
+  });
+
+  it("recoverAudio suspends then resumes, and is a no-op before the first gesture", async () => {
+    const { calls } = fakeAudio("running");
+    const { recoverAudio, unlockAudio } = await load();
+    recoverAudio();
+    expect(calls).toEqual([]);
+    unlockAudio();
+    recoverAudio();
+    await vi.waitFor(() => expect(calls).toEqual(["suspend", "resume"]));
+  });
+
+  it("is silent, not broken, where Web Audio doesn't exist", async () => {
+    vi.stubGlobal("AudioContext", undefined);
+    const { unlockAudio, recoverAudio } = await load();
+    expect(() => {
+      unlockAudio();
+      recoverAudio();
+    }).not.toThrow();
+  });
+});
 
 /** 2 players past the flip phase, seat 0 about to draw, with its own grid and next deck card. */
 function table(grid: number[], up: number[], nextDraw: number): GameState {
