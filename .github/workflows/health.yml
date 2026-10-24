@@ -1,0 +1,59 @@
+name: Health
+
+# SEC-8: the free plan has no usage alerts, so this checks the live site every hour, and GitHub
+# emails the owner when a scheduled run fails. Cost a day: 24 Worker requests, 48 Durable Object
+# requests and 72 rows written, against 100,000 of each.
+on:
+  schedule:
+    - cron: "17 * * * *" # off the hour, when GitHub's scheduler is less busy
+  workflow_dispatch:
+    inputs:
+      api:
+        description: URL to POST instead of the live /api/rooms, to see a failure (e.g. https://httpbin.org/status/429)
+        required: false
+
+permissions: {}
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SITE: https://skyjo-online.jcarl-30.workers.dev
+      API: ${{ inputs.api || 'https://skyjo-online.jcarl-30.workers.dev/api/rooms' }}
+    steps:
+      - name: The page loads and a room can be created
+        run: |
+          fail() { echo "::error title=$1::$2"; exit 1; }
+
+          # The page is a static asset: free, and still served when the Worker's quota is spent.
+          status=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 --retry 2 --retry-all-errors "$SITE/") ||
+            fail "Site down" "no answer from $SITE/"
+          [ "$status" = 200 ] || fail "Site down" "$SITE/ answered HTTP $status"
+
+          # A new room runs the Worker (1 request), its Durable Object (1 request now, 1 when the
+          # empty room expires after 10 min) and storage (3 rows), so it fails when any of their
+          # daily quotas is spent. It also spends 1 of the runner IP's 30 /api requests a minute.
+          status=$(curl -sS -o body -w '%{http_code}' --max-time 30 -X POST "$API") ||
+            fail "API down" "no answer from $API, though the page loads"
+          if [ "$status" = 200 ] && grep -qE '^\{"code":"[A-Z0-9]{5}"\}$' body; then
+            echo "Healthy: the page loads, and room $(cut -d'"' -f4 body) was created (it expires in 10 min)."
+            exit 0
+          fi
+          echo "POST $API answered HTTP $status:"
+          head -c 500 body
+          echo
+          if grep -qE 'error code: 1027|Error 1027|>1027<' body; then
+            fail "Worker quota spent" "Error 1027: the day's 100,000 Worker requests are used up, so /api is down until 00:00 UTC."
+          fi
+          case $status in
+            429)
+              if grep -q '^Too many' body; then
+                fail "Per-IP limit" "the game's own per-IP limit refused this runner's IP (another client on it?). Not a quota."
+              fi
+              fail "Worker quota spent" "429 from Cloudflare on /api: the day's 100,000 Worker requests are used up, so /api is down until 00:00 UTC." ;;
+            5??)
+              fail "Durable Object or storage failing" "HTTP $status: the day's Durable Object requests or rows written are likely used up (reset at 00:00 UTC). 'error code: 1101' above means the Worker threw." ;;
+            *)
+              fail "Unexpected answer" "HTTP $status from POST $API" ;;
+          esac
