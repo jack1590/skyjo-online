@@ -1,28 +1,24 @@
 // Cloudflare adapter: one Durable Object per room, hibernatable WebSockets, state in DO storage.
 import { DurableObject } from "cloudflare:workers";
-import type { Rng } from "../engine/rng";
 import {
   CLOSE_UNKNOWN_ROOM,
-  CODE_ALPHABET,
-  CODE_LENGTH,
   isRoomCode,
   PING,
   PONG,
   parseClientMsg,
   type ServerMsg,
 } from "../protocol";
-import { allowMessage, type Conn, newConn, newRoom, Room, type RoomData, RoomError } from "./room";
-
-const deps = {
-  now: () => Date.now(),
-  seed: () => Array.from(crypto.getRandomValues(new Int32Array(4))) as Rng,
-};
-
-/** 32-letter alphabet, so `byte % 32` is unbiased. */
-const randomCode = () =>
-  [...crypto.getRandomValues(new Uint8Array(CODE_LENGTH))]
-    .map((b) => CODE_ALPHABET[b % CODE_ALPHABET.length])
-    .join("");
+import {
+  allowMessage,
+  type Conn,
+  systemDeps as deps,
+  newConn,
+  newRoom,
+  Room,
+  type RoomData,
+  RoomError,
+  randomCode,
+} from "./room";
 
 const send = (ws: WebSocket, msg: ServerMsg) => {
   try {

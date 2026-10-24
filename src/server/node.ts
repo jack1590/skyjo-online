@@ -1,25 +1,33 @@
 // Self-host adapter: Node + ws on one port, serving the built app and the same rooms as the
 // Cloudflare Worker. ponytail: rooms live in memory, so a restart ends every game; add a JSON
 // snapshot on commit if self-hosting ever needs to survive restarts.
-import { randomBytes, webcrypto } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { extname, join, resolve, sep } from "node:path";
 import { type WebSocket, WebSocketServer } from "ws";
-import type { Rng } from "../engine/rng";
 import {
   CLOSE_UNKNOWN_ROOM,
-  CODE_ALPHABET,
-  CODE_LENGTH,
   isRoomCode,
   PING,
   PONG,
   parseClientMsg,
   type ServerMsg,
 } from "../protocol";
-import { allowMessage, type Conn, newConn, newRoom, Room, RoomError, STALE_MS } from "./room";
+import {
+  allowMessage,
+  type Conn,
+  systemDeps as deps,
+  newConn,
+  newRoom,
+  Room,
+  RoomError,
+  randomCode,
+  STALE_MS,
+} from "./room";
 
 const PORT = Number(process.env.PORT ?? 8787);
+/** Loopback only by default: reaching it from other devices must be a deliberate choice (HOST=0.0.0.0). */
+const HOST = process.env.HOST ?? "127.0.0.1";
 /** Memory cap: each room holds state and a timer for up to 24 h. */
 const MAX_ROOMS = 1000;
 const ROOT = resolve(process.env.STATIC_DIR ?? "dist/client");
@@ -35,21 +43,12 @@ const TYPES: Record<string, string> = {
   ".ico": "image/x-icon",
 };
 
-const deps = {
-  now: () => Date.now(),
-  seed: () => Array.from(webcrypto.getRandomValues(new Int32Array(4))) as Rng,
-};
-
 interface LiveRoom {
   room: Room;
   sockets: Map<WebSocket, Conn>;
   timer?: NodeJS.Timeout;
 }
 const rooms = new Map<string, LiveRoom>();
-
-/** 32-letter alphabet, so `byte % 32` is unbiased. */
-const randomCode = () =>
-  [...randomBytes(CODE_LENGTH)].map((b) => CODE_ALPHABET[b % CODE_ALPHABET.length]).join("");
 
 const send = (ws: WebSocket, msg: ServerMsg) => {
   if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg));
@@ -196,4 +195,4 @@ function onConnection(ws: WebSocket, code: string) {
   });
 }
 
-server.listen(PORT, () => console.log(`Skyjo Online on http://localhost:${PORT}`));
+server.listen(PORT, HOST, () => console.log(`Skyjo Online on http://${HOST}:${PORT}`));

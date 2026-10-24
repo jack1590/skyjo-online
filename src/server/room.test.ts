@@ -5,6 +5,7 @@ import { type ClientMsg, parseClientMsg } from "../protocol";
 import {
   allowMessage,
   type Conn,
+  EMPTY_IDLE_MS,
   IDLE_MS,
   newConn,
   newRoom,
@@ -348,6 +349,14 @@ describe("scheduling", () => {
       else if (phase !== "gameOver") stepAny(t, conns);
     }
     expect(t.room.data.game?.phase).toBe("gameOver");
+  });
+
+  it("a room nobody joined is dropped after 10 minutes", () => {
+    const t = setup();
+    t.advance(EMPTY_IDLE_MS - 1);
+    expect(t.room.isIdle()).toBe(false);
+    t.advance(1);
+    expect(t.room.isIdle()).toBe(true);
   });
 
   it("an idle room is idle after 24 h even with a forgotten tab open", () => {

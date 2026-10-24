@@ -5,6 +5,8 @@ const CI = !!process.env.CI;
 const BASE_URL = process.env.BASE_URL;
 /** SERVER=node runs the suite against the Node self-host adapter instead of the local Worker. */
 const NODE = process.env.SERVER === "node";
+/** The Node server binds loopback IPv4 only; vite preview answers on "localhost". */
+const ORIGIN = `http://${NODE ? "127.0.0.1" : "localhost"}:4173`;
 const build = CI ? "" : NODE ? "npm run build && npm run build:node && " : "npm run build && ";
 const serve = NODE
   ? "PORT=4173 node dist/node/node.js"
@@ -19,7 +21,7 @@ export default defineConfig({
   failOnFlakyTests: CI,
   reporter: CI ? [["list"], ["html", { open: "never" }]] : "list",
   use: {
-    baseURL: BASE_URL ?? "http://localhost:4173",
+    baseURL: BASE_URL ?? ORIGIN,
     trace: "retain-on-failure",
     locale: "en-US",
   },
@@ -28,7 +30,7 @@ export default defineConfig({
     : {
         // CI builds in an earlier step.
         command: build + serve,
-        url: "http://localhost:4173",
+        url: ORIGIN,
         reuseExistingServer: !CI,
       },
   projects: [

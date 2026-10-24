@@ -43,7 +43,7 @@ One-time setup:
 2. Create an API token from the **Edit Cloudflare Workers** template.
 3. In the GitHub repo settings, add the secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. Stricter option: add them as secrets of the `production` environment, and limit that environment's deployment branches to `main`. The deploy job already uses that environment, so only `main` can then read them.
 
-The game is then live at `https://skyjo-online.<your-subdomain>.workers.dev`. To redeploy by hand, run the CI workflow on `main` from the Actions tab. From your own machine, run `npx wrangler login`, then `npm run build && npx wrangler deploy`.
+If a deploy misbehaves, run `npx wrangler rollback` to return to the previous version. The game is then live at `https://skyjo-online.<your-subdomain>.workers.dev`. To redeploy by hand, run the CI workflow on `main` from the Actions tab. From your own machine, run `npx wrangler login`, then `npm run build && npx wrangler deploy`.
 
 ## Self-host (fallback)
 
@@ -51,16 +51,16 @@ The same rooms also run on plain Node with `ws`, held in memory, so a restart en
 
 ```sh
 npm run build && npm run build:node
-npm start                      # http://localhost:8787 (PORT=… to change)
+npm start                      # http://127.0.0.1:8787 (PORT=… to change)
 ```
 
 To let friends reach it without opening router ports, run a [Cloudflare quick tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/) and share the `https://….trycloudflare.com` URL it prints:
 
 ```sh
-cloudflared tunnel --url http://localhost:8787
+cloudflared tunnel --url http://127.0.0.1:8787
 ```
 
-This exposes your computer to the internet for as long as the tunnel runs, so stop it (Ctrl-C) when the game ends.
+The server only listens on `127.0.0.1`, so nothing but the tunnel can reach it. `HOST=0.0.0.0 npm start` would open it to your whole network; do that only if you mean to. The tunnel exposes the game to the internet for as long as it runs, so stop it (Ctrl-C) when the game ends.
 
 ## Contributing
 
