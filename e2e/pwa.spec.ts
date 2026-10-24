@@ -13,9 +13,17 @@ test("installable: manifest with icons, and a service worker controls the page",
   const sizes = manifest.icons.map((i: { sizes: string }) => i.sizes);
   expect(sizes).toEqual(expect.arrayContaining(["192x192", "512x512"]));
   for (const icon of manifest.icons) expect((await request.get(icon.src)).ok()).toBe(true);
-  expect(await page.evaluate(async () => (await navigator.serviceWorker.ready).active?.state)).toBe(
-    "activated",
-  );
+  // `ready` can resolve while the worker is still "activating"; wait for the real thing.
+  const state = await page.evaluate(async () => {
+    const worker = (await navigator.serviceWorker.ready).active;
+    if (worker && worker.state !== "activated") {
+      await new Promise((done) =>
+        worker.addEventListener("statechange", () => worker.state === "activated" && done(null)),
+      );
+    }
+    return worker?.state;
+  });
+  expect(state).toBe("activated");
 });
 
 test("after a single visit the app opens offline, with card art, and hot-seat works", async ({

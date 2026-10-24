@@ -1,17 +1,24 @@
 import { expect, type Page, test } from "@playwright/test";
 
-/** Flips the first card of a fresh hot-seat game and reports whether any animation ran on it. */
+/**
+ * Flips the first card of a fresh hot-seat game and reports whether the app started an animation.
+ * Counts Element.animate calls rather than sampling getAnimations(), which is timing-dependent
+ * across engines (it came back empty on CI's Linux WebKit).
+ */
 async function flipAnimates(page: Page): Promise<boolean> {
+  await page.addInitScript(() => {
+    const original = Element.prototype.animate;
+    (window as unknown as { animations: number }).animations = 0;
+    Element.prototype.animate = function (...args) {
+      (window as unknown as { animations: number }).animations++;
+      return original.apply(this, args);
+    };
+  });
   await page.goto("/?seed=7");
   await page.getByRole("button", { name: "Start game" }).click();
-  return page.evaluate(async () => {
-    const card = document.querySelector<HTMLElement>('[data-testid="my-grid"] button');
-    if (!card) throw new Error("no card");
-    card.click();
-    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-    const target = document.querySelector('[data-testid="my-grid"]')?.children[0];
-    return (target?.getAnimations().length ?? 0) > 0;
-  });
+  await page.getByTestId("my-grid").locator("button").first().click();
+  await page.waitForTimeout(200);
+  return page.evaluate(() => (window as unknown as { animations: number }).animations > 0);
 }
 
 test.describe("with motion allowed", () => {
