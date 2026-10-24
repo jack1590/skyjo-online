@@ -102,13 +102,13 @@ Each milestone is one PR from a feature branch `m<N>-<slug>`, except M0.
 Moved ahead of polish (the brief listed it last) so hosting risk is retired early and every later merge is testable on real phones.
 - **Stop and ask the user:** Cloudflare account (free plan, no card), API token, and the GitHub secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
 - CI deploys on push to `main` to `skyjo-online.<subdomain>.workers.dev`. A post-deploy smoke test runs the 2-player Playwright game against the live URL.
-- Self-host fallback: `src/server/node.ts` (Node + `ws`, serves `dist/`, rooms in memory). The README documents running it behind `cloudflared tunnel`. It is never exposed without asking the user first.
+- Self-host fallback: `src/server/node.ts` (Node + `ws`, serves `dist/`, rooms in memory). The README documents running it behind `cloudflared tunnel`. It is never exposed without asking the user first, so it listens on `127.0.0.1` unless `HOST` says otherwise; the tunnel needs nothing more. In the M4 review it listened on every interface (LAN, and the internet wherever a global IPv6 address isn't firewalled) (PO, M4 review).
 - CI's `concurrency` group cancels in-progress runs. A deploy on `main` must never be cancelled halfway, so `cancel-in-progress` applies to PRs only.
 
 - Rate-limit `POST /api/rooms` per client IP with the Workers Rate Limiting binding (or a WAF rule). Room creation is otherwise unthrottled: each call writes storage and sets an alarm (M3 review).
 - A flaky test fails CI: set `failOnFlakyTests` when `CI` in `playwright.config.ts`, so `retries: 1` can no longer turn a flake green. In M3 the 2-phone game failed about 1 run in 4 (the bot tripped the 40-message flood limit), and the retry hid it until the M4 review (PO, M3 review).
 
-**Acceptance:** the public URL works on a real phone. The smoke test passes against it. The Node fallback passes the same E2E locally. A test that passes only on retry fails its CI job.
+**Acceptance:** the public URL works on a real phone. The smoke test passes against it. The Node fallback passes the same E2E locally, and `npm start` listens on `127.0.0.1` only. A test that passes only on retry fails its CI job.
 
 ### M5 — Polish, animations, PWA
 
