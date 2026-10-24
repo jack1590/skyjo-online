@@ -86,10 +86,11 @@ export const EMPTY_IDLE_MS = 10 * 60_000;
 const WINDOW_MS = 10_000;
 const WINDOW_MAX = 120;
 /**
- * Per-IP budget (SEC-10): messages a minute from one IP or IPv6 /64, across all its sockets and
- * rooms; pings don't count. 8 friends on one router tapping once a second, faster than real play,
- * peak at 74–81 (worker.test.ts); at a tap every 2 s, 44. One IP at the cap writes at most 2 rows
- * a second. The Worker enforces it with its MESSAGES binding, which must match (room.test.ts).
+ * Per-IP budget (SEC-10, SEC-11), a minute, for one IP or IPv6 /64 across all its sockets and rooms:
+ * 1 per message (pings don't count). On the Worker it pays for every row the IP makes us write, as
+ * `spend` in worker.ts says. 8 friends on one router tapping once a second, faster than real play,
+ * peak at 78–87 (worker.test.ts); at a tap every 2 s, at most 57. The Worker enforces it with its
+ * MESSAGES binding, which must match (room.test.ts).
  */
 export const IP_MESSAGES_PER_MINUTE = 120;
 

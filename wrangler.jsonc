@@ -17,10 +17,11 @@
   // Cloudflare location and approximate. A local run at http://localhost isn't limited.
   "ratelimits": [
     // Every /api request, checked before any Durable Object is touched.
-    { "name": "API_REQUESTS", "namespace_id": "1002", "simple": { "limit": 60, "period": 60 } },
-    // Each new room writes storage and sets an alarm.
+    { "name": "API_REQUESTS", "namespace_id": "1002", "simple": { "limit": 30, "period": 60 } },
+    // Each new room writes storage and sets an alarm (and also spends 3 of MESSAGES).
     { "name": "ROOM_CREATION", "namespace_id": "1001", "simple": { "limit": 10, "period": 60 } },
-    // WebSocket messages across all of an IP's sockets and rooms: IP_MESSAGES_PER_MINUTE in room.ts.
+    // Everything an IP makes us write, across its sockets and rooms (IP_MESSAGES_PER_MINUTE in
+    // room.ts): 1 a message, 2 a presence check of a room it holds open, 3 a new room.
     { "name": "MESSAGES", "namespace_id": "1003", "simple": { "limit": 120, "period": 60 } }
   ],
   "observability": { "enabled": true }

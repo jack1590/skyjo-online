@@ -29,10 +29,17 @@ The engine's turn check compares `action.seat` with `state.current`; it is not a
 
 Online flow: the browser opens `/api/rooms/CODE/ws` and sends `hello` with its per-room token from `localStorage` (`src/client/useRoom.ts`). One Durable Object per room code (`RoomDO`) persists `RoomData` on every change and sends each socket its own `RoomView`. Each `put` and each `setAlarm` is a row written, the free plan's tightest quota, so `Room.receive` returns a `Change`: `"data"` writes and tells everyone, `"view"` only tells everyone, `"none"` answers only the sender. The alarm only ever moves earlier, since an early one just checks again; any new `setAlarm` call must keep `alarmAt` in step. Pings (`"ping"` → `"pong"`) are answered by the runtime without waking the object. Their timestamps tell `room.ts` who is still connected, which drives the presence dots, the host stand-in, and the 60 s stall guard.
 
-Per-IP limits (SEC-1, SEC-4, SEC-10). Each client address, IPv4 as is and IPv6 by its /64 (`ipKey` in `room.ts`), gets three ratelimit bindings a minute (`wrangler.jsonc`; `room.test.ts` checks the numbers):
-- `API_REQUESTS`: 60 of any `/api` request, checked at the top of the Worker's `fetch` before any Durable Object is touched;
+Per-IP limits (SEC-1, SEC-4, SEC-10, SEC-11). Each client address, IPv4 as is and IPv6 by its /64 (`ipKey` in `room.ts`), gets three ratelimit bindings a minute (`wrangler.jsonc`; `room.test.ts` checks the numbers):
+- `API_REQUESTS`: 30 of any `/api` request, checked at the top of the Worker's `fetch` before any Durable Object is touched. 8 phones on bad Wi-Fi peak at about 22 (`e2e/flaky.spec.ts`, run with `MEASURE=1`);
 - `ROOM_CREATION`: 10;
-- `MESSAGES`: `IP_MESSAGES_PER_MINUTE` (120), counted in the Durable Object across all of the address's sockets and rooms. Pings don't count. The socket attachment keeps the address's key through hibernation, and the socket is closed with 1008 (`CLOSE_TOO_MANY`) past the limit; the client then retries every 20 s.
+- `MESSAGES`: `IP_MESSAGES_PER_MINUTE` (120) units, the one budget for every row an address makes us write, across all its sockets and rooms (`spend` in `worker.ts`):
+  - a message costs 1 (pings don't count), plus 1 if its `commit` moves the alarm earlier; a close event pays that 1 too, and otherwise writes nothing (the seat's last sign of life stays in memory);
+  - each alarm run costs 2, a row and a DO request, charged to every address with a live socket in the room, since a lobby whose sockets only ping re-checks presence every ≤ 45 s;
+  - a new room costs 3, spent in `RoomDO.create`, where the room's other charges are counted (ratelimit counts are per location).
+
+  Past the budget, the address's socket (or, at an alarm, all its sockets in that room) is closed with 1008 (`CLOSE_TOO_MANY`), and the client retries every 20 s. The socket attachment keeps the address's key through hibernation.
+
+One address at every limit then needs at least 14 h to use up the rows and 18 h for the DO requests, whether it holds rooms, spams, or connects and leaves (`holdRooms` in `worker.test.ts`). Any new event that writes a row must charge whoever caused it, when it's written: an alarm that runs after everyone left charges nobody.
 
 The `MESSAGES` check awaits a binding, which, unlike storage, lets other events in, so `RoomDO` runs every event (message, close, alarm, upgrade, create) one at a time through `serial`. The counts are per Cloudflare location and approximate. Our own 429 still costs a Worker request; only a WAF rule saves those. A local run (dev, E2E) is not limited: that takes both the hostname `localhost` and a loopback `cf-connecting-ip`, which miniflare sets to `127.0.0.1`. On Cloudflare neither holds, since it only routes our own hostname to the Worker and sets the real client address. Open `http://[::1]:<port>` to try the limits locally. Node applies `MESSAGES` itself (`allowIp`). There, a direct loopback client isn't limited, and behind a local proxy such as `cloudflared` the forwarded `cf-connecting-ip` counts. Any E2E bot on the live site must stay under 120 messages a minute from its runner.
 
