@@ -2,20 +2,27 @@ import { describe, expect, it } from "vitest";
 import { type Action, legalActions } from "../engine/game";
 import type { Rng } from "../engine/rng";
 import { type ClientMsg, parseClientMsg } from "../protocol";
-import { type Conn, IDLE_MS, newRoom, Room, RoomError, STALL_MS } from "./room";
+import {
+  allowMessage,
+  type Conn,
+  IDLE_MS,
+  newConn,
+  newRoom,
+  Room,
+  RoomError,
+  STALE_MS,
+  STALL_MS,
+} from "./room";
 
 function setup() {
   let now = 1_000_000;
   let seeds = 0;
-  const deps = {
-    now: () => now,
-    seed: (): Rng => [++seeds, 7, 7, 7],
-  };
+  const deps = { now: () => now, seed: (): Rng => [++seeds, 7, 7, 7] };
   const room = new Room(newRoom("ABCDE", now), deps);
   const live: Conn[] = [];
   const send = (c: Conn, msg: ClientMsg) => room.receive(c, msg, live);
   const connect = (token: string) => {
-    const c: Conn = { token: null, seenAt: now };
+    const c = newConn(now);
     live.push(c);
     send(c, { t: "hello", token });
     return c;
@@ -24,10 +31,10 @@ function setup() {
     live.splice(live.indexOf(c), 1);
     room.closed(c);
   };
-  /** Keeps every live socket fresh, like the client's 20 s pings. */
-  const advance = (ms: number, ping = true) => {
+  /** Moves the clock. Sockets in `pinging` stay fresh, like the client's 20 s pings. */
+  const advance = (ms: number, pinging: Conn[] = live) => {
     now += ms;
-    if (ping) for (const c of live) c.seenAt = now;
+    for (const c of pinging) c.seenAt = now;
   };
   const seated = (n: number) => {
     const conns = Array.from({ length: n }, (_, i) => connect(`token-${i}-abcdef`));
@@ -43,14 +50,26 @@ function setup() {
     }
     return null;
   };
-  return { room, live, send, connect, drop, advance, seated, errorOf, seedCalls: () => seeds };
+  return {
+    room,
+    live,
+    send,
+    connect,
+    drop,
+    advance,
+    seated,
+    errorOf,
+    now: () => now,
+    seedCalls: () => seeds,
+  };
 }
+type Setup = ReturnType<typeof setup>;
 
 /**
  * Sends a legal move for whichever seat must act, through that seat's socket. While placing it
  * picks discard-and-flip (listed last), so every turn reveals a card and rounds always end.
  */
-function stepAny(t: ReturnType<typeof setup>, conns: Conn[]) {
+function stepAny(t: Setup, conns: Conn[]) {
   const game = t.room.data.game;
   if (!game) throw new Error("no game");
   const legal = legalActions(game);
@@ -58,6 +77,19 @@ function stepAny(t: ReturnType<typeof setup>, conns: Conn[]) {
   const seat = "seat" in action ? action.seat : t.room.data.host;
   t.send(conns[seat], { t: "act", action: "seat" in action ? { ...action, seat: 99 } : action });
 }
+
+const startedGame = (t: Setup, n: number) => {
+  const conns = t.seated(n);
+  t.send(conns[0], { t: "start" });
+  return conns;
+};
+
+const pastFlips = (t: Setup, conns: Conn[]) => {
+  while (t.room.data.game?.phase === "flip") stepAny(t, conns);
+};
+
+const upCount = (t: Setup, seat: number) =>
+  t.room.data.game?.players[seat].grid.filter((s) => s?.up).length ?? 0;
 
 describe("lobby", () => {
   it("joining takes the next seat; the first seat hosts", () => {
@@ -107,33 +139,51 @@ describe("lobby", () => {
     expect(t.room.view(b, t.live)).toMatchObject({ you: 0, host: 0, lead: true });
   });
 
+  it("the host can remove an offline (ghost) seat, never an online one", () => {
+    const t = setup();
+    const [a, b, c] = t.seated(3);
+    expect(t.errorOf(() => t.send(a, { t: "kick", seat: 1 }))).toBe("not-allowed");
+    t.drop(b);
+    expect(t.errorOf(() => t.send(c, { t: "kick", seat: 1 }))).toBe("not-allowed"); // not host
+    t.send(a, { t: "kick", seat: 1 });
+    expect(t.room.data.seats.map((s) => s.name)).toEqual(["P0", "P2"]);
+  });
+
   it("messages before hello are rejected", () => {
     const t = setup();
-    const c: Conn = { token: null, seenAt: 0 };
-    expect(t.errorOf(() => t.send(c, { t: "join", name: "X" }))).toBe("bad-message");
+    expect(t.errorOf(() => t.send(newConn(0), { t: "join", name: "X" }))).toBe("bad-message");
+  });
+
+  it("acks the highest seq handled, failed messages included", () => {
+    const t = setup();
+    const [a] = t.seated(1);
+    t.errorOf(() => t.send(a, { t: "start", seq: 7 }));
+    expect(a.ack).toBe(7);
+    t.send(a, { t: "hello", token: "token-0-abcdef", seq: 3 });
+    expect(a.ack).toBe(7);
+  });
+
+  it("only joins, leaves, starts, and moves need persisting", () => {
+    const t = setup();
+    const [a] = t.seated(2);
+    expect(t.send(a, { t: "hello", token: "token-0-abcdef" })).toBe(false);
+    expect(t.send(a, { t: "start" })).toBe(true);
   });
 });
 
 describe("play", () => {
   it("moves use the sender's seat, never the payload's", () => {
     const t = setup();
-    const [a, b] = t.seated(2);
-    t.send(a, { t: "start" });
+    const [, b] = startedGame(t, 2);
     t.send(b, { t: "act", action: { type: "flip", seat: 0, pos: 3 } });
-    const grids = t.room.data.game?.players.map((p) => p.grid[3]?.up);
-    expect(grids).toEqual([false, true]);
+    expect(t.room.data.game?.players.map((p) => p.grid[3]?.up)).toEqual([false, true]);
   });
 
   it("out-of-turn moves and spectator moves are rejected", () => {
     const t = setup();
-    const [a, b] = t.seated(2);
-    t.send(a, { t: "start" });
-    for (const c of [a, b]) {
-      t.send(c, { t: "act", action: { type: "flip", seat: 0, pos: 0 } });
-      t.send(c, { t: "act", action: { type: "flip", seat: 0, pos: 1 } });
-    }
-    const current = t.room.data.game?.current ?? 0;
-    const idle = [a, b][1 - current];
+    const conns = startedGame(t, 2);
+    pastFlips(t, conns);
+    const idle = conns[1 - (t.room.data.game?.current ?? 0)];
     const move: ClientMsg = { t: "act", action: { type: "draw", seat: 0, source: "deck" } };
     expect(t.errorOf(() => t.send(idle, move))).toBe("illegal-move");
     const watcher = t.connect("token-w-abcdef");
@@ -144,8 +194,7 @@ describe("play", () => {
     const t = setup();
     const [a] = t.seated(2);
     t.drop(a);
-    const again = t.connect("token-0-abcdef");
-    expect(t.room.view(again, t.live).you).toBe(0);
+    expect(t.room.view(t.connect("token-0-abcdef"), t.live).you).toBe(0);
   });
 
   it("a full game through the room reaches game over; views never leak secrets", () => {
@@ -174,8 +223,7 @@ describe("play", () => {
 
   it("the host advances rounds; anyone may once the host is away", () => {
     const t = setup();
-    const conns = t.seated(2);
-    t.send(conns[0], { t: "start" });
+    const conns = startedGame(t, 2);
     while (t.room.data.game?.phase !== "roundOver" && t.room.data.game?.phase !== "gameOver") {
       stepAny(t, conns);
     }
@@ -187,27 +235,27 @@ describe("play", () => {
     expect(t.room.data.game?.phase).toBe("flip");
   });
 
-  it("rematch deals a new game with the same seats plus late joiners", () => {
+  it("rematch returns to the lobby with the same seats; late joiners join there", () => {
     const t = setup();
-    const conns = t.seated(2);
-    t.send(conns[0], { t: "start" });
+    const conns = startedGame(t, 2);
     while (t.room.data.game?.phase !== "gameOver") {
       if (t.room.data.game?.phase === "roundOver") {
         t.send(conns[0], { t: "act", action: { type: "nextRound" } });
       } else stepAny(t, conns);
     }
     const late = t.connect("token-late-abcdef");
-    t.send(late, { t: "join", name: "Late" });
+    expect(t.errorOf(() => t.send(late, { t: "join", name: "Late" }))).toBe("not-allowed");
     expect(t.errorOf(() => t.send(conns[1], { t: "rematch" }))).toBe("not-allowed");
     t.send(conns[0], { t: "rematch" });
+    expect(t.room.data.game).toBeNull();
+    t.send(late, { t: "join", name: "Late" });
+    t.send(conns[0], { t: "start" });
     expect(t.room.data.game?.players.map((p) => p.name)).toEqual(["P0", "P1", "Late"]);
-    expect(t.room.data.game?.round).toBe(1);
   });
 
   it("nobody can join or leave mid-game", () => {
     const t = setup();
-    const [a] = t.seated(2);
-    t.send(a, { t: "start" });
+    const [a] = startedGame(t, 2);
     const late = t.connect("token-late-abcdef");
     expect(t.errorOf(() => t.send(late, { t: "join", name: "Late" }))).toBe("not-allowed");
     expect(t.errorOf(() => t.send(a, { t: "leave" }))).toBe("not-allowed");
@@ -217,61 +265,110 @@ describe("play", () => {
 describe("stall guard", () => {
   it("flips two cards for a seat gone 60 s during the initial flip", () => {
     const t = setup();
-    const [a, b] = t.seated(2);
-    t.send(a, { t: "start" });
+    const [a, b] = startedGame(t, 2);
     t.drop(b);
-    t.advance(STALL_MS - 1);
+    t.advance(STALL_MS - 1, [a]);
     expect(t.room.tick(t.live)).toBe(false);
-    t.advance(1);
+    t.advance(1, [a]);
     expect(t.room.tick(t.live)).toBe(true);
-    expect(t.room.data.game?.players[1].grid.filter((s) => s?.up)).toHaveLength(2);
+    expect(upCount(t, 1)).toBe(2);
   });
 
   it("plays draw, discard, flip for the current player gone 60 s", () => {
     const t = setup();
-    const conns = t.seated(2);
-    t.send(conns[0], { t: "start" });
-    while (t.room.data.game?.phase === "flip") stepAny(t, conns);
+    const conns = startedGame(t, 2);
+    pastFlips(t, conns);
     const current = t.room.data.game?.current ?? 0;
-    const before = t.room.data.game?.players[current].grid.filter((s) => s?.up).length ?? 0;
+    const before = upCount(t, current);
     t.drop(conns[current]);
     t.advance(STALL_MS);
     t.room.tick(t.live);
     expect(t.room.data.game?.current).toBe(1 - current);
-    expect(t.room.data.game?.players[current].grid.filter((s) => s?.up).length).toBe(before + 1);
+    expect(upCount(t, current)).toBe(before + 1);
+  });
+
+  it("a seat that went quiet before its turn still gets 60 s once its turn starts", () => {
+    const t = setup();
+    const conns = startedGame(t, 3);
+    pastFlips(t, conns);
+    const current = t.room.data.game?.current ?? 0;
+    const next = (current + 1) % 3;
+    const others = conns.filter((_, i) => i !== next);
+    t.advance(STALL_MS + 1_000, others); // `next` stops pinging (phone locked) while `current` thinks
+    stepAny(t, conns);
+    stepAny(t, conns); // current finishes: now it's next's turn
+    expect(t.room.data.game?.current).toBe(next);
+    expect(t.room.tick(t.live)).toBe(false);
+    t.advance(STALL_MS, others);
+    expect(t.room.tick(t.live)).toBe(true);
   });
 
   it("a silent socket counts as gone; a pinging one is never moved for", () => {
     const t = setup();
-    const [a, b] = t.seated(2);
-    t.send(a, { t: "start" });
+    const [a] = startedGame(t, 2);
     t.advance(10 * STALL_MS); // both keep pinging
     expect(t.room.tick(t.live)).toBe(false);
-    b.seenAt -= STALL_MS; // b's phone went to sleep without closing the socket
+    t.advance(STALL_MS, [a]); // b's phone sleeps without closing the socket
     expect(t.room.tick(t.live)).toBe(true);
     expect(t.room.view(a, t.live).seats[1].connected).toBe(false);
   });
 
-  it("nextAlarm points at the earliest stall deadline, else the idle deadline", () => {
+  it("with everyone gone nothing is auto-played", () => {
     const t = setup();
-    const [a, b] = t.seated(2);
-    expect(t.room.nextAlarm(t.live)).toBe(t.room.data.updatedAt + IDLE_MS);
-    t.send(a, { t: "start" });
-    t.drop(b);
-    expect(t.room.nextAlarm(t.live)).toBe(t.room.data.seats[1].seenAt + STALL_MS);
+    const conns = startedGame(t, 4);
+    for (const c of conns) t.drop(c);
+    t.advance(10 * STALL_MS, []);
+    expect(t.room.tick(t.live)).toBe(false);
+    expect(t.room.data.game?.phase).toBe("flip");
   });
 
-  it("an empty room is idle after 24 h", () => {
+  it("a long-dead socket closing late doesn't restart its seat's stall clock", () => {
     const t = setup();
-    const [a] = t.seated(1);
-    t.drop(a);
-    t.advance(IDLE_MS, false);
-    expect(t.room.isIdle(t.live)).toBe(true);
+    const [a, b] = startedGame(t, 2);
+    t.advance(STALL_MS, [a]);
+    t.drop(b); // the server only now notices the close
+    expect(t.room.tick(t.live)).toBe(true);
   });
 });
 
-describe("parseClientMsg", () => {
-  it("rejects malformed frames", () => {
+describe("scheduling", () => {
+  it("nextAlarm is always in the future after tick, through a whole game", () => {
+    const t = setup();
+    const conns = startedGame(t, 3);
+    for (let i = 0; t.room.data.game?.phase !== "gameOver" && i < 20_000; i++) {
+      if (i % 7 === 0) t.advance(STALL_MS, conns.slice(1)); // seat 0 drifts in and out
+      t.room.tick(t.live);
+      expect(t.room.nextAlarm(t.live)).toBeGreaterThan(t.now());
+      // tick() may have ended the round or the game, so read the phase fresh.
+      const phase: string | undefined = t.room.data.game?.phase;
+      if (phase === "roundOver") t.send(conns[1], { t: "act", action: { type: "nextRound" } });
+      else if (phase !== "gameOver") stepAny(t, conns);
+    }
+    expect(t.room.data.game?.phase).toBe("gameOver");
+  });
+
+  it("an idle room is idle after 24 h even with a forgotten tab open", () => {
+    const t = setup();
+    t.seated(2);
+    t.advance(IDLE_MS); // tabs keep pinging, nobody sends a message
+    expect(t.room.isIdle()).toBe(true);
+    expect(t.room.nextAlarm(t.live)).toBeGreaterThan(t.now());
+  });
+
+  it("when the host goes quiet at the round summary, others may lead once the host is stale", () => {
+    const t = setup();
+    const conns = startedGame(t, 2);
+    while (t.room.data.game?.phase !== "roundOver" && t.room.data.game?.phase !== "gameOver") {
+      stepAny(t, conns);
+    }
+    expect(t.room.nextAlarm(t.live)).toBe(conns[0].seenAt + STALE_MS);
+    t.advance(STALE_MS, [conns[1]]);
+    expect(t.room.view(conns[1], t.live).lead).toBe(true);
+  });
+});
+
+describe("protocol", () => {
+  it("parseClientMsg rejects malformed frames", () => {
     for (const raw of [
       null,
       42,
@@ -283,6 +380,7 @@ describe("parseClientMsg", () => {
       '{"t":"nope"}',
       '{"t":"hello","token":"short"}',
       '{"t":"join","name":5}',
+      '{"t":"kick","seat":"1"}',
       '{"t":"act","action":null}',
       '{"t":"act","action":{"type":"swap"}}',
       '{"t":"act","action":{"type":"draw","source":"hand"}}',
@@ -292,10 +390,17 @@ describe("parseClientMsg", () => {
     }
   });
 
-  it("never copies a seat from the payload", () => {
-    expect(parseClientMsg('{"t":"act","action":{"type":"swap","seat":3,"pos":2,"x":1}}')).toEqual({
-      t: "act",
-      action: { type: "swap", seat: -1, pos: 2 },
-    });
+  it("never copies a seat from the payload; keeps a valid seq", () => {
+    expect(
+      parseClientMsg('{"t":"act","seq":4,"action":{"type":"swap","seat":3,"pos":2,"x":1}}'),
+    ).toEqual({ t: "act", seq: 4, action: { type: "swap", seat: -1, pos: 2 } });
+    expect(parseClientMsg('{"t":"start","seq":-1}')).toEqual({ t: "start" });
+  });
+
+  it("a socket flooding more than 40 messages in 10 s is cut off", () => {
+    const c = newConn(0);
+    for (let i = 0; i < 40; i++) expect(allowMessage(c, 1_000)).toBe(true);
+    expect(allowMessage(c, 2_000)).toBe(false);
+    expect(allowMessage(c, 11_000)).toBe(true);
   });
 });

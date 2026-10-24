@@ -12,13 +12,22 @@ export const NAME_MAX = 16;
 /** Closing code for a room that doesn't exist. Close codes can get lost, so a "missing" message precedes it. */
 export const CLOSE_UNKNOWN_ROOM = 4004;
 
-export type ClientMsg =
+/** Keep-alive frames. Cloudflare answers them without waking the room; other adapters must too. */
+export const PING = "ping";
+export const PONG = "pong";
+
+export type ClientMsg = (
   | { t: "hello"; token: string }
   | { t: "join"; name: string }
   | { t: "leave" }
+  | { t: "kick"; seat: number }
   | { t: "start" }
   | { t: "act"; action: Action }
-  | { t: "rematch" };
+  | { t: "rematch" }
+) & {
+  /** Client counter; the server echoes the highest one handled as `ack`. */
+  seq?: number;
+};
 
 export type ErrorCode =
   | "bad-message"
@@ -45,8 +54,8 @@ export interface RoomView {
 }
 
 export type ServerMsg =
-  | { t: "state"; room: RoomView }
-  | { t: "error"; code: ErrorCode }
+  | { t: "state"; room: RoomView; ack: number }
+  | { t: "error"; code: ErrorCode; ack: number }
   | { t: "missing" };
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
@@ -65,6 +74,14 @@ export function parseClientMsg(raw: unknown): ClientMsg | null {
     return null;
   }
   if (!isObject(msg)) return null;
+  const body = parseBody(msg);
+  if (!body) return null;
+  return Number.isSafeInteger(msg.seq) && (msg.seq as number) >= 0
+    ? { ...body, seq: msg.seq as number }
+    : body;
+}
+
+function parseBody(msg: Record<string, unknown>): ClientMsg | null {
   switch (msg.t) {
     case "hello":
       return typeof msg.token === "string" && /^[\w-]{8,64}$/.test(msg.token)
@@ -76,6 +93,8 @@ export function parseClientMsg(raw: unknown): ClientMsg | null {
     case "start":
     case "rematch":
       return { t: msg.t };
+    case "kick":
+      return Number.isInteger(msg.seat) ? { t: "kick", seat: msg.seat as number } : null;
     case "act": {
       const a = msg.action;
       if (!isObject(a)) return null;

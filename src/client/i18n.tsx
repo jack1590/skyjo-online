@@ -87,6 +87,7 @@ const en = {
   errBadName: "Enter a name.",
   errNameTaken: "That name is taken.",
   errIllegalMove: "That move isn't allowed.",
+  removePlayer: "Remove {name}",
 };
 
 export type Key = keyof typeof en;
@@ -179,6 +180,7 @@ const es: Record<Key, string> = {
   errBadName: "Escribe un nombre.",
   errNameTaken: "Ese nombre ya está en uso.",
   errIllegalMove: "Esa jugada no está permitida.",
+  removePlayer: "Quitar a {name}",
 };
 
 /** Brazilian Portuguese. */
@@ -270,6 +272,7 @@ const pt: Record<Key, string> = {
   errBadName: "Digite um nome.",
   errNameTaken: "Esse nome já está em uso.",
   errIllegalMove: "Essa jogada não é permitida.",
+  removePlayer: "Remover {name}",
 };
 
 export const LOCALES = {

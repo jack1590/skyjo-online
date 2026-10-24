@@ -68,8 +68,6 @@ export function Online({ code }: { code: string }) {
     );
   }
 
-  const canJoin =
-    room.you === null && room.game.phase === "gameOver" && room.seats.length < MAX_PLAYERS;
   return (
     <>
       {notices}
@@ -82,7 +80,6 @@ export function Online({ code }: { code: string }) {
         onAction={(action) => send({ t: "act", action })}
         onPlayAgain={() => send({ t: "rematch" })}
         onExit={goHome}
-        banner={canJoin ? <JoinForm send={send} /> : undefined}
       />
     </>
   );
@@ -97,9 +94,13 @@ function Lobby({ room, send }: { room: RoomView; send: (msg: ClientMsg) => void 
     if (navigator.share) {
       // Rejects when the user closes the share sheet; nothing to do.
       await navigator.share({ text: t("invite"), url: link }).catch(() => {});
-    } else {
-      await navigator.clipboard?.writeText(link);
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(link);
       setCopied(true);
+    } catch {
+      // No clipboard (e.g. plain-http self-host): the link is shown below to copy by hand.
     }
   };
 
@@ -117,6 +118,7 @@ function Lobby({ room, send }: { room: RoomView; send: (msg: ClientMsg) => void 
       <button type="button" className="btn" onClick={share}>
         {copied ? t("copied") : t("shareLink")}
       </button>
+      <p className="tagline link">{link}</p>
 
       <section className="panel">
         <h2>{t("playersCount", { n: room.seats.length })}</h2>
@@ -128,6 +130,16 @@ function Lobby({ room, send }: { room: RoomView; send: (msg: ClientMsg) => void 
                 {i === room.host && <span className="tag">{t("host")}</span>}
                 {i === room.you && <span className="tag">{t("you")}</span>}
                 {!s.connected && <span className="tag">{t("offline")}</span>}
+                {room.lead && !s.connected && i !== room.you && (
+                  <button
+                    type="button"
+                    className="btn icon"
+                    aria-label={t("removePlayer", { name: s.name })}
+                    onClick={() => send({ t: "kick", seat: i })}
+                  >
+                    ✕
+                  </button>
+                )}
               </span>
             </li>
           ))}

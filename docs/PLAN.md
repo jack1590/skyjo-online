@@ -49,12 +49,12 @@ The canonical rule list (R1–R15), including every default chosen where the bri
 - **Create:** server issues a 5-character code from an unambiguous alphabet (no 0/O/1/I). Share link `/r/CODE` uses the Web Share API with a copy fallback.
 - **Join:** display name, 1–16 characters. The lobby shows seats. The host (first seat) starts once 2–8 players have joined. If the host leaves the lobby, the next seat becomes host.
 - **Identity:** a random token in `localStorage`, per room. Reconnecting with the same token reclaims the seat. Tokens are never broadcast.
-- **Spectators:** anyone joining a full room (8) or a game in progress sees the public view. Between games (lobby or game over) they can take a free seat; leaving a seat is lobby-only so seat order always matches the game.
+- **Spectators:** anyone joining a full room (8) or a game in progress sees the public view. They can take a free seat in the lobby. Joining, leaving, and removing seats happen only in the lobby, so seat order always matches the game.
 - **Reconnection:** the client auto-reconnects with backoff and shows a "Reconnecting…" banner. The server sends a full snapshot on reconnect. Seats are held for the whole game.
 - **Stall guard:** if the current player has been disconnected for 60 s, the server plays a default move: draw from deck, discard, flip the first face-down card in reading order. During the initial flip (R3) there is no current player and everyone must flip, so any seat disconnected for 60 s with fewer than 2 cards up gets its first face-down cards flipped in reading order.
 - **Next round:** the engine's `nextRound` carries no seat, so the room decides who may send it: the host advances from the round summary; if the host is disconnected, any seated player can.
 - **Persistence:** room state is written to Durable Object storage on every change, so eviction loses nothing. Idle rooms are deleted after 24 h via an alarm.
-- **Rematch:** after game over, the host can start a new game with the same seats plus anyone who joined during game over. Each deal (start, rematch, every new round) gets fresh CSPRNG entropy.
+- **Rematch:** after game over, the host's **Play again** returns everyone to the lobby with the same seats. Late arrivals join there, and the host can remove offline (ghost) seats. Then the host starts. Each deal (every start and every new round) gets fresh CSPRNG entropy.
 
 ## Milestones
 
@@ -104,6 +104,8 @@ Moved ahead of polish (the brief listed it last) so hosting risk is retired earl
 - CI deploys on push to `main` to `skyjo-online.<subdomain>.workers.dev`. A post-deploy smoke test runs the 2-player Playwright game against the live URL.
 - Self-host fallback: `src/server/node.ts` (Node + `ws`, serves `dist/`, rooms in memory). The README documents running it behind `cloudflared tunnel`. It is never exposed without asking the user first.
 - CI's `concurrency` group cancels in-progress runs. A deploy on `main` must never be cancelled halfway, so `cancel-in-progress` applies to PRs only.
+
+- Rate-limit `POST /api/rooms` per client IP with the Workers Rate Limiting binding (or a WAF rule). Room creation is otherwise unthrottled: each call writes storage and sets an alarm (M3 review).
 
 **Acceptance:** the public URL works on a real phone. The smoke test passes against it. The Node fallback passes the same E2E locally.
 

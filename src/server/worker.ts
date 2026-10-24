@@ -6,10 +6,12 @@ import {
   CODE_ALPHABET,
   CODE_LENGTH,
   isRoomCode,
+  PING,
+  PONG,
   parseClientMsg,
   type ServerMsg,
 } from "../protocol";
-import { type Conn, newRoom, Room, type RoomData, RoomError } from "./room";
+import { allowMessage, type Conn, newConn, newRoom, Room, type RoomData, RoomError } from "./room";
 
 const deps = {
   now: () => Date.now(),
@@ -57,13 +59,13 @@ export class RoomDO extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     // The runtime answers pings without waking the object; their timestamps mark sockets alive.
-    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
+    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(PING, PONG));
   }
 
   async create(code: string): Promise<boolean> {
     if (await this.load()) return false;
     this.room = new Room(newRoom(code, Date.now()), deps);
-    await this.commit(new Map());
+    await this.commit(new Map(), true);
     return true;
   }
 
@@ -71,7 +73,7 @@ export class RoomDO extends DurableObject<Env> {
     const [client, server] = Object.values(new WebSocketPair());
     this.ctx.acceptWebSocket(server);
     if (await this.load()) {
-      server.serializeAttachment({ token: null, seenAt: Date.now() } satisfies Conn);
+      server.serializeAttachment(newConn(Date.now()));
     } else {
       // A failed upgrade looks like a network error to browsers, so say "no such room" in-band.
       send(server, { t: "missing" });
@@ -85,18 +87,25 @@ export class RoomDO extends DurableObject<Env> {
     const live = this.live();
     const conn = live.get(ws);
     if (!room || !conn) return;
+    if (!allowMessage(conn, Date.now())) {
+      ws.close(1008, "Too many messages");
+      return;
+    }
+    let changed: boolean;
     try {
       const msg = parseClientMsg(raw);
       if (!msg) throw new RoomError("bad-message");
-      room.receive(conn, msg, [...live.values()]);
+      changed = room.receive(conn, msg, [...live.values()]);
     } catch (e) {
       if (!(e instanceof RoomError)) throw e;
       ws.serializeAttachment(conn);
-      send(ws, { t: "error", code: e.code });
+      send(ws, { t: "error", code: e.code, ack: conn.ack });
       return;
     }
     ws.serializeAttachment(conn);
-    await this.commit(live);
+    // A returning player may unblock a stall that was waiting for someone to be present.
+    changed = room.tick([...live.values()]) || changed;
+    await this.commit(live, changed);
   }
 
   async webSocketClose(ws: WebSocket) {
@@ -106,7 +115,7 @@ export class RoomDO extends DurableObject<Env> {
     live.delete(ws);
     if (!room || !conn) return;
     room.closed(conn);
-    await this.commit(live);
+    await this.commit(live, true);
   }
 
   async webSocketError(ws: WebSocket) {
@@ -117,13 +126,17 @@ export class RoomDO extends DurableObject<Env> {
     const room = await this.load();
     if (!room) return;
     const live = this.live();
-    if (room.isIdle([...live.values()])) {
+    if (room.isIdle()) {
+      for (const ws of live.keys()) {
+        send(ws, { t: "missing" });
+        ws.close(CLOSE_UNKNOWN_ROOM, "Room expired");
+      }
       await this.ctx.storage.deleteAll();
       this.room = null;
       return;
     }
-    room.tick([...live.values()]);
-    await this.commit(live);
+    // Re-broadcast even without a move: presence and who may lead can change with time alone.
+    await this.commit(live, room.tick([...live.values()]));
   }
 
   private async load(): Promise<Room | null> {
@@ -146,13 +159,15 @@ export class RoomDO extends DurableObject<Env> {
     return live;
   }
 
-  /** Persists, sends every socket its own view, and schedules the next stall or idle check. */
-  private async commit(live: Map<WebSocket, Conn>) {
+  /** Persists if needed, sends every socket its own view, and schedules the next check. */
+  private async commit(live: Map<WebSocket, Conn>, persist: boolean) {
     const room = this.room;
     if (!room) return;
     const conns = [...live.values()];
-    await this.ctx.storage.put("room", room.data);
-    for (const [ws, conn] of live) send(ws, { t: "state", room: room.view(conn, conns) });
+    if (persist) await this.ctx.storage.put("room", room.data);
+    for (const [ws, conn] of live) {
+      send(ws, { t: "state", room: room.view(conn, conns), ack: conn.ack });
+    }
     await this.ctx.storage.setAlarm(room.nextAlarm(conns));
   }
 }

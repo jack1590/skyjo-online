@@ -117,6 +117,18 @@ button {
   gap: 8px;
 }
 
+.link {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.seat-tags {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .code-input {
   text-transform: uppercase;
   letter-spacing: 0.15em;

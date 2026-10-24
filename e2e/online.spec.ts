@@ -99,7 +99,10 @@ test("two phones create, join, and play a full game to 100", async ({ browser },
   for (const page of pages) await expect(page.getByTestId("game-over")).toBeVisible();
   // Only the host can rematch.
   await expect(pages[1].getByRole("button", { name: "Play again" })).toHaveCount(0);
+  // Play again returns everyone to the lobby with the same seats; the host starts.
   await pages[0].getByRole("button", { name: "Play again" }).click();
+  await expect(pages[1].getByTestId("seats")).toContainText("Ana");
+  await startGame(pages[0]);
   await expect(pages[1].getByTestId("table")).toHaveAttribute("data-phase", "flip");
 });
 
@@ -150,9 +153,50 @@ test("a 9th phone can't take a seat and watches instead", async ({ browser }, in
   await expect(ninth.getByRole("button", { name: "Join", exact: true })).toHaveCount(0);
 });
 
-test("an unknown room code says so", async ({ page }) => {
+test("online screenshots", async ({ browser }, info) => {
+  test.skip(!process.env.SHOTS || info.project.name !== "iphone", "run with npm run screenshots");
+  const shot = (page: Page, name: string) =>
+    page.screenshot({
+      path: `docs/screenshots/m3/${name}.jpg`,
+      type: "jpeg",
+      quality: 80,
+      scale: "css",
+      animations: "disabled",
+    });
+  const [host] = await phones(browser, info, 1);
+  await host.goto("/");
+  await shot(host, "01-home");
+  const { pages, code } = await seatedRoom(browser, info, ["Ana", "Ben", "Cris"]);
+  await shot(pages[0], "02-lobby-host");
+  await shot(pages[1], "03-lobby-guest");
+  await startGame(pages[0]);
+  while ((await pages[0].getByTestId("table").getAttribute("data-phase")) === "flip") {
+    for (const page of pages) await botStep(page);
+  }
+  const current = Number(await pages[0].getByTestId("table").getAttribute("data-current"));
+  await shot(pages[current], "04-your-turn");
+  await shot(pages[(current + 1) % 3], "05-waiting");
+  const [watcher] = await phones(browser, info, 1);
+  await watcher.goto(`/r/${code}`);
+  await expect(watcher.getByText("You're watching this game")).toBeVisible();
+  await shot(watcher, "06-spectator");
+});
+
+test("an unknown room code says so, including codes that can't exist", async ({ page }) => {
   await page.goto("/r/ZZZZZ");
   await expect(page.getByText("There's no room ZZZZZ.")).toBeVisible();
+  await page.goto("/r/ABCD0"); // 0 is not in the code alphabet
+  await expect(page.getByText("There's no room ABCD0.")).toBeVisible();
+});
+
+test("the host can remove a player who left without leaving", async ({ browser }, info) => {
+  const { pages } = await seatedRoom(browser, info, ["Ana", "Ben", "Cris"]);
+  await pages[1].context().close(); // Ben closes the tab
+  const remove = pages[0].getByRole("button", { name: "Remove Ben" });
+  await expect(remove).toBeVisible({ timeout: 10_000 });
+  await remove.click();
+  await expect(pages[0].getByTestId("seats")).not.toContainText("Ben");
+  await expect(pages[2].getByTestId("seats")).not.toContainText("Ben");
 });
 
 test("joining from the home screen with a code", async ({ browser }, info) => {

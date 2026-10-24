@@ -1,5 +1,5 @@
-// Platform-agnostic room: seats, permissions, stall guard. Adapters (worker.ts, node.ts) own the
-// sockets and storage; this file owns the rules about who may do what.
+// Platform-agnostic room: seats, permissions, stall guard, scheduling. Adapters (worker.ts,
+// node.ts) own sockets and storage; this file owns who may do what, and when.
 import {
   type Action,
   apply,
@@ -26,15 +26,24 @@ export interface RoomData {
   code: string;
   seats: Seat[];
   host: number;
+  /** null = lobby. */
   game: GameState | null;
-  /** Last change (ms); idle rooms get deleted. */
+  /** Last client message (ms). Pings don't count, so a forgotten tab doesn't keep a room forever. */
   updatedAt: number;
+  /** When the table started waiting on whoever it waits on now (ms): the stall guard counts from here. */
+  waitSince: number;
 }
 
-/** One open socket. `token` comes from its hello; `seenAt` is its last message or ping (ms). */
+/** One open socket, persisted in its attachment. */
 export interface Conn {
+  /** From its hello. */
   token: string | null;
+  /** Last message or ping (ms). */
   seenAt: number;
+  /** Highest client `seq` handled, echoed back so the client knows its move landed. */
+  ack: number;
+  windowStart: number;
+  windowCount: number;
 }
 
 export interface Deps {
@@ -51,9 +60,13 @@ export class RoomError extends Error {
 
 /** A socket silent this long counts as gone; phones drop sockets without closing them. */
 export const STALE_MS = 45_000;
-/** A seat the table waits on gets a default move after being gone this long. */
+/** A seat the table waits on gets a default move after being gone this long into its wait. */
 export const STALL_MS = 60_000;
+/** No client message for this long and the room is deleted. */
 export const IDLE_MS = 24 * 60 * 60_000;
+/** Per-socket flood limit: a real player sends a few messages per turn. */
+const WINDOW_MS = 10_000;
+const WINDOW_MAX = 40;
 
 export const newRoom = (code: string, now: number): RoomData => ({
   code,
@@ -61,7 +74,25 @@ export const newRoom = (code: string, now: number): RoomData => ({
   host: 0,
   game: null,
   updatedAt: now,
+  waitSince: now,
 });
+
+export const newConn = (now: number): Conn => ({
+  token: null,
+  seenAt: now,
+  ack: 0,
+  windowStart: now,
+  windowCount: 0,
+});
+
+/** Counts one message against the socket's budget; false = the adapter should close it (1008). */
+export function allowMessage(conn: Conn, now: number): boolean {
+  if (now - conn.windowStart >= WINDOW_MS) {
+    conn.windowStart = now;
+    conn.windowCount = 0;
+  }
+  return ++conn.windowCount <= WINDOW_MAX;
+}
 
 /** Strips control/format characters (zero-width, bidi overrides), trims, caps length. */
 const cleanName = (name: string) => name.replace(/\p{C}/gu, "").trim().slice(0, NAME_MAX).trim();
@@ -77,27 +108,27 @@ export class Room {
     return seat === -1 ? null : seat;
   }
 
-  /** Applies one client message. Throws RoomError, which the adapter sends to that socket only. */
-  receive(conn: Conn, msg: ClientMsg, live: Conn[]): void {
+  /**
+   * Applies one client message and records its `seq` as acknowledged, even when it fails.
+   * Returns whether state worth persisting changed. Throws RoomError for that socket only.
+   */
+  receive(conn: Conn, msg: ClientMsg, live: Conn[]): boolean {
     const now = this.deps.now();
     conn.seenAt = now;
-    if (msg.t === "hello") {
-      conn.token = msg.token;
-    }
+    if (msg.seq !== undefined) conn.ack = Math.max(conn.ack, msg.seq);
+    if (msg.t === "hello") conn.token = msg.token;
     if (conn.token === null) throw new RoomError("bad-message");
     const seat = this.seatOf(conn);
     if (seat !== null) this.data.seats[seat].seenAt = now;
     this.data.updatedAt = now;
 
     const { seats, game } = this.data;
+    const lobby = game === null;
     switch (msg.t) {
       case "hello":
-        return;
+        return false;
       case "join": {
-        // Between games only: seat order must match the running game's players.
-        if (seat !== null || (game !== null && game.phase !== "gameOver")) {
-          throw new RoomError("not-allowed");
-        }
+        if (seat !== null || !lobby) throw new RoomError("not-allowed");
         if (seats.length >= MAX_PLAYERS) throw new RoomError("room-full");
         const name = cleanName(msg.name);
         if (!name) throw new RoomError("bad-name");
@@ -105,27 +136,37 @@ export class Room {
           throw new RoomError("name-taken");
         }
         seats.push({ token: conn.token, name, seenAt: now });
-        return;
+        return true;
       }
       case "leave":
-        if (seat === null || game !== null) throw new RoomError("not-allowed");
-        seats.splice(seat, 1);
-        // The next seat inherits the host role.
-        if (seat < this.data.host) this.data.host--;
-        else if (this.data.host >= seats.length) this.data.host = 0;
-        return;
-      case "start":
-        if (game !== null || seats.length < MIN_PLAYERS || !this.canLead(seat, live)) {
+        if (seat === null || !lobby) throw new RoomError("not-allowed");
+        this.removeSeat(seat);
+        return true;
+      case "kick":
+        // Clears ghost seats (someone who closed the tab without leaving); online players stay.
+        if (!lobby || !this.canLead(seat, live) || msg.seat === seat) {
           throw new RoomError("not-allowed");
         }
-        this.deal();
-        return;
+        if (!seats[msg.seat] || this.connected(msg.seat, live)) throw new RoomError("not-allowed");
+        this.removeSeat(msg.seat);
+        return true;
+      case "start":
+        if (!lobby || seats.length < MIN_PLAYERS || !this.canLead(seat, live)) {
+          throw new RoomError("not-allowed");
+        }
+        this.data.game = createGame(
+          seats.map((s) => s.name),
+          this.deps.seed(),
+        );
+        this.data.waitSince = now;
+        return true;
       case "rematch":
+        // Back to the lobby with the same seats, where people can join, leave, or be removed.
         if (game?.phase !== "gameOver" || !this.canLead(seat, live)) {
           throw new RoomError("not-allowed");
         }
-        this.deal();
-        return;
+        this.data.game = null;
+        return true;
       case "act":
         if (game === null || seat === null) throw new RoomError("not-allowed");
         if (msg.action.type === "nextRound") {
@@ -135,14 +176,17 @@ export class Room {
         } else {
           this.play(game, { ...msg.action, seat });
         }
-        return;
+        return true;
     }
   }
 
-  /** A socket closed: its seat was alive until now. */
+  /** A socket closed: its seat was last alive when that socket was. */
   closed(conn: Conn): void {
     const seat = this.seatOf(conn);
-    if (seat !== null) this.data.seats[seat].seenAt = this.deps.now();
+    if (seat !== null) {
+      const s = this.data.seats[seat];
+      s.seenAt = Math.max(s.seenAt, conn.seenAt);
+    }
   }
 
   view(conn: Conn, live: Conn[]): RoomView {
@@ -161,25 +205,36 @@ export class Room {
   tick(live: Conn[]): boolean {
     const now = this.deps.now();
     let changed = false;
-    // Bounded: each pass plays a move, and a round has finitely many.
+    // Bounded: each pass finishes one stalled seat's turn, and a round has finitely many.
     for (let pass = 0; pass < 1000; pass++) {
-      const seat = this.awaited().find((s) => now - this.lastSeen(s, live) >= STALL_MS);
-      if (seat === undefined || !this.data.game) break;
-      this.play(this.data.game, autoMove(this.data.game, seat));
+      const seat = this.awaited().find(
+        (s) => this.canStall(s, live) && now >= this.deadline(s, live),
+      );
+      if (seat === undefined) break;
+      // Finish that seat's whole turn (both initial flips, or draw then discard-and-flip).
+      while (this.data.game && this.awaited().includes(seat)) {
+        this.play(this.data.game, autoMove(this.data.game, seat));
+      }
       changed = true;
     }
-    if (changed) this.data.updatedAt = now;
     return changed;
   }
 
-  /** When tick() next needs to run (ms). */
+  /** When the adapter should call tick() and re-broadcast next (ms). Always in the future. */
   nextAlarm(live: Conn[]): number {
-    const stalls = this.awaited().map((s) => this.lastSeen(s, live) + STALL_MS);
-    return Math.min(this.data.updatedAt + IDLE_MS, ...stalls);
+    const now = this.deps.now();
+    const due = [this.data.updatedAt + IDLE_MS];
+    for (const s of this.awaited()) if (this.canStall(s, live)) due.push(this.deadline(s, live));
+    // If the host goes quiet while the table needs a lead, others must learn they may step in.
+    if (this.needsLead() && this.connected(this.data.host, live)) {
+      due.push(this.lastSeen(this.data.host, live) + STALE_MS);
+    }
+    const future = due.filter((t) => t > now);
+    return future.length ? Math.min(...future) : now + STALE_MS;
   }
 
-  isIdle(live: Conn[]): boolean {
-    return live.length === 0 && this.deps.now() - this.data.updatedAt >= IDLE_MS;
+  isIdle(): boolean {
+    return this.deps.now() - this.data.updatedAt >= IDLE_MS;
   }
 
   private connected(seat: number, live: Conn[]): boolean {
@@ -193,9 +248,26 @@ export class Room {
     return seat !== null && (seat === this.data.host || !this.connected(this.data.host, live));
   }
 
+  private needsLead(): boolean {
+    const phase = this.data.game?.phase;
+    return this.data.game === null
+      ? this.data.seats.length >= MIN_PLAYERS
+      : phase === "roundOver" || phase === "gameOver";
+  }
+
   private lastSeen(seat: number, live: Conn[]): number {
     const s = this.data.seats[seat];
     return Math.max(s.seenAt, ...live.filter((c) => c.token === s.token).map((c) => c.seenAt));
+  }
+
+  /** A seat gets a full STALL_MS of absence counted from when its wait began, not from when it went quiet. */
+  private deadline(seat: number, live: Conn[]): number {
+    return Math.max(this.lastSeen(seat, live), this.data.waitSince) + STALL_MS;
+  }
+
+  /** Only stall for someone when somebody else is there to wait; an empty table doesn't play itself. */
+  private canStall(seat: number, live: Conn[]): boolean {
+    return this.data.seats.some((_, i) => i !== seat && this.connected(i, live));
   }
 
   /** Seats the table is waiting on right now. */
@@ -207,11 +279,11 @@ export class Room {
     return g?.phase === "draw" || g?.phase === "place" ? [g.current] : [];
   }
 
-  private deal(): void {
-    this.data.game = createGame(
-      this.data.seats.map((s) => s.name),
-      this.deps.seed(),
-    );
+  private removeSeat(seat: number): void {
+    this.data.seats.splice(seat, 1);
+    // The next seat inherits the host role.
+    if (seat < this.data.host) this.data.host--;
+    else if (this.data.host >= this.data.seats.length) this.data.host = 0;
   }
 
   private play(state: GameState, action: Action): void {
@@ -221,6 +293,7 @@ export class Room {
       if (e instanceof RuleError) throw new RoomError("illegal-move");
       throw e;
     }
+    this.data.waitSince = this.deps.now();
   }
 }
 
