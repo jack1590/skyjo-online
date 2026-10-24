@@ -4,13 +4,15 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch: # manual redeploy of main
 
 permissions:
   contents: read
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # A newer push supersedes a PR run, but a deploy on main is never cut off halfway.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   ci:
@@ -30,7 +32,7 @@ jobs:
       - run: npm run build
 
   e2e:
-    name: e2e (${{ matrix.project }})
+    name: e2e (${{ matrix.name }})
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # Browsers and their system libraries are preinstalled. The tag must equal the exact
@@ -39,15 +41,73 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        project: [iphone, pixel, desktop]
+        include:
+          - { name: iphone, project: iphone }
+          - { name: pixel, project: pixel }
+          - { name: desktop, project: desktop }
+          # The self-host fallback must keep passing the online suite.
+          - { name: node, project: pixel, server: node, spec: e2e/online.spec.ts }
     steps:
       - uses: actions/checkout@v5
       - run: npm ci
       - run: npm run build
-      - run: npx playwright test --project=${{ matrix.project }}
+      - if: matrix.server == 'node'
+        run: npm run build:node
+      - run: npx playwright test ${{ matrix.spec }} --project=${{ matrix.project }}
+        env:
+          SERVER: ${{ matrix.server }}
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: playwright-report-${{ matrix.project }}
+          name: playwright-report-${{ matrix.name }}
+          path: playwright-report/
+          retention-days: 7
+
+  deploy:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: [ci, e2e]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: production
+      url: ${{ steps.deploy.outputs.url }}
+    outputs:
+      url: ${{ steps.deploy.outputs.url }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - id: deploy
+        run: |
+          npx wrangler deploy | tee deploy.log
+          echo "url=$(grep -oE 'https://[a-z0-9.-]+\.workers\.dev' deploy.log | head -1)" >> "$GITHUB_OUTPUT"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  smoke:
+    name: smoke (live)
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    container: mcr.microsoft.com/playwright:v1.64.1-noble
+    steps:
+      - uses: actions/checkout@v5
+      - run: test -n "$BASE_URL" || { echo "deploy printed no workers.dev URL"; exit 1; }
+        env:
+          BASE_URL: ${{ needs.deploy.outputs.url }}
+      - run: npm ci
+      # Two phones play a full game to 100 and a reload keeps the seat, against the live site.
+      - run: npx playwright test e2e/online.spec.ts --project=pixel -g "two phones|keeps your seat"
+        env:
+          BASE_URL: ${{ needs.deploy.outputs.url }}
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report-smoke
           path: playwright-report/
           retention-days: 7

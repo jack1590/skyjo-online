@@ -31,21 +31,26 @@ Engine API: `createGame(names, seed)` (`seed` is 4 int32s from `crypto.getRandom
 
 ## Commands
 
-| Command               | Does                                                                           |
-| --------------------- | ------------------------------------------------------------------------------ |
-| `npm run dev`         | Dev server                                                                     |
-| `npm run lint`        | Biome lint + format check                                                      |
-| `npm run format`      | Biome autofix                                                                  |
-| `npm run typecheck`   | `tsc --noEmit`                                                                 |
-| `npm test`            | Vitest unit tests with the engine coverage gate (95% lines/branches)           |
-| `npm run build`       | Production build                                                               |
-| `npm run e2e`         | Playwright on iPhone 13, Pixel 7, Desktop Chrome (builds + previews first)     |
-| `npm run screenshots` | Refreshes `docs/screenshots/m<N>/` at iPhone size                              |
-| `npm run art`         | Regenerates missing card art with Gemini (local only; needs `.env` and ffmpeg) |
+| Command                                                              | Does                                                                           |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `npm run dev`                                                        | Dev server                                                                     |
+| `npm run lint`                                                       | Biome lint + format check                                                      |
+| `npm run format`                                                     | Biome autofix                                                                  |
+| `npm run typecheck`                                                  | `tsc --noEmit`                                                                 |
+| `npm test`                                                           | Vitest unit tests with the engine coverage gate (95% lines/branches)           |
+| `npm run build`                                                      | Production build                                                               |
+| `npm run e2e`                                                        | Playwright on iPhone 13, Pixel 7, Desktop Chrome (builds + previews first)     |
+| `npm run screenshots`                                                | Refreshes `docs/screenshots/m<N>/` at iPhone size                              |
+| `npm run art`                                                        | Regenerates missing card art with Gemini (local only; needs `.env` and ffmpeg) |
+| `npm run build:node` / `npm start`                                   | Self-host build / run (Node + `ws`, port 8787)                                 |
+| `SERVER=node npx playwright test e2e/online.spec.ts --project=pixel` | Online suite against the Node server                                           |
+| `BASE_URL=https://… npx playwright test …`                           | Run tests against a deployed site (no local server)                            |
 
-CI (`.github/workflows/ci.yml`) runs on every PR and on `main`, as four parallel jobs that are all required checks:
+CI (`.github/workflows/ci.yml`) runs on every PR and on `main`, as parallel jobs; the first five are required checks:
 - `ci`: lint, typecheck, unit tests, build (~1 min).
 - `e2e (iphone)`, `e2e (pixel)`, `e2e (desktop)`: Playwright, one device per job, inside the `mcr.microsoft.com/playwright` container (browsers preinstalled). Long full-game play-throughs run on Pixel only; layout, 44px, i18n, reload, and interaction tests run on all three.
+- `e2e (node)`: the online suite against the Node self-host server.
+- On `main` only: `deploy` (`wrangler deploy` with the repo secrets) then `smoke (live)`, which plays a 2-phone game on the live URL. Deploys are never cancelled mid-run.
 
 `@playwright/test` is pinned to an exact version. When bumping it, change the container tag in `ci.yml` to the same version.
 

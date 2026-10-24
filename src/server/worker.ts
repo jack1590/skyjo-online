@@ -36,6 +36,10 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === "/api/rooms" && request.method === "POST") {
+      const ip = request.headers.get("cf-connecting-ip") ?? "unknown";
+      if (!(await env.ROOM_CREATION.limit({ key: ip })).success) {
+        return new Response("Too many rooms, try again in a minute", { status: 429 });
+      }
       for (let attempt = 0; attempt < 5; attempt++) {
         const code = randomCode();
         if (await env.ROOMS.get(env.ROOMS.idFromName(code)).create(code)) {
