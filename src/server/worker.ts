@@ -56,8 +56,15 @@ async function spend(env: Env, key: string, units: number): Promise<boolean> {
   return true;
 }
 
-/** Closes a socket over its IP's limit; it may be closing already. */
-function shut(ws: WebSocket) {
+/** A socket's attachment. `shut`: we closed it for a limit, so it is ignored until it's gone. */
+type Attachment = Conn & { shut?: true };
+
+/**
+ * Closes a socket over its IP's limit; it may be closing already. Marked first, so it stops counting
+ * as live (or holding the room open) even if its client never answers the close.
+ */
+function shut(ws: WebSocket, conn: Conn) {
+  ws.serializeAttachment({ ...conn, shut: true } satisfies Attachment);
   try {
     ws.close(CLOSE_TOO_MANY, "Too many messages");
   } catch {
@@ -158,7 +165,7 @@ export class RoomDO extends DurableObject<Env> {
     // Per IP across every socket and room (SEC-10). Pings are answered by the runtime, never here.
     const attached = ws.deserializeAttachment() as Conn | null;
     if (attached?.ip && !(await spend(this.env, attached.ip, 1))) {
-      shut(ws);
+      shut(ws, attached);
       return;
     }
     const room = await this.load();
@@ -166,7 +173,7 @@ export class RoomDO extends DurableObject<Env> {
     const conn = live.get(ws);
     if (!room || !conn) return;
     if (!allowMessage(conn, Date.now())) {
-      shut(ws);
+      shut(ws, conn);
       return;
     }
     let change: Change;
@@ -184,7 +191,7 @@ export class RoomDO extends DurableObject<Env> {
     // A returning player may unblock a stall that was waiting for someone to be present.
     if (room.tick([...live.values()])) change = "data";
     if ((await this.commit(live, change, ws)) && conn.ip && !(await spend(this.env, conn.ip, 1))) {
-      shut(ws);
+      shut(ws, conn);
     }
   }
 
@@ -192,7 +199,7 @@ export class RoomDO extends DurableObject<Env> {
     return this.serial(async () => {
       const room = await this.load();
       const live = this.live();
-      const conn = live.get(ws);
+      const conn = live.get(ws) ?? (ws.deserializeAttachment() as Conn | null); // a shut socket
       live.delete(ws);
       if (!room || !conn) return;
       // The seat's last sign of life is kept in memory only: a close writes no row unless it moves
@@ -228,7 +235,7 @@ export class RoomDO extends DurableObject<Env> {
         for (const [ws, conn] of live) {
           if (conn.ip !== ip) continue;
           room.closed(conn); // its seat keeps the ping-fresh time, so the stall guard waits its turn
-          shut(ws);
+          shut(ws, conn);
           live.delete(ws);
         }
       }
@@ -250,8 +257,8 @@ export class RoomDO extends DurableObject<Env> {
   private live(): Map<WebSocket, Conn> {
     const live = new Map<WebSocket, Conn>();
     for (const ws of this.ctx.getWebSockets()) {
-      const conn = ws.deserializeAttachment() as Conn | null;
-      if (!conn) continue;
+      const conn = ws.deserializeAttachment() as Attachment | null;
+      if (!conn || conn.shut) continue;
       const pinged = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? 0;
       live.set(ws, { ...conn, seenAt: Math.max(conn.seenAt, pinged) });
     }

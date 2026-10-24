@@ -560,6 +560,24 @@ describe("RoomDO alarm charges (SEC-11)", () => {
     expect(t.rows()).toBe(rows);
   });
 
+  it("SEC-11: a socket shut for its IP's limit stops counting, even if its client never answers the close", async () => {
+    const env = { MESSAGES: messageLimiter() };
+    const t = await harness(env);
+    nextMinute();
+    const home = await t.seat(2);
+    while (env.MESSAGES.calls.filter(([k]) => k === HOME).length < IP_MESSAGES_PER_MINUTE) {
+      await env.MESSAGES.limit({ key: HOME });
+    }
+    await t.advance(STALE_MS, home);
+    expect(home.map((ws) => ws.closed)).toEqual([1008, 1008]);
+    // The runtime still answers their pings, and no close event comes: the room isn't held.
+    const requests = t.requests;
+    await t.advance(10 * 60_000, home);
+    expect(t.requests).toBe(requests);
+    await t.send(home[0], { t: "act", action: { type: "draw", seat: 0, source: "deck" } });
+    expect(home[0].sent.at(-1)?.t).not.toBe("error"); // ignored, not handled
+  });
+
   it("SEC-11: a new room spends 3 of its creator's budget in the room, and isn't made without them", async () => {
     const env = { MESSAGES: messageLimiter() };
     const broke = await harness(env, "BCDEF", false);
