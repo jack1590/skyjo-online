@@ -17,6 +17,7 @@ import {
   ipKey,
   newConn,
   newRoom,
+  peerKey,
   Room,
   type RoomData,
   RoomError,
@@ -32,13 +33,15 @@ const send = (ws: WebSocket, msg: ServerMsg) => {
 };
 
 /**
- * Who a request counts against: its IPv4 address or IPv6 /64. null = a local run at
- * http://localhost (dev, E2E), which isn't limited; Cloudflare only routes our own hostname here.
+ * Who a request counts against: its IPv4 address or IPv6 /64. null = a local run (dev, E2E): a
+ * loopback client at http://localhost, which isn't limited. Cloudflare only routes our own
+ * hostname here and sets the real client address, so it needs both to be faked.
  */
-const clientKey = (request: Request) =>
-  new URL(request.url).hostname === "localhost"
-    ? null
-    : ipKey(request.headers.get("cf-connecting-ip") ?? "unknown");
+const clientKey = (request: Request) => {
+  const ip = request.headers.get("cf-connecting-ip") ?? "unknown";
+  const local = new URL(request.url).hostname === "localhost" && peerKey(ip, undefined) === null;
+  return local ? null : ipKey(ip);
+};
 
 const tooMany = (what: string) =>
   new Response(`Too many ${what}, try again in a minute`, {

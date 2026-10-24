@@ -92,4 +92,12 @@ describe("Worker per-IP limits", () => {
     for (let i = 0; i < 10; i++) await t.call("http://[::1]:4173/api/rooms", "127.0.0.1", t.create);
     expect((await t.call("http://[::1]:4173/api/rooms", "127.0.0.1", t.create)).status).toBe(429);
   });
+
+  it("SEC-1: the hostname localhost alone doesn't exempt a client with a public address", async () => {
+    const t = setup();
+    for (let i = 0; i < 60; i++) {
+      expect((await t.call("http://localhost/api/x", "203.0.113.7")).status).toBe(404);
+    }
+    expect((await t.call("http://localhost/api/x", "203.0.113.7")).status).toBe(429);
+  });
 });
