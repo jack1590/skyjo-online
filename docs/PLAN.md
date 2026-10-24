@@ -124,7 +124,6 @@ Moved ahead of polish (the brief listed it last) so hosting risk is retired earl
 ### After M5: follow-ups
 
 Non-blocking items from the M5 PO review. Do them in one small PR if the project continues.
-
 - `AGENTS.md`'s `public/` row says `sw.js` and `offline.html` live there. The worker template is `src/client/sw.js`, built by `vite.config.ts`, and the offline fallback page is inline in it.
 - Column removal: only one of the three removed cards flies to the discard. `flightsBetween` keeps one source per target, so the other two vanish.
 - Small-phone scroll with motion allowed has no E2E. Playwright's headless WebKit never animates `scrollIntoView({ behavior: "smooth" })` inside an overflow container: a 10-line page failed 5 out of 5. So the iPhone project can only check the reduced-motion path. Add the 375×548 turn-start check with `reducedMotion: "no-preference"` on the Pixel project. Chromium had 0 failures in 100 online turn starts in the PO run. Also confirm on a real iPhone SE.
