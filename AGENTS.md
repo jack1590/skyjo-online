@@ -82,6 +82,8 @@ CI (`.github/workflows/ci.yml`) runs on every PR and on `main`, as parallel jobs
 - On `main` only: `deploy` (`wrangler deploy` with the repo secrets) then `smoke (live)`, which plays a 2-phone round on the live URL (a whole game at bot speed would trip the per-IP message limit), then `release`: if there is no GitHub Release `v<package.json version>` yet, it creates the tag and the Release whose notes are that version's `CHANGELOG.md` section. Deploys are never cancelled mid-run.
 - `ci` fails when `CHANGELOG.md` has no section for the `package.json` version.
 
+`Health` (`.github/workflows/health.yml`, SEC-8) runs hourly at :17 on `main`, and on a PR that changes it. It loads the live page (a static asset, free) and creates one room, so it fails when the day's Worker requests, Durable Object requests or rows written are used up, and GitHub emails the owner. Its error says which: 1027 or Cloudflare's 429 (Worker quota), a 5xx (Durable Object or storage), our own `Too many …` 429 (a per-IP limit, not a quota), or no page (site down). It costs 24 Worker requests, 48 Durable Object requests and 72 rows a day. To see a failure, run it by hand with another URL to POST: `gh workflow run health.yml -f api=https://httpbin.org/status/429`.
+
 `@playwright/test` is pinned to an exact version. When bumping it, change the container tag in `ci.yml` to the same version.
 
 ## Conventions

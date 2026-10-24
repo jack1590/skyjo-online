@@ -6,6 +6,10 @@ name: Health
 on:
   schedule:
     - cron: "17 * * * *" # off the hour, when GitHub's scheduler is less busy
+  # A PR that changes this check runs it once against the live site. That run also lets
+  # `gh workflow run --ref <branch>` dispatch it before it is on main.
+  pull_request:
+    paths: [.github/workflows/health.yml]
   workflow_dispatch:
     inputs:
       api:
