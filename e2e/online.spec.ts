@@ -83,10 +83,12 @@ test("a whole discard-and-flip turn: draw, throw the card away, flip one", async
   const [mover, other] = await pastFlips(pages);
   const grid = mover.getByTestId("my-grid");
   const down = await grid.locator('[data-face="down"]').count();
-  await mover.getByTestId("deck").click();
+  // Forced taps, as in botStep: each move is confirmed by the expect after it.
+  await mover.getByTestId("deck").click({ force: true });
   const drawn = (await mover.getByTestId("drawn").getAttribute("aria-label"))?.split(": ")[1];
-  await mover.getByTestId("discard").click();
-  await grid.locator('button[data-face="down"]').first().click();
+  await mover.getByTestId("discard").click({ force: true });
+  await expect(mover.getByTestId("drawn")).toHaveJSProperty("tagName", "BUTTON"); // discard mode
+  await grid.locator('button[data-face="down"]').first().click({ force: true });
   await expect(grid.locator('[data-face="down"]')).toHaveCount(down - 1);
   await expect(mover.getByTestId("discard")).toHaveAttribute(
     "aria-label",
@@ -119,7 +121,8 @@ test("M8: a player who ticks Auto-play is played for, a step at a time, until th
   const name = (await a.getByTestId("mine-head").locator("strong").textContent()) ?? "";
   const seat = Number(await a.getByTestId("my-grid").getAttribute("data-seat"));
   const toggle = a.getByRole("checkbox", { name: "Auto-play" });
-  await toggle.click();
+  // Taps here are forced: CI's WebKit spends up to a second per click on actionability alone.
+  await toggle.click({ force: true });
   await expect(toggle).toBeChecked();
   await expect(a.getByTestId("mine-head")).toHaveText(/^Auto-play (is|was) on/);
   const ticked = sent.get(a)?.find((m) => m.msg.includes('"t":"auto"'))?.at ?? 0;
@@ -145,17 +148,19 @@ test("M8: a player who ticks Auto-play is played for, a step at a time, until th
   // A's taps on its cards point at the switch and send no move.
   const moves = () => (sent.get(a) ?? []).filter((m) => m.msg.includes('"t":"act"')).length;
   const before = moves();
-  await a.getByTestId("my-grid").locator("button").first().click();
+  await a.getByTestId("my-grid").locator("button").first().click({ force: true });
   await expect(a.getByTestId("mine-head")).toHaveText(/^Auto-play (is|was) on/);
   expect(moves()).toBe(before);
-  // Unticked, A's next turn waits for A: an auto-play draw would come after 1.5 s.
-  await toggle.click();
+  // Unticked, A's next turn waits for A: its clock is a 30 s timer, not an auto-play step.
+  await toggle.click({ force: true });
   await expect(toggle).not.toBeChecked();
   await botStep(b);
   await botStep(b);
   await expect(a.getByTestId("table")).toHaveAttribute("data-myturn", "true");
-  await a.waitForTimeout(2_500);
-  await expect(a.getByTestId("table")).toHaveAttribute("data-phase", "draw");
+  const last = states.get(a)?.at(-1)?.room;
+  expect(last?.game?.current).toBe(seat);
+  expect(last?.clocks).toEqual([{ seat, inMs: expect.any(Number), reason: "timer" }]);
+  expect(last?.clocks[0].inMs).toBeGreaterThan(25_000);
   await expect(b.getByRole("img", { name: "Auto-play" })).toHaveCount(0);
 });
 
