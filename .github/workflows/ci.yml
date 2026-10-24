@@ -116,8 +116,10 @@ jobs:
           exit 1
         env:
           BASE_URL: ${{ needs.deploy.outputs.url }}
-      # Two phones play a full game to 100 and a reload keeps the seat, against the live site.
-      - run: npx playwright test e2e/online.spec.ts --project=pixel -g "two phones|keeps your seat"
+      # Two phones play a round and the next deal, and a reload keeps the seat, against the live site.
+      # One runner is one IP under the production limits: a whole game at bot speed (about 25
+      # messages/s) would trip the 120-a-minute message budget; a round is about 50 messages.
+      - run: npx playwright test e2e/online.spec.ts --project=pixel -g "a round runs|keeps your seat"
         env:
           BASE_URL: ${{ needs.deploy.outputs.url }}
       - uses: actions/upload-artifact@v4
