@@ -134,7 +134,7 @@ The user asked for three things after M5: remove the local mode, add effects for
 
 ### Order after M6 (PO, 2026-10-24)
 
-The user asked for four things on 2026-10-24: a 30 s turn timer that switches a player to auto-play until they untick a checkbox, smooth animations, a UX expert pass shipped step by step, and the PO organizing the work. They ship as M8 → M9 → M10+, after M7 (the iPhone sound fix, already in progress), one PR at a time (see Process). The After-M6 follow-ups are folded in where they fit: the discard-and-flip E2E goes into M8 (auto-play makes that move), the final-reveal hold goes into M9 (it is an animation fix), and the rest join the M10+ triage pool.
+The user asked for four things on 2026-10-24: a 30 s turn timer that switches a player to auto-play until they untick a checkbox, smooth animations, a UX expert pass shipped step by step, and the PO organizing the work. They ship as M8 → M9 → M10+, after M7 (the iPhone sound fix, already in progress), one PR at a time (see Process). The After-M6 follow-ups are folded in where they fit: the discard-and-flip E2E goes into M8 (auto-play makes that move), the final-reveal hold goes into M9 (it is an animation fix), and the rest join the M10+ triage pool. A security hardening track (SEC, below) was added the same day at the user's request. Its critical and high findings may go ahead of M9.
 
 ### M7 — iPhone sound (in flight) · v2.0.1
 
@@ -216,6 +216,27 @@ The user asked for a UX expert agent to find improvements and ship them step by 
 | --- | -------------------------------------------------------------- | -------- | ------ | ------- |
 | —   | _Pending: the UX expert's audit (2026-10-24) is triaged here._ |          |        |         |
 
+### Security hardening (SEC) (user request, 2026-10-24) · one patch each
+
+**Goal:** a bot can't take the service down or ruin other players' games on the free plan. The threats include creating rooms in bulk, flooding sockets, guessing room codes, spamming joins or spectators, griefing games in progress, and burning the Cloudflare free plan's daily quotas (Worker and Durable Object requests, duration, storage writes). What exists today: per-IP room creation is rate-limited (`ROOM_CREATION`), each socket is capped at 120 messages per 10 s, frames over 1000 characters are rejected, and empty rooms expire after 10 min.
+1. **Audit.** A security engineer agent probes a **local** server only, never the live URL: abusing the live URL would burn the same free quotas the game runs on. It returns findings SEC-1, SEC-2, …, each with a severity, a proposed fix, an acceptance criterion, and whether it needs a Cloudflare dashboard action.
+2. **Triage.** The PO puts each finding in the table below, in the same shape as the UX triage: a severity, an effort (S / M / L), a verdict (**do** with its milestone number, **fold** into an open milestone, **defer**, or **decline**), and a one-line reason. The PO also marks whether it needs the user. Triage is a docs-only PR, and it can share one PR with the UX triage.
+   - **Critical:** one cheap client can take the service down for everyone, or use up a daily free-plan quota.
+   - **High:** one client can ruin other people's games or rooms, or take one room down.
+   - **Medium:** the attack needs sustained effort or many clients, or does limited damage.
+   - **Low:** defense in depth.
+3. **Order.** Critical and high SEC findings may go ahead of M9 and the M10+ UX passes, the same way UX blockers do; the PR that changes the order says why. Medium and low findings are ordered by value for effort alongside the UX items. Ordering never interrupts an open PR: it is still one PR at a time.
+4. **Ship.** One small PR per finding, or per tight group (for example, every per-socket limit). Each takes the next free milestone number, on a branch `m<N>-sec-<slug>`, and the table records which milestone. It goes through the normal loop (review → PR → PO) with the release checklist; a fix is a patch version. Build it test-first: room limits are unit-tested on the injected clock, and Worker routes through the Worker adapter's tests.
+5. **Acceptance per item:** the finding's reproduction, run again against a local server, no longer works, and a test fails without the fix. The PR also says how much each blocked attempt still costs on the free plan (requests, storage writes), and confirms that legitimate play is unchanged: the full E2E suite stays green, and no limit trips for 8 friends who share one IP behind a home router.
+6. **Needs the user: Cloudflare dashboard changes.** The PO and authors can't make dashboard changes or create secrets. Examples are a WAF or rate-limiting rule, a Turnstile site key and secret, and usage notifications. Each becomes a "Needs the user" item, listed below and in the report to the user, with exact steps: the dashboard path, every field value, the secret's name if one is needed (set by the user with `wrangler secret put` or as a GitHub secret, never committed), and how to verify the change worked. The code half of such a fix merges only after the user confirms the step, or it must work unchanged without it.
+7. **Done** when every finding is shipped, deferred or declined, and every "needs the user" step is done or declined by the user.
+
+| #   | Finding                                                                | Severity | Effort | Verdict | Needs the user |
+| --- | ---------------------------------------------------------------------- | -------- | ------ | ------- | -------------- |
+| —   | _Pending: the security engineer's audit (2026-10-24) is triaged here._ |          |        |         |                |
+
+**Needs the user (Cloudflare dashboard):** none yet.
+
 ### After M5: follow-ups
 
 Non-blocking items from the M5 PO review. Do them in one small PR if the project continues.
@@ -254,15 +275,18 @@ Per milestone:
 
 Each criterion is scored 1–5, or N/A when the milestone has no surface for it (multiplayer in M1–M2, for example).
 
-| Criterion             | 5 means                                                                                                                                 |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| Rules correctness     | Every rule R1–R15 behaves as specified in play and in tests                                                                             |
-| Mobile UX             | One-handed portrait play, clear turn state, ≥ 44 px targets, no dead ends                                                               |
-| Visual polish         | Original, cohesive art; readable cards; smooth, purposeful motion                                                                       |
-| Multiplayer stability | No desyncs; reload and network drop recover; no leaked hidden info                                                                      |
-| Code health           | Small, tested, readable; matches `AGENTS.md`; no dead code                                                                              |
-| Delivery health       | PR CI wall time ≤ 3 min; no flaky, retried or timed-out jobs; every CI job has `timeout-minutes`; `npm run e2e` runs locally in ≤ 2 min |
-| Game feel             | Sound, haptics and motion make every move feel physical; any player count is readable at a glance; friends would want a rematch         |
+| Criterion             | 5 means                                                                                                                                                                                          |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Rules correctness     | Every rule R1–R15 behaves as specified in play and in tests                                                                                                                                      |
+| Mobile UX             | One-handed portrait play, clear turn state, ≥ 44 px targets, no dead ends                                                                                                                        |
+| Visual polish         | Original, cohesive art; readable cards; smooth, purposeful motion                                                                                                                                |
+| Multiplayer stability | No desyncs; reload and network drop recover; no leaked hidden info                                                                                                                               |
+| Security              | A scripted client can't take the service down, use up a free-plan quota, get into rooms by guessing, or disrupt another room's game; every limit is tested; no open critical or high SEC finding |
+| Code health           | Small, tested, readable; matches `AGENTS.md`; no dead code                                                                                                                                       |
+| Delivery health       | PR CI wall time ≤ 3 min; no flaky, retried or timed-out jobs; every CI job has `timeout-minutes`; `npm run e2e` runs locally in ≤ 2 min                                                          |
+| Game feel             | Sound, haptics and motion make every move feel physical; any player count is readable at a glance; friends would want a rematch                                                                  |
+
+Security is scored on any PR that touches the server, the protocol or a route, and is N/A otherwise. The PO lists each new entry point (a message type, an HTTP route, an alarm, a storage write) with the limit that bounds it. An entry point with no bound is a blocking defect.
 
 The PO measures delivery health on every review, using `gh run view --json jobs` for wall and per-job times and a timed local `npm run e2e`, and reports the numbers with the score.
 
