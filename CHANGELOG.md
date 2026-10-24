@@ -4,6 +4,15 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.0.4] - 2026-10-24
+
+### Security
+
+- Holding rooms open no longer uses up the free plan's daily quotas. A lobby whose phones stay connected checks every 45 seconds who is still there, and each check costs a storage write and a Durable Object request. Before, one network could open 10 rooms a minute, leave 2 idle phones in each, and use up the day's 100,000 writes in under 2 hours, within every limit. Now each check is paid from the 120-a-minute budget of every network with a phone in that room. A network over its budget has its phones in that room disconnected, and they get back in once the minute is up. Creating a room also costs 3 of that budget, and one network may now make 30 requests to the API a minute, down from 60.
+- One network at every limit now needs about 14 hours to use up the day's writes or Durable Object requests, however it splits its budget (it took under 2 hours before). Several networks together still need proportionally less time.
+- Nothing changes for a normal table. 8 friends on one home Wi-Fi, tapping once a second, use at most 85 of their 120 in any minute, presence checks included. Long waits in the lobby or over the round summary, and slow turns, use even less. The dots that show who is online still update on time. 8 phones on very bad Wi-Fi (every connection dropping every 15–45 seconds) make at most 22 API requests in a minute.
+- **Still open:** our own "too many requests" answers still count toward the Workers free plan's 100,000 requests a day, so a flood of plain requests can stop new connections until 00:00 UTC (the site itself keeps loading). Only a WAF rule on a custom domain or Workers Paid avoids that, a choice deferred to launch. Forgotten lobbies with tabs left open keep costing writes until they expire (SEC-9).
+
 ## [2.0.3] - 2026-10-24
 
 ### Security

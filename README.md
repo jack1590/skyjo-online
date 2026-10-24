@@ -51,7 +51,7 @@ npm run shots:readme   # regenerate the images above (needs ffmpeg)
 
 ## Deploy (Cloudflare, free plan)
 
-The app, the Worker and one Durable Object per room deploy together to Cloudflare Workers. The free plan needs no credit card. CI deploys every push to `main` after all checks pass, then plays a 2-phone round against the live URL. Each network is limited to 60 API requests, 10 new rooms and 120 game messages a minute. That stops the cheapest floods, but the free plan's daily quotas are not safe yet: rooms held open can still use them up in about 2 hours (fixed next, SEC-11), and the Worker's 100,000 requests a day stay exposed to any flood (see `CHANGELOG.md`, 2.0.3).
+The app, the Worker and one Durable Object per room deploy together to Cloudflare Workers. The free plan needs no credit card. CI deploys every push to `main` after all checks pass, then plays a 2-phone round against the live URL. Each network is limited, every minute, to 30 API requests, 10 new rooms and 120 units of work (1 per game message, 2 per presence check of a room it keeps open, 3 per new room). So one network needs about 14 hours to use up the free plan's daily storage writes or Durable Object requests. The Worker's 100,000 requests a day are still exposed to any flood (see `CHANGELOG.md`, 2.0.3 and 2.0.4).
 
 One-time setup:
 1. Create a free Cloudflare account. In **Workers & Pages**, pick a `workers.dev` subdomain. Don't create an application; the first deploy does that.
