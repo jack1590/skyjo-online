@@ -1,6 +1,7 @@
 // Cloudflare adapter: one Durable Object per room, hibernatable WebSockets, state in DO storage.
 import { DurableObject } from "cloudflare:workers";
 import {
+  CLOSE_TOO_MANY,
   CLOSE_UNKNOWN_ROOM,
   isRoomCode,
   PING,
@@ -40,7 +41,10 @@ const clientKey = (request: Request) =>
     : ipKey(request.headers.get("cf-connecting-ip") ?? "unknown");
 
 const tooMany = (what: string) =>
-  new Response(`Too many ${what}, try again in a minute`, { status: 429 });
+  new Response(`Too many ${what}, try again in a minute`, {
+    status: 429,
+    headers: { "Retry-After": "60" },
+  });
 
 export default {
   async fetch(request, env) {
@@ -79,44 +83,52 @@ export class RoomDO extends DurableObject<Env> {
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(PING, PONG));
   }
 
-  async create(code: string): Promise<boolean> {
-    if (await this.load()) return false;
-    this.room = new Room(newRoom(code, Date.now()), deps);
-    await this.commit(new Map(), "data");
-    return true;
-  }
-
-  async fetch(request: Request): Promise<Response> {
-    const [client, server] = Object.values(new WebSocketPair());
-    this.ctx.acceptWebSocket(server);
-    if (await this.load()) {
-      // The attachment keeps the client's key through hibernation.
-      server.serializeAttachment(newConn(Date.now(), clientKey(request)));
-    } else {
-      // A failed upgrade looks like a network error to browsers, so say "no such room" in-band.
-      send(server, { t: "missing" });
-      server.close(CLOSE_UNKNOWN_ROOM, "Unknown room");
-    }
-    return new Response(null, { status: 101, webSocket: client });
-  }
-
   /**
-   * One message at a time, in arrival order: awaiting the MESSAGES binding, unlike storage, lets the
-   * next event in, and a socket's hello must still land before its first move.
+   * Runs events one at a time, in arrival order. Awaiting the MESSAGES binding, unlike storage, lets
+   * the next event in; without this a socket's first move could overtake its hello, or its close
+   * overtake its last message.
    */
-  private inbox: Promise<unknown> = Promise.resolve();
+  private queue: Promise<unknown> = Promise.resolve();
+  private serial<T>(run: () => Promise<T>): Promise<T> {
+    const done = this.queue.then(run);
+    this.queue = done.catch(() => {});
+    return done;
+  }
+
+  create(code: string): Promise<boolean> {
+    return this.serial(async () => {
+      if (await this.load()) return false;
+      this.room = new Room(newRoom(code, Date.now()), deps);
+      await this.commit(new Map(), "data");
+      return true;
+    });
+  }
+
+  fetch(request: Request): Promise<Response> {
+    return this.serial(async () => {
+      const [client, server] = Object.values(new WebSocketPair());
+      this.ctx.acceptWebSocket(server);
+      if (await this.load()) {
+        // The attachment keeps the client's key through hibernation.
+        server.serializeAttachment(newConn(Date.now(), clientKey(request)));
+      } else {
+        // A failed upgrade looks like a network error to browsers, so say "no such room" in-band.
+        send(server, { t: "missing" });
+        server.close(CLOSE_UNKNOWN_ROOM, "Unknown room");
+      }
+      return new Response(null, { status: 101, webSocket: client });
+    });
+  }
 
   webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer) {
-    const handled = this.inbox.then(() => this.handle(ws, raw));
-    this.inbox = handled.catch(() => {});
-    return handled;
+    return this.serial(() => this.handle(ws, raw));
   }
 
   private async handle(ws: WebSocket, raw: string | ArrayBuffer) {
     // Per IP across every socket and room (SEC-10). Pings are answered by the runtime, never here.
     const ip = (ws.deserializeAttachment() as Conn | null)?.ip;
     if (ip && !(await this.env.MESSAGES.limit({ key: ip })).success) {
-      ws.close(1008, "Too many messages");
+      ws.close(CLOSE_TOO_MANY, "Too many messages");
       return;
     }
     const room = await this.load();
@@ -124,7 +136,7 @@ export class RoomDO extends DurableObject<Env> {
     const conn = live.get(ws);
     if (!room || !conn) return;
     if (!allowMessage(conn, Date.now())) {
-      ws.close(1008, "Too many messages");
+      ws.close(CLOSE_TOO_MANY, "Too many messages");
       return;
     }
     let change: Change;
@@ -144,35 +156,39 @@ export class RoomDO extends DurableObject<Env> {
     await this.commit(live, change, ws);
   }
 
-  async webSocketClose(ws: WebSocket) {
-    const room = await this.load();
-    const live = this.live();
-    const conn = live.get(ws);
-    live.delete(ws);
-    if (!room || !conn) return;
-    await this.commit(live, room.closed(conn) ? "data" : "none");
+  webSocketClose(ws: WebSocket) {
+    return this.serial(async () => {
+      const room = await this.load();
+      const live = this.live();
+      const conn = live.get(ws);
+      live.delete(ws);
+      if (!room || !conn) return;
+      await this.commit(live, room.closed(conn) ? "data" : "none");
+    });
   }
 
-  async webSocketError(ws: WebSocket) {
-    await this.webSocketClose(ws);
+  webSocketError(ws: WebSocket) {
+    return this.webSocketClose(ws);
   }
 
-  async alarm() {
-    const room = await this.load();
-    this.alarmAt = null; // this one just fired
-    if (!room) return;
-    const live = this.live();
-    if (room.isIdle([...live.values()])) {
-      for (const ws of live.keys()) {
-        send(ws, { t: "missing" });
-        ws.close(CLOSE_UNKNOWN_ROOM, "Room expired");
+  alarm() {
+    return this.serial(async () => {
+      const room = await this.load();
+      this.alarmAt = null; // this one just fired
+      if (!room) return;
+      const live = this.live();
+      if (room.isIdle([...live.values()])) {
+        for (const ws of live.keys()) {
+          send(ws, { t: "missing" });
+          ws.close(CLOSE_UNKNOWN_ROOM, "Room expired");
+        }
+        await this.ctx.storage.deleteAll();
+        this.room = null;
+        return;
       }
-      await this.ctx.storage.deleteAll();
-      this.room = null;
-      return;
-    }
-    // Re-broadcast even without a move: presence and who may lead can change with time alone.
-    await this.commit(live, room.tick([...live.values()]) ? "data" : "view");
+      // Re-broadcast even without a move: presence and who may lead can change with time alone.
+      await this.commit(live, room.tick([...live.values()]) ? "data" : "view");
+    });
   }
 
   private async load(): Promise<Room | null> {

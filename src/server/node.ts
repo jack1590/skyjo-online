@@ -6,6 +6,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { extname, join, resolve, sep } from "node:path";
 import { type WebSocket, WebSocketServer } from "ws";
 import {
+  CLOSE_TOO_MANY,
   CLOSE_UNKNOWN_ROOM,
   isRoomCode,
   PING,
@@ -18,9 +19,9 @@ import {
   allowMessage,
   type Conn,
   systemDeps as deps,
-  ipKey,
   newConn,
   newRoom,
+  peerKey,
   Room,
   RoomError,
   randomCode,
@@ -142,18 +143,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
 const wss = new WebSocketServer({ noServer: true, maxPayload: 4096 });
 
 /** One window per client key: the per-IP message budget, across all rooms. */
-const ipWindows = new Map();
-
-/**
- * Who a socket's messages count against. Through a local proxy (the README's cloudflared tunnel)
- * that is the client address Cloudflare forwards; a direct loopback client (dev, E2E) isn't limited.
- */
-function clientKey(req: IncomingMessage): string | null {
-  const peer = req.socket.remoteAddress ?? "unknown";
-  if (!/^(127\.|::1$|::ffff:127\.)/.test(peer)) return ipKey(peer);
-  const forwarded = req.headers["cf-connecting-ip"];
-  return typeof forwarded === "string" ? ipKey(forwarded) : null;
-}
+const ipWindows: Parameters<typeof allowIp>[0] = new Map();
 
 server.on("upgrade", (req, socket, head) => {
   socket.on("error", () => socket.destroy()); // e.g. a reset mid-handshake
@@ -162,7 +152,11 @@ server.on("upgrade", (req, socket, head) => {
     socket.destroy();
     return;
   }
-  wss.handleUpgrade(req, socket, head, (ws) => onConnection(ws, code, clientKey(req)));
+  wss.handleUpgrade(req, socket, head, (ws) => {
+    const forwarded = req.headers["cf-connecting-ip"];
+    const ip = peerKey(req.socket.remoteAddress ?? "unknown", forwarded?.toString());
+    onConnection(ws, code, ip);
+  });
 });
 
 function onConnection(ws: WebSocket, code: string, ip: string | null) {
@@ -186,7 +180,7 @@ function onConnection(ws: WebSocket, code: string, ip: string | null) {
       return;
     }
     if (!allowMessage(conn, Date.now()) || (ip && !allowIp(ipWindows, ip, Date.now()))) {
-      ws.close(1008, "Too many messages");
+      ws.close(CLOSE_TOO_MANY, "Too many messages");
       return;
     }
     const conns = [...live.sockets.values()];

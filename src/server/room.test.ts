@@ -13,6 +13,7 @@ import {
   ipKey,
   newConn,
   newRoom,
+  peerKey,
   Room,
   RoomError,
   STALE_MS,
@@ -493,6 +494,15 @@ describe("per-IP limits", () => {
     expect(ipKey("2001:db8:1:3::a")).not.toBe(ipKey("2001:db8:1:2::a"));
     expect(ipKey("unknown")).toBe("unknown");
     expect(ipKey("not:an:ip")).toBe("not:an:ip");
+  });
+
+  it("SEC-10: Node keys a socket by its peer, or by the address a local proxy forwards", () => {
+    expect(peerKey("203.0.113.7", "198.51.100.1")).toBe("203.0.113.7"); // only a local proxy is trusted
+    expect(peerKey("::ffff:192.168.1.20", undefined)).toBe("192.168.1.20");
+    expect(peerKey("127.0.0.1", "2001:db8:1:2::a")).toBe("2001:db8:1:2::/64"); // cloudflared
+    expect(peerKey("::1", "203.0.113.7")).toBe("203.0.113.7");
+    expect(peerKey("127.0.0.1", undefined)).toBeNull(); // dev, E2E
+    expect(peerKey("::ffff:127.0.0.1", undefined)).toBeNull();
   });
 
   it("SEC-10: one IP gets IP_MESSAGES_PER_MINUTE messages a minute across all its sockets", () => {

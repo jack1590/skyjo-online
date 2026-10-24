@@ -420,3 +420,24 @@ describe("RoomDO per-IP message budget", () => {
     expect(peak).toBeLessThanOrEqual(0.75 * IP_MESSAGES_PER_MINUTE);
   });
 });
+
+describe("RoomDO event order", () => {
+  it("SEC-10: a socket's messages are handled in order even when the limiter answers out of order", async () => {
+    let calls = 0;
+    const slowFirst = {
+      limit: async () => {
+        if (calls++ === 0) await new Promise((done) => setTimeout(done, 20));
+        return { success: true };
+      },
+    };
+    const t = await harness({ MESSAGES: slowFirst });
+    const ws = await t.connect();
+    // A phone sends hello on open and may tap Join before the hello is answered.
+    await Promise.all([
+      t.send(ws, { t: "hello", token: token(0) }),
+      t.send(ws, { t: "join", name: "Ana" }),
+    ]);
+    expect(ws.sent.filter((m) => m.t === "error")).toEqual([]);
+    expect(lastView(ws).you).toBe(0);
+  });
+});

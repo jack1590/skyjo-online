@@ -152,6 +152,16 @@ export function allowIp(windows: Map<string, Window>, key: string, now: number):
 }
 
 /**
+ * The key for a socket a server accepted itself (node.ts). Through a local proxy (the README's
+ * cloudflared tunnel) that is the client address Cloudflare forwards; a direct loopback client
+ * (dev, E2E) isn't limited, and anyone else is keyed by their own address.
+ */
+export function peerKey(peer: string, forwarded: string | undefined): string | null {
+  if (!/^(127\.|::1$|::ffff:127\.)/.test(peer)) return ipKey(peer);
+  return forwarded ? ipKey(forwarded) : null;
+}
+
+/**
  * The rate-limit key for a client address: IPv4 as is, IPv6 by its /64, since one home or phone
  * gets a whole /64 and could rotate through it. Anything unparsable is its own key.
  */
