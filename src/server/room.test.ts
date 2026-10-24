@@ -522,13 +522,13 @@ describe("per-IP limits", () => {
     expect([...windows.keys()]).toEqual(["fresh"]);
   });
 
-  it("SEC-1: wrangler.jsonc limits each IP to 60 /api requests, 10 rooms and IP_MESSAGES_PER_MINUTE messages a minute", () => {
+  it("SEC-1, SEC-11: wrangler.jsonc limits each IP to 30 /api requests, 10 rooms and IP_MESSAGES_PER_MINUTE units a minute", () => {
     const config = JSON.parse(readFileSync("wrangler.jsonc", "utf8").replace(/^\s*\/\/.*$/gm, ""));
     const limits = Object.fromEntries(
       config.ratelimits.map((r: { name: string; simple: object }) => [r.name, r.simple]),
     );
     expect(limits).toEqual({
-      API_REQUESTS: { limit: 60, period: 60 },
+      API_REQUESTS: { limit: 30, period: 60 },
       ROOM_CREATION: { limit: 10, period: 60 },
       MESSAGES: { limit: IP_MESSAGES_PER_MINUTE, period: 60 },
     });

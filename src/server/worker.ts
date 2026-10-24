@@ -43,6 +43,26 @@ const clientKey = (request: Request) => {
   return local ? null : ipKey(ip);
 };
 
+/**
+ * Spends `units` of an IP's MESSAGES budget, the one budget for everything it makes us write. A
+ * message is 1. A presence check the room re-arms is 2, a row and a Durable Object request, charged
+ * to every IP holding the room open (SEC-11). A new room is 3: two rows now, one when it expires.
+ * So one IP writes at most about 120 rows a minute, however it splits them.
+ */
+async function spend(env: Env, key: string, units: number): Promise<boolean> {
+  for (let i = 0; i < units; i++) if (!(await env.MESSAGES.limit({ key })).success) return false;
+  return true;
+}
+
+/**
+ * Closes a socket over its IP's limit. Forgetting its token first means its seat shows offline at
+ * once and its close event writes nothing.
+ */
+function shut(ws: WebSocket, conn: Conn) {
+  ws.serializeAttachment({ ...conn, token: null });
+  ws.close(CLOSE_TOO_MANY, "Too many messages");
+}
+
 const tooMany = (what: string) =>
   new Response(`Too many ${what}, try again in a minute`, {
     status: 429,
@@ -57,7 +77,12 @@ export default {
     const key = clientKey(request);
     if (key && !(await env.API_REQUESTS.limit({ key })).success) return tooMany("requests");
     if (url.pathname === "/api/rooms" && request.method === "POST") {
-      if (key && !(await env.ROOM_CREATION.limit({ key })).success) return tooMany("rooms");
+      if (
+        key &&
+        !((await env.ROOM_CREATION.limit({ key })).success && (await spend(env, key, 3)))
+      ) {
+        return tooMany("rooms");
+      }
       for (let attempt = 0; attempt < 5; attempt++) {
         const code = randomCode();
         if (await env.ROOMS.get(env.ROOMS.idFromName(code)).create(code)) {
@@ -129,9 +154,9 @@ export class RoomDO extends DurableObject<Env> {
 
   private async handle(ws: WebSocket, raw: string | ArrayBuffer) {
     // Per IP across every socket and room (SEC-10). Pings are answered by the runtime, never here.
-    const ip = (ws.deserializeAttachment() as Conn | null)?.ip;
-    if (ip && !(await this.env.MESSAGES.limit({ key: ip })).success) {
-      ws.close(CLOSE_TOO_MANY, "Too many messages");
+    const attached = ws.deserializeAttachment() as Conn | null;
+    if (attached?.ip && !(await spend(this.env, attached.ip, 1))) {
+      shut(ws, attached);
       return;
     }
     const room = await this.load();
@@ -139,7 +164,7 @@ export class RoomDO extends DurableObject<Env> {
     const conn = live.get(ws);
     if (!room || !conn) return;
     if (!allowMessage(conn, Date.now())) {
-      ws.close(CLOSE_TOO_MANY, "Too many messages");
+      shut(ws, conn);
       return;
     }
     let change: Change;
@@ -188,6 +213,15 @@ export class RoomDO extends DurableObject<Env> {
         await this.ctx.storage.deleteAll();
         this.room = null;
         return;
+      }
+      // Every check costs a row and a request, so the IPs holding the room open pay for it (SEC-11).
+      for (const ip of new Set([...live.values()].map((conn) => conn.ip))) {
+        if (!ip || (await spend(this.env, ip, 2))) continue;
+        for (const [ws, conn] of live) {
+          if (conn.ip !== ip) continue;
+          shut(ws, conn);
+          live.delete(ws);
+        }
       }
       // Re-broadcast even without a move: presence and who may lead can change with time alone.
       await this.commit(live, room.tick([...live.values()]) ? "data" : "view");

@@ -7,9 +7,10 @@ import {
   IDLE_MS,
   IP_MESSAGES_PER_MINUTE,
   type Room,
+  STALE_MS,
   STALL_MS,
 } from "./room";
-import { RoomDO } from "./worker";
+import worker, { RoomDO } from "./worker";
 
 vi.mock("cloudflare:workers", () => ({
   DurableObject: class {
@@ -48,7 +49,20 @@ vi.stubGlobal(
     1 = new FakeSocket();
   },
 );
-vi.stubGlobal("Response", class {}); // Node's Response refuses status 101
+/** Node's Response refuses status 101, so the Worker and the object get this one. */
+class FakeResponse {
+  constructor(
+    readonly body: string | null = null,
+    readonly init: { status?: number } = {},
+  ) {}
+  get status() {
+    return this.init.status ?? 200;
+  }
+  static json(value: unknown) {
+    return new FakeResponse(JSON.stringify(value));
+  }
+}
+vi.stubGlobal("Response", FakeResponse);
 afterAll(() => vi.unstubAllGlobals());
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -60,24 +74,40 @@ const token = (i: number) => `token-${i}-abcdef`;
 /** One home router: every phone in these tests shares it unless a test says otherwise. */
 const HOME = "203.0.113.7";
 
-/** The MESSAGES ratelimit binding: fixed windows on the wall clock, like Cloudflare's and miniflare's. */
-function messageLimiter() {
+/** A ratelimit binding: fixed one-minute windows on the wall clock, like Cloudflare's and miniflare's. */
+function limiter(max: number) {
   const counts = new Map<string, number>();
+  /** Every check, as [key, when]: each one is a unit of that key's budget. */
+  const calls: [string, number][] = [];
   return {
+    calls,
     limit: async ({ key }: { key: string }) => {
+      calls.push([key, Date.now()]);
       const window = `${key}@${Math.floor(Date.now() / 60_000)}`;
       const n = (counts.get(window) ?? 0) + 1;
       counts.set(window, n);
-      return { success: n <= IP_MESSAGES_PER_MINUTE };
+      return { success: n <= max };
     },
   };
 }
+const messageLimiter = () => limiter(IP_MESSAGES_PER_MINUTE);
+
+/** The most of `key`'s checks that fall in any 60 s, sliding. */
+const peakMinute = (calls: [string, number][], key: string) => {
+  const at = calls.filter(([k]) => k === key).map(([, when]) => when);
+  return Math.max(0, ...at.map((t, i) => at.slice(i).filter((m) => m < t + 60_000).length));
+};
 
 /**
- * A RoomDO on a fake runtime that counts rows written (each `put` and each `setAlarm`), runs
- * alarms when the clock passes them, and answers pings without waking the object.
+ * A RoomDO on a fake runtime that counts rows written (each `put`, `setAlarm` and `deleteAll`) and
+ * Durable Object requests, runs alarms when the clock passes them, and answers pings without waking
+ * the object. `created: false` leaves creating the room to the Worker.
  */
-async function harness(env = { MESSAGES: messageLimiter() }) {
+async function harness(
+  env: object = { MESSAGES: messageLimiter() },
+  code = "ABCDE",
+  created = true,
+) {
   const sockets: FakeSocket[] = [];
   const pings = new Map<FakeSocket, number>();
   const data = new Map<string, unknown>();
@@ -98,7 +128,11 @@ async function harness(env = { MESSAGES: messageLimiter() }) {
       storage.alarm = at;
     },
     getAlarm: async () => storage.alarm,
-    deleteAll: async () => data.clear(),
+    deletes: 0,
+    deleteAll: async () => {
+      storage.deletes++;
+      data.clear();
+    },
   };
   const ctx = {
     storage,
@@ -113,13 +147,30 @@ async function harness(env = { MESSAGES: messageLimiter() }) {
   let durable = new RoomDO(ctx as never, env as never);
   /** Every client message, by when it was sent (ms). */
   const log: number[] = [];
-  await durable.create("ABCDE");
   /** The object's in-memory room and sockets, private to it. */
   const inside = () => durable as unknown as { room: Room | null; live(): Map<unknown, Conn> };
 
   const t = {
     storage,
-    rows: () => storage.puts + storage.alarmSets,
+    sockets,
+    rows: () => storage.puts + storage.alarmSets + storage.deletes,
+    /** Durable Object requests billed: each create, upgrade and alarm run, 1/20 per message or close. */
+    requests: 0,
+    create: () => {
+      t.requests++;
+      return durable.create(code);
+    },
+    fetch: (request: Request) => {
+      t.requests++;
+      return durable.fetch(request);
+    },
+    /** Runs the scheduled alarm now. */
+    alarm: () => {
+      t.requests++;
+      storage.alarm = null;
+      return durable.alarm();
+    },
+    ping: (ws: FakeSocket, at = Date.now()) => pings.set(ws, at),
     exists: () => data.has("room"),
     /** The object is evicted (hibernation) and a fresh instance handles the next event. */
     wake: () => {
@@ -127,18 +178,21 @@ async function harness(env = { MESSAGES: messageLimiter() }) {
     },
     log,
     connect: async (ip = HOME) => {
-      const url = "https://skyjo-online.example.workers.dev/api/rooms/ABCDE/ws";
-      await durable.fetch(new Request(url, { headers: { "cf-connecting-ip": ip } }));
+      const url = `https://skyjo-online.example.workers.dev/api/rooms/${code}/ws`;
+      await t.fetch(new Request(url, { headers: { "cf-connecting-ip": ip } }));
       return sockets[sockets.length - 1];
     },
     send: (ws: FakeSocket, msg: ClientMsg | string) => {
       log.push(Date.now());
+      t.requests += 1 / 20;
       return durable.webSocketMessage(
         ws as never,
         typeof msg === "string" ? msg : JSON.stringify(msg),
       );
     },
+    /** The socket's close event (the client left, or answered a close the object sent). */
     close: async (ws: FakeSocket) => {
+      t.requests += 1 / 20;
       await durable.webSocketClose(ws as never);
       sockets.splice(sockets.indexOf(ws), 1);
     },
@@ -153,9 +207,8 @@ async function harness(env = { MESSAGES: messageLimiter() }) {
       };
       while (storage.alarm !== null && storage.alarm <= end) {
         vi.setSystemTime(storage.alarm);
-        storage.alarm = null;
         ping();
-        await durable.alarm();
+        await t.alarm();
       }
       vi.setSystemTime(end);
       ping();
@@ -177,6 +230,7 @@ async function harness(env = { MESSAGES: messageLimiter() }) {
       return conns;
     },
   };
+  if (created) await t.create();
   return t;
 }
 
@@ -365,61 +419,87 @@ describe("RoomDO per-IP message budget", () => {
     expect(ws.closed).toBe(1008);
   });
 
-  it("SEC-10: 8 friends behind one IP play two fast games, with reconnects and a rematch, and never trip it", async () => {
-    const t = await harness();
-    /** One tap a second, every turn, on every phone: faster than any real table plays. */
-    const TAP = 1_000;
-    const phones: FakeSocket[] = [];
-    const everyone: FakeSocket[] = [];
-    const connect = async (seat: number) => {
-      const ws = await t.connect();
-      everyone.push(ws);
-      await t.send(ws, { t: "hello", token: token(seat) });
-      return ws;
-    };
-    for (let seat = 0; seat < 8; seat++) {
-      phones.push(await connect(seat));
-      await t.advance(TAP, phones);
-      await t.send(phones[seat], { t: "join", name: `P${seat}` });
-      await t.advance(TAP, phones);
-    }
-    const act = (seat: number, action: Action) => t.send(phones[seat], { t: "act", action });
-    for (let games = 0; games < 2; games++) {
-      await t.send(phones[0], { t: "start" });
-      await t.advance(TAP, phones);
-      for (let game = t.game(); game && game.phase !== "gameOver"; game = t.game()) {
-        const legal = legalActions(game);
-        if (game.phase === "flip") {
-          // Everyone flips at once.
-          for (let seat = 0; seat < 8; seat++) {
-            const flip = legal.find((a) => a.type === "flip" && a.seat === seat);
-            if (flip) await act(seat, flip);
-          }
-        } else if (game.phase === "roundOver") {
-          // Every phone locked during the summary: all 8 reconnect at once, then the host deals.
-          for (let seat = 0; seat < 8; seat++) {
-            await t.close(phones[seat]);
-            phones[seat] = await connect(seat);
-          }
-          await t.advance(TAP, phones);
-          await act(0, { type: "nextRound" });
-        } else {
-          await act(game.current, legal[game.phase === "place" ? legal.length - 1 : 0] as Action);
-        }
-        await t.advance(TAP, phones);
-      }
-      await t.send(phones[0], { t: "rematch" });
-      await t.advance(TAP, phones);
-    }
+  it("SEC-10, SEC-11: 8 friends behind one IP play two fast games, with reconnects and a rematch, and never trip it", async () => {
+    const env = { MESSAGES: messageLimiter() };
+    const t = await harness(env);
+    const everyone = await eightFriends(t, { slow: false });
     expect(everyone.filter((ws) => ws.closed !== null)).toEqual([]);
-    // The busiest sliding minute is 74, or 81 when a round ends, 8 phones reconnect and 16 cards
-    // flip in it (the deal is random); the budget keeps at least a third more on top.
-    const peak = Math.max(
-      ...t.log.map((at, i) => t.log.slice(i).filter((m) => m < at + 60_000).length),
-    );
-    expect(peak).toBeLessThanOrEqual(0.75 * IP_MESSAGES_PER_MINUTE);
+    // The busiest sliding minute of the IP's budget, messages and presence checks together, is 78,
+    // or 85 when a round ends, 8 phones reconnect and 16 cards flip in it (the deal is random).
+    expect(peakMinute(env.MESSAGES.calls, HOME)).toBeLessThanOrEqual(0.75 * IP_MESSAGES_PER_MINUTE);
+  });
+
+  it("SEC-11: 8 friends with long waits in the lobby and at the summary, and slow turns, never trip it and still see who's offline", async () => {
+    const env = { MESSAGES: messageLimiter() };
+    const t = await harness(env);
+    const everyone = await eightFriends(t, { slow: true });
+    expect(everyone.filter((ws) => ws.closed !== null)).toEqual([]);
+    expect(peakMinute(env.MESSAGES.calls, HOME)).toBeLessThanOrEqual(0.75 * IP_MESSAGES_PER_MINUTE);
   });
 });
+
+/**
+ * 8 phones on one IP (HOME) join, play two games and a rematch, all 8 reconnecting at every round
+ * end. They tap once a second, every turn, which is faster than any real table plays. `slow` adds a
+ * 5-minute lobby wait (during which one phone silently drops and must show offline), a 3-minute
+ * chat over each summary, and 50 s of thinking on every 5th draw. Returns every socket used.
+ */
+async function eightFriends(t: Awaited<ReturnType<typeof harness>>, { slow }: { slow: boolean }) {
+  const TAP = 1_000;
+  const phones: FakeSocket[] = [];
+  const everyone: FakeSocket[] = [];
+  const connect = async (seat: number) => {
+    const ws = await t.connect();
+    everyone.push(ws);
+    await t.send(ws, { t: "hello", token: token(seat) });
+    return ws;
+  };
+  for (let seat = 0; seat < 8; seat++) {
+    phones.push(await connect(seat));
+    await t.advance(TAP, phones);
+    await t.send(phones[seat], { t: "join", name: `P${seat}` });
+    await t.advance(TAP, phones);
+  }
+  if (slow) {
+    // One phone loses its connection without closing; the others still see it go offline.
+    await t.advance(2 * STALE_MS, phones.slice(0, 7));
+    expect(lastView(phones[0]).seats[7].connected).toBe(false);
+    await t.send(phones[7], { t: "hello", token: token(7) });
+    await t.advance(5 * 60_000, phones);
+  }
+  const act = (seat: number, action: Action) => t.send(phones[seat], { t: "act", action });
+  for (let games = 0; games < 2; games++) {
+    await t.send(phones[0], { t: "start" });
+    await t.advance(TAP, phones);
+    for (let turn = 0, game = t.game(); game && game.phase !== "gameOver"; game = t.game()) {
+      const legal = legalActions(game);
+      if (game.phase === "flip") {
+        // Everyone flips at once.
+        for (let seat = 0; seat < 8; seat++) {
+          const flip = legal.find((a) => a.type === "flip" && a.seat === seat);
+          if (flip) await act(seat, flip);
+        }
+      } else if (game.phase === "roundOver") {
+        if (slow) await t.advance(3 * 60_000, phones);
+        // Every phone locked during the summary: all 8 reconnect at once, then the host deals.
+        for (let seat = 0; seat < 8; seat++) {
+          await t.close(phones[seat]);
+          phones[seat] = await connect(seat);
+        }
+        await t.advance(TAP, phones);
+        await act(0, { type: "nextRound" });
+      } else {
+        // Under the 60 s stall guard.
+        if (slow && game.phase === "draw" && ++turn % 5 === 0) await t.advance(50_000, phones);
+        await act(game.current, legal[game.phase === "place" ? legal.length - 1 : 0] as Action);
+      }
+      await t.advance(TAP, phones);
+    }
+    await t.send(phones[0], { t: "rematch" });
+    await t.advance(TAP, phones);
+  }
+  return everyone;
+}
 
 describe("RoomDO event order", () => {
   it("SEC-10: a socket's messages are handled in order even when the limiter answers out of order", async () => {
@@ -441,3 +521,185 @@ describe("RoomDO event order", () => {
     expect(lastView(ws).you).toBe(0);
   });
 });
+
+describe("RoomDO alarm charges (SEC-11)", () => {
+  const AWAY = "198.51.100.1";
+
+  it("SEC-11: each alarm run charges 2 to every IP with a live socket in the room", async () => {
+    const env = { MESSAGES: messageLimiter() };
+    const t = await harness(env);
+    const home = await t.seat(2);
+    const guest = await t.connect(AWAY);
+    await t.send(guest, { t: "hello", token: token(9) });
+    const charged = (ip: string) => env.MESSAGES.calls.filter(([k]) => k === ip).length;
+    const [atHome, away, requests] = [charged(HOME), charged(AWAY), t.requests];
+    await t.advance(10 * 60_000, [...home, guest]); // a lobby re-checks who may lead every ≤ 45 s
+    const runs = Math.round(t.requests - requests);
+    expect(runs).toBeGreaterThan(10);
+    expect(charged(HOME) - atHome).toBe(2 * runs);
+    expect(charged(AWAY) - away).toBe(2 * runs);
+  });
+
+  it("SEC-11: past its budget, an IP's sockets in the room are closed, and their closes write nothing", async () => {
+    const env = { MESSAGES: messageLimiter() };
+    const t = await harness(env);
+    nextMinute();
+    const home = await t.seat(2);
+    const guest = await t.connect(AWAY);
+    await t.send(guest, { t: "hello", token: token(9) });
+    // HOME has 1 unit left this minute; the next presence check costs 2.
+    while (env.MESSAGES.calls.filter(([k]) => k === HOME).length < IP_MESSAGES_PER_MINUTE - 1) {
+      await env.MESSAGES.limit({ key: HOME });
+    }
+    await t.advance(STALE_MS, [...home, guest]);
+    expect(home.map((ws) => ws.closed)).toEqual([1008, 1008]);
+    expect(guest.closed).toBeNull();
+    expect(lastView(guest).seats.map((s) => s.connected)).toEqual([false, false]);
+    const rows = t.rows();
+    for (const ws of home) await t.close(ws);
+    expect(t.rows()).toBe(rows);
+  });
+
+  it("SEC-11: one IP at every limit, holding 2-seat lobbies open and spending the rest of its budget, needs over 12 h to use up rows or DO requests", async () => {
+    // Holding first: before this fix, rows ran out in 1.8 h and DO requests in 2.0 h; now 16.1 and 15.7.
+    const holding = await holdRooms(24);
+    expect(holding.hoursToRows).toBeGreaterThanOrEqual(12);
+    expect(holding.hoursToRequests).toBeGreaterThanOrEqual(12);
+    // Spamming first: before, rows ran out in 10.2 h; now 14.0, and DO requests in about 200.
+    const spamming = await holdRooms(24, true);
+    expect(spamming.hoursToRows).toBeGreaterThanOrEqual(12);
+    expect(spamming.hoursToRequests).toBeGreaterThanOrEqual(12);
+  });
+});
+
+/**
+ * SEC-11's attacker: one IP at every production limit (wrangler.jsonc, checked in room.test.ts),
+ * through the real Worker and RoomDO on the fake runtime. At the start of each minute's limit
+ * window it re-opens the host socket of every lobby the server closed, creates rooms and seats 2
+ * sockets in each, and spends what's left of its budget on a join/leave loop (a row a message);
+ * `spamFirst` runs the loop first. All its sockets stay open and ping. Stops at a day's quota or
+ * after `hours`, and says how long one IP needs to use up the 100,000 rows and DO requests a day.
+ */
+async function holdRooms(hours: number, spamFirst = false) {
+  const BOT = "192.0.2.66";
+  const QUOTA = 100_000;
+  type Harness = Awaited<ReturnType<typeof harness>>;
+  const rooms = new Map<string, Harness>();
+  const env = {
+    API_REQUESTS: limiter(30),
+    ROOM_CREATION: limiter(10),
+    MESSAGES: messageLimiter(),
+    ROOMS: {
+      idFromName: (code: string) => code,
+      get: (code: string) => ({
+        create: async () => (await room(code)).create(),
+        fetch: async (request: Request) => (await room(code)).fetch(request),
+      }),
+    },
+  };
+  const room = async (code: string) => {
+    const known = rooms.get(code);
+    if (known) return known;
+    const made = await harness(env, code, false);
+    rooms.set(code, made);
+    return made;
+  };
+  const api = (path: string, init: RequestInit = {}) =>
+    worker.fetch(
+      new Request(`https://skyjo-online.example.workers.dev${path}`, {
+        ...init,
+        headers: { "cf-connecting-ip": BOT, ...init.headers },
+      }) as never,
+      env as never,
+    ) as unknown as Promise<FakeResponse>;
+  const open = async (code: string) => {
+    const res = await api(`/api/rooms/${code}/ws`, { headers: { Upgrade: "websocket" } });
+    return res.status === 101 ? (rooms.get(code)?.sockets.at(-1) ?? null) : null;
+  };
+  /** Rooms whose next alarm falls inside the simulation: the held ones. */
+  const soon = new Set<Harness>();
+  /** The runtime delivers the close event of each socket the object closed. */
+  const settle = async (h: Harness) => {
+    for (const ws of h.sockets.filter((s) => s.closed !== null)) await h.close(ws);
+    if (h.storage.alarm !== null && h.storage.alarm < end) soon.add(h);
+    else soon.delete(h);
+  };
+  const tell = async (h: Harness, ws: FakeSocket, msg: ClientMsg) => {
+    await h.send(ws, msg);
+    await settle(h);
+    return ws.closed === null;
+  };
+  const held: { code: string; host: FakeSocket | null }[] = [];
+  let spam: FakeSocket | null = null;
+  const start = Math.ceil(Date.now() / 60_000) * 60_000;
+  const end = start + hours * 3_600_000;
+  const used = () => {
+    let rows = 0;
+    let requests = 0;
+    for (const h of rooms.values()) {
+      rows += h.rows();
+      requests += h.requests;
+    }
+    return { rows, requests };
+  };
+  /** The rest of the budget: a join/leave loop in the first room, a row a message. */
+  const spend = async () => {
+    if (!held.length) return;
+    const h = rooms.get(held[0].code) as Harness;
+    if (spam?.closed !== null) {
+      spam = await open(held[0].code);
+      if (spam && !(await tell(h, spam, { t: "hello", token: "spammer-token" }))) spam = null;
+    }
+    while (spam?.closed === null) {
+      await tell(h, spam, lastView(spam).you === null ? { t: "join", name: "x" } : { t: "leave" });
+    }
+  };
+  let minute = 0;
+  for (; minute < hours * 60; minute++) {
+    vi.setSystemTime(start + minute * 60_000);
+    if (spamFirst) await spend();
+    for (const r of held) {
+      if (r.host?.closed === null) continue;
+      const ws = await open(r.code);
+      const h = rooms.get(r.code) as Harness;
+      r.host = ws && (await tell(h, ws, { t: "hello", token: `${r.code}-host` })) ? ws : null;
+      if (!r.host) break;
+    }
+    for (let res = await api("/api/rooms", { method: "POST" }); res.status === 200; ) {
+      const { code } = JSON.parse(res.body ?? "{}") as { code: string };
+      const h = rooms.get(code) as Harness;
+      const r = { code, host: null as FakeSocket | null };
+      held.push(r);
+      for (const who of ["host", "guest"]) {
+        const ws = await open(code);
+        if (!ws || !(await tell(h, ws, { t: "hello", token: `${code}-${who}` }))) break;
+        if (!(await tell(h, ws, { t: "join", name: who }))) break;
+        if (who === "host") r.host = ws;
+      }
+      res = await api("/api/rooms", { method: "POST" });
+    }
+    if (!spamFirst) await spend();
+    const until = start + (minute + 1) * 60_000;
+    for (;;) {
+      let next: Harness | null = null;
+      for (const h of soon) {
+        const at = h.storage.alarm as number;
+        if (at < until && (!next || at < (next.storage.alarm as number))) next = h;
+      }
+      if (!next) break;
+      vi.setSystemTime(next.storage.alarm as number);
+      // The bot's sockets ping every 20 s.
+      for (const ws of next.sockets) next.ping(ws, Date.now() - (Date.now() % PING_MS));
+      await next.alarm();
+      await settle(next);
+    }
+    const { rows, requests } = used();
+    if (rows >= QUOTA || requests >= QUOTA) break;
+  }
+  const { rows, requests } = used();
+  const simulated = (minute + 1) / 60;
+  return {
+    hoursToRows: (simulated * QUOTA) / rows,
+    hoursToRequests: (simulated * QUOTA) / requests,
+  };
+}

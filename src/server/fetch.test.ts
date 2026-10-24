@@ -22,7 +22,7 @@ function setup() {
   /** Every Durable Object stub the Worker asked for: each one is a DO request. */
   const touched: string[] = [];
   const env = {
-    API_REQUESTS: limiter(60),
+    API_REQUESTS: limiter(30),
     ROOM_CREATION: limiter(10),
     MESSAGES: limiter(120),
     ROOMS: {
@@ -42,28 +42,28 @@ function setup() {
     call(`https://skyjo-online.example.workers.dev${path}`, ip, init);
   const upgrade = { headers: { Upgrade: "websocket" } };
   const create = { method: "POST" };
-  return { touched, call, api, upgrade, create };
+  return { env, touched, call, api, upgrade, create };
 }
 
 describe("Worker per-IP limits", () => {
-  it("SEC-1: past 60 /api requests a minute an IP gets 429 and reaches no Durable Object", async () => {
+  it("SEC-1: past 30 /api requests a minute an IP gets 429 and reaches no Durable Object", async () => {
     const t = setup();
-    for (let i = 0; i < 30; i++) expect((await t.api("/api/x", "203.0.113.7")).status).toBe(404);
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 15; i++) expect((await t.api("/api/x", "203.0.113.7")).status).toBe(404);
+    for (let i = 0; i < 15; i++) {
       expect((await t.api("/api/rooms/ABCDE/ws", "203.0.113.7", t.upgrade)).status).toBe(200);
     }
-    expect(t.touched.length).toBe(30);
+    expect(t.touched.length).toBe(15);
     expect((await t.api("/api/x", "203.0.113.7")).status).toBe(429);
     expect((await t.api("/api/rooms/ABCDE/ws", "203.0.113.7", t.upgrade)).status).toBe(429);
     expect((await t.api("/api/rooms", "203.0.113.7", t.create)).status).toBe(429);
-    expect(t.touched.length).toBe(30);
+    expect(t.touched.length).toBe(15);
     // Another address has its own budget.
     expect((await t.api("/api/rooms/ABCDE/ws", "198.51.100.1", t.upgrade)).status).toBe(200);
   });
 
   it("SEC-1: addresses in one IPv6 /64 share a budget; another /64 doesn't", async () => {
     const t = setup();
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 30; i++) {
       expect((await t.api("/api/x", `2001:db8:1:2::${i.toString(16)}`)).status).toBe(404);
     }
     expect((await t.api("/api/x", "2001:0db8:0001:0002:ffff:ffff:ffff:ffff")).status).toBe(429);
@@ -82,6 +82,16 @@ describe("Worker per-IP limits", () => {
     expect((await t.api("/api/rooms", "198.51.100.1", t.create)).status).toBe(200);
   });
 
+  it("SEC-11: a new room spends 3 of the IP's message budget, and isn't made without them", async () => {
+    const t = setup();
+    for (let i = 0; i < 118; i++) await t.env.MESSAGES.limit({ key: "203.0.113.7" });
+    const touched = t.touched.length;
+    expect((await t.api("/api/rooms", "203.0.113.7", t.create)).status).toBe(429);
+    expect(t.touched.length).toBe(touched);
+    for (let i = 0; i < 117; i++) await t.env.MESSAGES.limit({ key: "198.51.100.1" });
+    expect((await t.api("/api/rooms", "198.51.100.1", t.create)).status).toBe(200);
+  });
+
   it("SEC-1: a local run at http://localhost (dev, E2E) is not limited", async () => {
     const t = setup();
     for (let i = 0; i < 100; i++) {
@@ -95,7 +105,7 @@ describe("Worker per-IP limits", () => {
 
   it("SEC-1: the hostname localhost alone doesn't exempt a client with a public address", async () => {
     const t = setup();
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 30; i++) {
       expect((await t.call("http://localhost/api/x", "203.0.113.7")).status).toBe(404);
     }
     expect((await t.call("http://localhost/api/x", "203.0.113.7")).status).toBe(429);
