@@ -468,6 +468,15 @@ describe("socket cap", () => {
     expect(t.live).toHaveLength(MAX_SOCKETS);
   });
 
+  it("SEC-2: at the cap a spectator's reconnect takes the place of its own lingering socket", () => {
+    const t = setup();
+    t.seated(8);
+    const watchers = Array.from({ length: MAX_SOCKETS - 8 }, (_, i) => enter(t, watcher(i)).conn);
+    const back = enter(t, watcher(4));
+    expect(back.out).toBe(watchers[4]);
+    expect(t.live).toHaveLength(MAX_SOCKETS);
+  });
+
   it("SEC-2: at the cap a seated player always gets in, in place of its own lingering socket, else of the least recently seen spectator", () => {
     const t = setup();
     const players = t.seated(8);

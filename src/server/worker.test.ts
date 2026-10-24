@@ -590,6 +590,28 @@ describe("RoomDO socket cap (SEC-2, SEC-6)", () => {
     expect(t.rows()).toBe(rows);
   });
 
+  it("SEC-2: at the cap a spectator whose phone dropped without closing gets back in, in place of its old socket", async () => {
+    const t = await harness();
+    await t.seat(8);
+    const watchers = await watch(t, MAX_SOCKETS - 8);
+    const back = await t.connect(AWAY);
+    await t.send(back, { t: "hello", token: token(104) });
+    expect(back.closed).toBeNull();
+    expect(lastView(back).you).toBeNull();
+    expect(watchers[4].closed).toBe(CLOSE_ROOM_FULL);
+    expect(t.sockets.filter((ws) => ws.closed === null)).toHaveLength(MAX_SOCKETS);
+  });
+
+  it("SEC-6: a hello that comes over 10 s late is closed with an ordinary code, which the app retries, not told the room is full", async () => {
+    const t = await harness();
+    await t.seat(2);
+    const slow = await t.connect();
+    await t.advance(HELLO_MS);
+    await t.send(slow, { t: "hello", token: token(9) });
+    expect(slow.closed).toBe(1000);
+    expect(slow.sent).toEqual([]);
+  });
+
   it("SEC-6: sockets that never say hello get no broadcast, hold no place, and are closed once 10 s old when the next socket arrives", async () => {
     const t = await harness();
     const players = await t.seat(2);

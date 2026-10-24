@@ -42,8 +42,11 @@ Per-IP limits (SEC-1, SEC-4, SEC-10, SEC-11). Each client address, IPv4 as is an
 One address at every limit then needs at least 14 h to use up the rows and 18 h for the DO requests, whether it holds rooms, spams, or connects and leaves (`holdRooms` in `worker.test.ts`). Any new event that writes a row must charge whoever caused it, when it's written: an alarm that runs after everyone left charges nobody.
 
 Socket cap (SEC-2, SEC-6). A room takes `MAX_SOCKETS` (20) sockets that said hello. `Room.admit`, run by both adapters at a socket's first hello, decides:
-- a spectator past the cap gets `{ t: "full" }` and is closed with 4029 (`CLOSE_ROOM_FULL`). The client treats that as final (`status: "full"`), like a missing room;
-- a seated token always gets in, in place of its own seat's least recently seen socket (a phone that dropped without closing leaves one behind), else of the least recently seen spectator. So seats can't grow a room past the cap by more than one each.
+- in a full room, any token takes the place of its own least recently seen socket (a phone that dropped without closing leaves one behind);
+- without one, a spectator gets `{ t: "full" }` and is closed with 4029 (`CLOSE_ROOM_FULL`). The client treats that as final (`status: "full"`), like a missing room;
+- a seated token always gets in, in place of the least recently seen spectator if it has no socket of its own. So seats can't grow a room past the cap by more than one each.
+
+Whoever is displaced gets the same `full` and 4029.
 
 A socket that hasn't said hello within `HELLO_MS` (10 s from `Conn.openedAt`) gets no broadcast, doesn't count, and is closed (1000) at the room's next event: the Worker's `live()` sweeps on every event, Node on each new connection. There is no timer, since a pending one keeps the object from hibernating and an alarm per socket would be a row. Dropped sockets are marked `shut` (Worker) or removed from the room's map (Node) before their close, so they stop counting at once and their close writes nothing.
 

@@ -287,19 +287,20 @@ export class Room {
 
   /**
    * The socket to close so `conn`, saying its first hello as `token`, fits under MAX_SOCKETS
-   * (SEC-2), or null. Only sockets that said hello count. In a full room a spectator is turned away
-   * (`conn` itself). A seated player always gets in, in place of its own seat's least recently seen
-   * socket (a phone that dropped without closing leaves one behind), else of the least recently
-   * seen spectator. So seats can't grow a room past the cap by more than one each.
+   * (SEC-2), or null. Only sockets that said hello count. In a full room anyone takes the place of
+   * their own least recently seen socket (a phone that dropped without closing leaves one behind).
+   * Without one, a spectator is turned away (`conn` itself), and a seated player still gets in, in
+   * place of the least recently seen spectator. So seats can't grow a room past the cap by more than
+   * one each.
    */
   admit(conn: Conn, token: string, live: Conn[]): Conn | null {
     const others = live.filter((c) => c !== conn && c.token !== null);
     if (others.length < MAX_SOCKETS) return null;
-    if (!this.data.seats.some((s) => s.token === token)) return conn;
     others.sort((a, b) => a.seenAt - b.seenAt);
-    return (
-      others.find((c) => c.token === token) ?? others.find((c) => this.seatOf(c) === null) ?? null
-    );
+    const own = others.find((c) => c.token === token);
+    if (own) return own;
+    if (!this.data.seats.some((s) => s.token === token)) return conn;
+    return others.find((c) => this.seatOf(c) === null) ?? null;
   }
 
   /** A socket closed: its seat was last alive when that socket was. Returns whether it had a seat. */

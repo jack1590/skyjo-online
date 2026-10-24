@@ -60,6 +60,7 @@ export function useRoom(code: string) {
     let stopped = false;
     const stop = (why: "missing" | "full") => {
       stopped = true;
+      awaiting.current = null; // a pending tap's ack timeout must not reconnect
       setStatus(why);
     };
 
