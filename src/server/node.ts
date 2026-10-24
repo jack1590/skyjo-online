@@ -6,6 +6,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { extname, join, resolve, sep } from "node:path";
 import { type WebSocket, WebSocketServer } from "ws";
 import {
+  CLOSE_TOO_MANY,
   CLOSE_UNKNOWN_ROOM,
   isRoomCode,
   PING,
@@ -14,11 +15,13 @@ import {
   type ServerMsg,
 } from "../protocol";
 import {
+  allowIp,
   allowMessage,
   type Conn,
   systemDeps as deps,
   newConn,
   newRoom,
+  peerKey,
   Room,
   RoomError,
   randomCode,
@@ -139,6 +142,9 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
 
 const wss = new WebSocketServer({ noServer: true, maxPayload: 4096 });
 
+/** One window per client key: the per-IP message budget, across all rooms. */
+const ipWindows: Parameters<typeof allowIp>[0] = new Map();
+
 server.on("upgrade", (req, socket, head) => {
   socket.on("error", () => socket.destroy()); // e.g. a reset mid-handshake
   const code = pathOf(req.url).match(/^\/api\/rooms\/([A-Z0-9]+)\/ws$/)?.[1];
@@ -146,10 +152,14 @@ server.on("upgrade", (req, socket, head) => {
     socket.destroy();
     return;
   }
-  wss.handleUpgrade(req, socket, head, (ws) => onConnection(ws, code));
+  wss.handleUpgrade(req, socket, head, (ws) => {
+    const forwarded = req.headers["cf-connecting-ip"];
+    const ip = peerKey(req.socket.remoteAddress ?? "unknown", forwarded?.toString());
+    onConnection(ws, code, ip);
+  });
 });
 
-function onConnection(ws: WebSocket, code: string) {
+function onConnection(ws: WebSocket, code: string, ip: string | null) {
   const live = rooms.get(code);
   if (!live) {
     // A failed upgrade looks like a network error to browsers, so say "no such room" in-band.
@@ -157,7 +167,7 @@ function onConnection(ws: WebSocket, code: string) {
     ws.close(CLOSE_UNKNOWN_ROOM, "Unknown room");
     return;
   }
-  const conn = newConn(Date.now());
+  const conn = newConn(Date.now(), ip);
   live.sockets.set(ws, conn);
   // Oversized or malformed frames emit 'error'; without a listener that kills the process.
   // ws closes the socket itself afterwards.
@@ -169,8 +179,8 @@ function onConnection(ws: WebSocket, code: string) {
       ws.send(PONG);
       return;
     }
-    if (!allowMessage(conn, Date.now())) {
-      ws.close(1008, "Too many messages");
+    if (!allowMessage(conn, Date.now()) || (ip && !allowIp(ipWindows, ip, Date.now()))) {
+      ws.close(CLOSE_TOO_MANY, "Too many messages");
       return;
     }
     const conns = [...live.sockets.values()];

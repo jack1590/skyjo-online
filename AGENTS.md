@@ -29,6 +29,13 @@ The engine's turn check compares `action.seat` with `state.current`; it is not a
 
 Online flow: the browser opens `/api/rooms/CODE/ws` and sends `hello` with its per-room token from `localStorage` (`src/client/useRoom.ts`). One Durable Object per room code (`RoomDO`) persists `RoomData` on every change and sends each socket its own `RoomView`. Each `put` and each `setAlarm` is a row written, the free plan's tightest quota, so `Room.receive` returns a `Change`: `"data"` writes and tells everyone, `"view"` only tells everyone, `"none"` answers only the sender. The alarm only ever moves earlier, since an early one just checks again; any new `setAlarm` call must keep `alarmAt` in step. Pings (`"ping"` → `"pong"`) are answered by the runtime without waking the object. Their timestamps tell `room.ts` who is still connected, which drives the presence dots, the host stand-in, and the 60 s stall guard.
 
+Per-IP limits (SEC-1, SEC-4, SEC-10). Each client address, IPv4 as is and IPv6 by its /64 (`ipKey` in `room.ts`), gets three ratelimit bindings a minute (`wrangler.jsonc`; `room.test.ts` checks the numbers):
+- `API_REQUESTS`: 60 of any `/api` request, checked at the top of the Worker's `fetch` before any Durable Object is touched;
+- `ROOM_CREATION`: 10;
+- `MESSAGES`: `IP_MESSAGES_PER_MINUTE` (120), counted in the Durable Object across all of the address's sockets and rooms. Pings don't count. The socket attachment keeps the address's key through hibernation, and the socket is closed with 1008 (`CLOSE_TOO_MANY`) past the limit; the client then retries every 20 s.
+
+The `MESSAGES` check awaits a binding, which, unlike storage, lets other events in, so `RoomDO` runs every event (message, close, alarm, upgrade, create) one at a time through `serial`. The counts are per Cloudflare location and approximate. Our own 429 still costs a Worker request; only a WAF rule saves those. A local run (dev, E2E) is not limited: that takes both the hostname `localhost` and a loopback `cf-connecting-ip`, which miniflare sets to `127.0.0.1`. On Cloudflare neither holds, since it only routes our own hostname to the Worker and sets the real client address. Open `http://[::1]:<port>` to try the limits locally. Node applies `MESSAGES` itself (`allowIp`). There, a direct loopback client isn't limited, and behind a local proxy such as `cloudflared` the forwarded `cf-connecting-ip` counts. Any E2E bot on the live site must stay under 120 messages a minute from its runner.
+
 The Worker has its own tsconfig (`tsconfig.worker.json`, runtime types from `wrangler types`, gitignored). `npm run typecheck` checks both.
 
 Engine API: `createGame(names, seed)` (`seed` is 4 int32s from `crypto.getRandomValues` in real games), `apply(state, action)` (throws `RuleError`, never mutates input), `legalActions(state)`, `toView(state)`.
@@ -55,7 +62,7 @@ CI (`.github/workflows/ci.yml`) runs on every PR and on `main`, as parallel jobs
 - `ci`: lint, typecheck, unit tests, build (~1 min).
 - `e2e (iphone)`, `e2e (pixel)`, `e2e (desktop)`: Playwright, one device per job, inside the `mcr.microsoft.com/playwright` container (browsers preinstalled). Long full-game play-throughs run on Pixel only; layout, 44px, i18n, reload, and interaction tests run on all three.
 - `e2e (node)`: the online suite against the Node self-host server.
-- On `main` only: `deploy` (`wrangler deploy` with the repo secrets) then `smoke (live)`, which plays a 2-phone game on the live URL, then `release`: if there is no GitHub Release `v<package.json version>` yet, it creates the tag and the Release whose notes are that version's `CHANGELOG.md` section. Deploys are never cancelled mid-run.
+- On `main` only: `deploy` (`wrangler deploy` with the repo secrets) then `smoke (live)`, which plays a 2-phone round on the live URL (a whole game at bot speed would trip the per-IP message limit), then `release`: if there is no GitHub Release `v<package.json version>` yet, it creates the tag and the Release whose notes are that version's `CHANGELOG.md` section. Deploys are never cancelled mid-run.
 - `ci` fails when `CHANGELOG.md` has no section for the `package.json` version.
 
 `@playwright/test` is pinned to an exact version. When bumping it, change the container tag in `ci.yml` to the same version.

@@ -11,6 +11,8 @@ export const NAME_MAX = 16;
 
 /** Closing code for a room that doesn't exist. Close codes can get lost, so a "missing" message precedes it. */
 export const CLOSE_UNKNOWN_ROOM = 4004;
+/** Closing code (policy violation) for a socket over the per-socket or per-IP message limit. */
+export const CLOSE_TOO_MANY = 1008;
 
 /** Keep-alive frames. Cloudflare answers them without waking the room; other adapters must too. */
 export const PING = "ping";

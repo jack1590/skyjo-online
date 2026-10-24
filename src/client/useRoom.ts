@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  CLOSE_TOO_MANY,
   CLOSE_UNKNOWN_ROOM,
   type ClientMsg,
   type ErrorCode,
@@ -91,7 +92,10 @@ export function useRoom(code: string) {
           return;
         }
         setStatus("reconnecting");
-        retry = setTimeout(connect, Math.min(500 * 2 ** attempt++, 8_000));
+        // Over a message limit, each reconnect would open, say hello and be closed again: retry
+        // every 20 s until the limit's minute rolls over.
+        const wait = e.code === CLOSE_TOO_MANY ? 20_000 : Math.min(500 * 2 ** attempt++, 8_000);
+        retry = setTimeout(connect, wait);
       };
     };
 

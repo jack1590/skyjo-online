@@ -197,6 +197,24 @@ test("an unknown room code says so, including codes that can't exist", async ({ 
   await expect(page.getByText("There's no room ABCD0.")).toBeVisible();
 });
 
+test("a network over the server's per-IP limit is asked to wait, not to check its connection", async ({
+  browser,
+}, info) => {
+  // Local runs at http://localhost aren't limited, so stand in for the Worker's 429. The app's
+  // service worker would see the request before page.route does.
+  const [page] = await phones(browser, info, 1, { serviceWorkers: "block" });
+  await page.route("**/api/rooms", (route) => route.fulfill({ status: 429, body: "Too many" }));
+  await page.goto("/");
+  await page.getByRole("button", { name: "Create a room" }).click();
+  await expect(page.getByRole("alert")).toHaveText(
+    "Too many requests from your network. Wait a minute and try again.",
+  );
+  await expect(page.getByRole("button", { name: "Create a room" })).toBeEnabled();
+  if (process.env.SHOTS && info.project.name === "iphone") {
+    await page.screenshot({ path: "docs/screenshots/sec1/01-too-many-requests.jpg", scale: "css" });
+  }
+});
+
 test("the host can remove a player who left without leaving", async ({ browser }, info) => {
   const { pages } = await seatedRoom(browser, info, ["Ana", "Ben", "Cris"]);
   await pages[1].context().close(); // Ben closes the tab
