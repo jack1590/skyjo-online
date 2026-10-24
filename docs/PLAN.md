@@ -417,7 +417,7 @@ Acceptance for each SEC item:
 
 ### Queue after M7 (PO, 2026-10-24)
 
-One PR at a time, in this order. M7 (PR #10) is in review.
+One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for the user to check it on an iPhone.
 
 | #   | PR                      | Contents                                                             | Version | Why here                                                        |
 | --- | ----------------------- | -------------------------------------------------------------------- | ------- | --------------------------------------------------------------- |
