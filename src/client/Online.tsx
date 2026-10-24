@@ -51,6 +51,8 @@ export function Online({ code }: { code: string }) {
     );
   }
 
+  // A tap that lands just after the server moved for you on the clock isn't your mistake.
+  const lostToClock = error === "illegal-move" && room.you !== null && room.seats[room.you]?.auto;
   const notices = (
     <>
       {status === "reconnecting" && (
@@ -58,7 +60,7 @@ export function Online({ code }: { code: string }) {
           {t("reconnecting")}
         </div>
       )}
-      {error && (
+      {error && !lostToClock && (
         <div className="toast error" role="alert">
           {t(ERRORS[error])}
         </div>
@@ -84,7 +86,7 @@ export function Online({ code }: { code: string }) {
         lead={room.lead}
         connected={room.seats.map((s) => s.connected)}
         auto={room.seats.map((s) => s.auto)}
-        wait={room.wait}
+        wait={room.clocks}
         onAction={(action) => send({ t: "act", action })}
         onAuto={(on) => send({ t: "auto", on })}
         onPlayAgain={() => send({ t: "rematch" })}

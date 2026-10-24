@@ -100,12 +100,12 @@ test("M8: a player who ticks Auto-play is played for, a step at a time, until th
   browser,
 }, info) => {
   const all = await phones(browser, info, 2);
-  /** Every message each phone sends, and every room state it gets, with when it came. */
-  const sent = new Map(all.map((page) => [page, [] as string[]]));
+  /** Every message each phone sends, and every room state it gets, with when. */
+  const sent = new Map(all.map((page) => [page, [] as { at: number; msg: string }[]]));
   const states = new Map(all.map((page) => [page, [] as { at: number; room: RoomView }[]]));
   for (const page of all) {
     page.on("websocket", (ws) => {
-      ws.on("framesent", (f) => sent.get(page)?.push(String(f.payload)));
+      ws.on("framesent", (f) => sent.get(page)?.push({ at: Date.now(), msg: String(f.payload) }));
       ws.on("framereceived", (f) => {
         const msg = String(f.payload).startsWith("{") ? JSON.parse(String(f.payload)) : null;
         if (msg?.t === "state") states.get(page)?.push({ at: Date.now(), room: msg.room });
@@ -119,10 +119,10 @@ test("M8: a player who ticks Auto-play is played for, a step at a time, until th
   const name = (await a.getByTestId("mine-head").locator("strong").textContent()) ?? "";
   const seat = Number(await a.getByTestId("my-grid").getAttribute("data-seat"));
   const toggle = a.getByRole("checkbox", { name: "Auto-play" });
-  const ticked = Date.now();
   await toggle.click();
   await expect(toggle).toBeChecked();
-  await expect(a.getByTestId("mine-head")).toHaveText(/^Auto-play is on/);
+  await expect(a.getByTestId("mine-head")).toHaveText(/^Auto-play (is|was) on/);
+  const ticked = sent.get(a)?.find((m) => m.msg.includes('"t":"auto"'))?.at ?? 0;
   // B's own states: A's drawn card within 4 s, then the card placed in a later state.
   const seen = () => {
     const after = states.get(b)?.filter((s) => s.at >= ticked) ?? [];
@@ -143,10 +143,10 @@ test("M8: a player who ticks Auto-play is played for, a step at a time, until th
     await a.screenshot({ path: "docs/screenshots/m8/11-auto-play-on.jpg", scale: "css" });
   }
   // A's taps on its cards point at the switch and send no move.
-  const moves = () => (sent.get(a) ?? []).filter((m) => m.includes('"t":"act"')).length;
+  const moves = () => (sent.get(a) ?? []).filter((m) => m.msg.includes('"t":"act"')).length;
   const before = moves();
   await a.getByTestId("my-grid").locator("button").first().click();
-  await expect(a.getByTestId("mine-head")).toHaveText(/^Auto-play is on/);
+  await expect(a.getByTestId("mine-head")).toHaveText(/^Auto-play (is|was) on/);
   expect(moves()).toBe(before);
   // Unticked, A's next turn waits for A: an auto-play draw would come after 1.5 s.
   await toggle.click();

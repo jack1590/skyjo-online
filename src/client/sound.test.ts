@@ -204,6 +204,14 @@ describe("nudge (M8)", () => {
     expect([vibrate.mock.calls.length, ticks()]).toEqual([2, 2]);
   });
 
+  it("M8: once per turn, every lap: the same turn key comes round again", async () => {
+    const { nudge, vibrate } = await phone(false);
+    nudge(own, 5, "1-1"); // seat 1's turn
+    nudge(undefined, 5, "1-0"); // seat 0's turn: no clock of its own here
+    nudge(own, 5, "1-1"); // seat 1 again, next lap
+    expect(vibrate.mock.calls.length).toBe(2);
+  });
+
   it("M8: never when muted", async () => {
     const { nudge, vibrate, ticks } = await phone(true);
     nudge(own, 5, "r1-1");

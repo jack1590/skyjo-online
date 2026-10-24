@@ -71,8 +71,11 @@ export interface RoomView {
   you: number | null;
   /** Whether you may start, advance rounds, and rematch (the host, or anyone if the host is away). */
   lead: boolean;
-  /** Every waited-on seat whose clock runs (several in the opening flip); empty when none does. */
-  wait: Wait[];
+  /**
+   * Every waited-on seat whose clock runs (several in the opening flip); empty when none does.
+   * Not `wait`, which tabs loaded before 2.1.0 read as a single offline seat.
+   */
+  clocks: Wait[];
   game: GameView | null;
 }
 

@@ -34,7 +34,7 @@ The images come from the real app (`npm run shots:readme`) and are refreshed whe
 - Three equal face-up cards in a column disappear.
 - Reveal your whole grid to end the round. Everyone else gets one last turn, then all cards are revealed and counted. If you ended the round without the strictly lowest score, your positive score is doubled.
 - When someone reaches 100 points the game ends. Lowest total wins.
-- Each turn has 30 seconds (and at least 10 to place a card you drew). When time runs out, Auto-play plays for you until you switch it off. It draws from the deck, keeps a card that beats your highest face-up card, and never reveals your last face-down card while it can swap instead.
+- Each turn has 30 seconds (and at least 10 to place a card you drew). When time runs out, Auto-play plays for you until you switch it off. It draws from the deck, keeps a card that beats your highest face-up card, and never reveals your last face-down card while it can swap instead, unless the round is already ending.
 
 The exact rules, including how edge cases are decided, are in [`AGENTS.md` § Rules](AGENTS.md#rules).
 

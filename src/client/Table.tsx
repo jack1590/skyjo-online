@@ -17,7 +17,7 @@ interface TableProps {
   connected?: boolean[];
   /** Per seat, whether Auto-play is on. */
   auto?: boolean[];
-  /** The seats the table waits on whose clock runs (RoomView.wait). */
+  /** The seats the table waits on whose clock runs (RoomView.clocks). */
   wait?: Wait[];
   onAction: (action: Action) => void;
   /** Ticks or unticks Auto-play for your own seat. */
@@ -648,7 +648,7 @@ function useAway(on: boolean): boolean {
   const back = useRef(0);
   useEffect(() => {
     if (!on) setAway(false);
-    else if (Date.now() - back.current < 10_000) setAway(true);
+    else if (document.hidden || Date.now() - back.current < 10_000) setAway(true);
     const onVisibility = () => {
       if (!document.hidden) back.current = Date.now();
       else if (on) setAway(true);

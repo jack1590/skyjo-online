@@ -293,13 +293,17 @@ export class Room {
         );
         this.data.waitSince = now;
         this.data.turnSince = now;
+        // Auto-play lasts a game: in the lobby it only let others lead while you were away.
+        for (const s of seats) s.auto = false;
         return "data";
       case "auto": {
         if (seat === null) throw new RoomError("not-allowed");
         if ((seats[seat].auto === true) === msg.on) return "none";
         seats[seat].auto = msg.on;
-        // Unticking on your turn gives you a fresh clock.
-        if (!msg.on && this.awaited().includes(seat)) this.data.turnSince = now;
+        // Unticking on your turn gives you a fresh clock, once per move: ticking on and off can't
+        // hold a turn open.
+        const moved = this.data.waitSince >= this.data.turnSince;
+        if (!msg.on && moved && this.awaited().includes(seat)) this.data.turnSince = now;
         return "data";
       }
       case "rematch":
@@ -363,13 +367,13 @@ export class Room {
       host: this.data.host,
       you,
       lead: this.canLead(you, live),
-      wait: this.waits(live),
+      clocks: this.clocks(live),
       game: this.data.game && toView(this.data.game),
     };
   }
 
   /** Every seat the table waits on whose clock runs, and when and why the server moves for it. */
-  private waits(live: Conn[]): Wait[] {
+  private clocks(live: Conn[]): Wait[] {
     const now = this.deps.now();
     return this.awaited()
       .filter((seat) => this.canStall(seat, live))
@@ -414,8 +418,9 @@ export class Room {
     if (this.needsLead() && this.connected(this.data.host, live)) {
       due.push(this.lastSeen(this.data.host, live) + STALE_MS);
     }
-    const future = due.filter((t) => t > now);
-    return future.length ? Math.min(...future) : now + STALE_MS;
+    // A step that came due after this event's tick() (a timer that fired a millisecond early) is
+    // checked again at once, not dropped: dropping it stalled the turn until the next check.
+    return Math.max(Math.min(...due), now + 1);
   }
 
   isIdle(live: Conn[]): boolean {
@@ -522,8 +527,8 @@ export class Room {
  * The server's move for a seat on auto-play or out of time (M8). In the opening flip it flips the
  * first face-down card in reading order. On a turn it draws from the deck; a drawn card lower than
  * the highest face-up card replaces it. Otherwise it discards the card and flips the first
- * face-down one, unless that is the last: revealing it would end the round, likely doubled (R12),
- * so it replaces the highest face-up card instead. A card taken from the discard pile can't be
+ * face-down one, unless that is the last and the round isn't ending yet: revealing it would end
+ * the round, likely doubled (R12), so it replaces the highest face-up card instead. A card taken from the discard pile can't be
  * thrown away (time ran out after the player took it), so it replaces that face-down card.
  */
 export function autoMove(g: GameState, seat: number): Action {
@@ -536,7 +541,9 @@ export function autoMove(g: GameState, seat: number): Action {
     if (s?.up && (high === -1 || s.card > (grid[high]?.card ?? 0))) high = pos;
   }
   const highCard = grid[high]?.card ?? 0;
-  if (high !== -1 && ((g.drawn as number) < highCard || down.length === 1)) {
+  // On a last turn the round is ending anyway, and R11 reveals that card: flipping it costs nothing.
+  const lastCard = down.length === 1 && g.ender === null;
+  if (high !== -1 && ((g.drawn as number) < highCard || lastCard)) {
     return { type: "swap", seat, pos: high };
   }
   return { type: g.drawnFrom === "deck" ? "discardAndFlip" : "swap", seat, pos: down[0] };

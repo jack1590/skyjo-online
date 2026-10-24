@@ -388,6 +388,19 @@ describe("turn clock (M8)", () => {
     expect(t.room.data.game?.current).toBe(current);
   });
 
+  it("M8: a step that comes due between tick() and nextAlarm() is checked again at once, not dropped", () => {
+    const t = setup();
+    const conns = startedGame(t, 2);
+    pastFlips(t, conns);
+    t.send(conns[t.room.data.game?.current ?? 0], { t: "auto", on: true });
+    // An adapter's timer fires a millisecond early: tick() finds nothing due yet...
+    t.advance(AUTO_FIRST_MS - 1);
+    expect(t.room.tick(t.live)).toBe(false);
+    // ...and by the time it asks for the next alarm, the draw is due.
+    t.advance(1);
+    expect(t.room.nextAlarm(t.live)).toBe(t.now() + 1);
+  });
+
   it("M8: unticking stops auto-play and starts a fresh 30 s; you can tick it yourself, and only for your own seat", () => {
     const t = setup();
     const conns = startedGame(t, 2);
@@ -433,7 +446,7 @@ describe("turn clock (M8)", () => {
     alone.drop(conns[1 - current]);
     alone.advance(10 * TURN_MS);
     expect(alone.room.tick(alone.live)).toBe(false);
-    expect(alone.room.view(conns[current], alone.live).wait).toEqual([]);
+    expect(alone.room.view(conns[current], alone.live).clocks).toEqual([]);
 
     const bots = setup();
     const both = startedGame(bots, 2);
@@ -471,7 +484,7 @@ describe("turn clock (M8)", () => {
     expect(t.room.data.game?.current).toBe(1 - current);
     expect(t.room.nextAlarm(t.live)).toBe(next.seenAt + STALE_MS);
     t.advance(STALE_MS - 20_000, [conns[current]]);
-    expect(t.room.view(conns[current], t.live).wait).toEqual([
+    expect(t.room.view(conns[current], t.live).clocks).toEqual([
       { seat: 1 - current, inMs: TURN_MS - 25_000, reason: "offline" },
     ]);
   });
@@ -493,7 +506,7 @@ describe("turn clock (M8)", () => {
     t.drop(conns[1]);
     t.send(conns[2], { t: "auto", on: true });
     t.advance(1_000);
-    expect(t.room.view(conns[3], t.live).wait).toEqual([
+    expect(t.room.view(conns[3], t.live).clocks).toEqual([
       { seat: 0, inMs: TURN_MS - 1_000, reason: "timer" },
       { seat: 1, inMs: TURN_MS - 1_000, reason: "offline" },
       { seat: 2, inMs: AUTO_FIRST_MS - 1_000, reason: "auto" },
@@ -506,12 +519,14 @@ describe("turn clock (M8)", () => {
     ]);
   });
 
-  it("M8: while the host is on auto-play, anyone seated may lead: start, next round, rematch", () => {
+  it("M8: while the host is on auto-play, anyone seated may lead: start, next round, rematch; a new game starts with Auto-play off", () => {
     const t = setup();
     const conns = t.seated(2);
     t.send(conns[0], { t: "auto", on: true });
     expect(t.room.view(conns[1], t.live).lead).toBe(true);
     t.send(conns[1], { t: "start" });
+    expect(autoSeats(t)).toEqual([false, false]); // nobody is played for before the deal's clock runs out
+    t.send(conns[0], { t: "auto", on: true });
     while (t.room.data.game?.phase !== "gameOver") {
       if (t.room.data.game?.phase === "roundOver") {
         t.send(conns[1], { t: "act", action: { type: "nextRound" } });
@@ -519,6 +534,25 @@ describe("turn clock (M8)", () => {
     }
     t.send(conns[1], { t: "rematch" });
     expect(t.room.data.game).toBeNull();
+    // Still away in the lobby: the others may start without the host.
+    expect(t.room.view(conns[1], t.live).lead).toBe(true);
+  });
+
+  it("M8: ticking Auto-play on and off gives a fresh clock once per move, so it can't hold a turn open", () => {
+    const t = setup();
+    const conns = startedGame(t, 2);
+    pastFlips(t, conns);
+    const current = t.room.data.game?.current ?? 0;
+    // From the turn's start, on and off faster than auto-play's first step (1.5 s): when every
+    // untick restarted the clock, nothing was ever played.
+    let toggles = 0;
+    while (t.room.data.game?.current === current && toggles < 200) {
+      t.send(conns[current], { t: "auto", on: toggles++ % 2 === 0 });
+      t.advance(400);
+      t.room.tick(t.live);
+    }
+    expect(t.room.data.game?.current).toBe(1 - current);
+    expect(toggles * 400).toBeLessThan(TURN_MS);
   });
 });
 
@@ -548,8 +582,14 @@ describe("autoMove (M8)", () => {
     });
   });
 
-  it("M8: never flips the last face-down card while a swap is legal", () => {
+  it("M8: never flips the last face-down card while a swap is legal, unless the round is ending anyway", () => {
     expect(autoMove(placing(GRID, ALL_BUT_LAST, 12), 0)).toEqual({ type: "swap", seat: 0, pos: 7 });
+    // On a last turn revealing it ends nothing, and R11 reveals it anyway: swapping a 12 in would cost.
+    expect(autoMove({ ...placing(GRID, ALL_BUT_LAST, 12), ender: 1 }, 0)).toEqual({
+      type: "discardAndFlip",
+      seat: 0,
+      pos: 11,
+    });
     expect(autoMove(placing(GRID, ALL_BUT_LAST, 12, "discard"), 0)).toEqual({
       type: "swap",
       seat: 0,
