@@ -132,6 +132,90 @@ The user asked for three things after M5: remove the local mode, add effects for
 
 **Acceptance:** No local mode remains anywhere (UI, docs, tests). Every sound fires from a unit-tested view diff, the mute switch persists, and E2E proves sounds start and stop. For 2–8 players at 390×664: no horizontal scroll, every tap target ≥ 44 px, opponents' numbers ≥ 12 px, the active opponent in view, and zoom works (Playwright, all 3 devices). Screenshots for 2, 4, 5, 6, 7 and 8 players in the PR. Version 2.0.0 with its CHANGELOG section; the README shows current images and the live URL. The PO scores Game feel ≥ 4.
 
+### Order after M6 (PO, 2026-10-24)
+
+The user asked for four things on 2026-10-24: a 30 s turn timer that switches a player to auto-play until they untick a checkbox, smooth animations, a UX expert pass shipped step by step, and the PO organizing the work. They ship as M8 → M9 → M10+, after M7 (the iPhone sound fix, already in progress), one PR at a time (see Process). The After-M6 follow-ups are folded in where they fit: the discard-and-flip E2E goes into M8 (auto-play makes that move), the final-reveal hold goes into M9 (it is an animation fix), and the rest join the M10+ triage pool.
+
+### M7 — iPhone sound (in flight) · v2.0.1
+
+Players on iPhone heard no sound. Branch `m7-ios-sound` unlocks audio the way iOS expects and resumes it when the app comes back from the background, a lock or a call. The ring/silent switch still silences the game.
+
+**Acceptance:** unit tests and the release checklist as usual, plus: a real iPhone plays sound, and the user confirms it.
+
+### M8 — Turn timer and auto-play (user request, 2026-10-24) · v2.1.0
+
+One slow or absent player shouldn't stall the table. After 30 s with no move, the server starts playing for that seat, and keeps doing it until the player unticks **Auto-play**. The server is the authority on the clock; the client only displays it.
+
+Decisions (PO, 2026-10-24), each with its reason:
+- **What the 30 s covers:** every step the table waits on a seat: draw, place (swap or discard-and-flip), and the R3 initial flip. Each move restarts the clock (the room's existing `waitSince`), so a player who draws at 29 s still gets 30 s to place the card; a turn takes at most 60 s. In the flip phase, all seats that haven't flipped share the clock and any flip restarts it, so the deal waits at most 30 s after the last flip. The round summary, game over and the lobby have no timer. _Reason: reuses `waitSince`, and a drawn card is never a rushed decision._
+- **Who sees the countdown, and when:** for the first 20 s, nobody sees a clock (most steps take less). For the last 10 s, everyone (players and spectators) sees a shrinking bar on the waited-on seat's name tag, and that player's prompt reads "Auto-play in N s". If the seat is offline, the M5 notice stays up for the whole wait ("Cris is offline · auto-play in 24 s"). _Reason: nobody feels rushed while thinking, and the others can see that help is coming._
+- **Last-seconds warning:** at 10 s left, the waited-on player's phone plays one short cue (it respects mute and the silent switch) and vibrates once where `navigator.vibrate` exists (iOS Safari doesn't have it). At 5 s the bar turns red. Everyone else gets the visual only. _Reason: one nudge you notice without looking, and no ticking alarm for the whole table._
+- **The auto-move:** the stall guard's `autoMove`, unchanged. It draws from the deck, discards that card, then flips the first face-down card in reading order; during the initial flip it flips the first face-down cards. _Reason: the user asked for "like disconnected players"; the move is already tested, neutral, and reveals nothing about the player._ A smarter bot is out of scope; add one only if the PO sees auto-played seats losing badly in play.
+- **Pacing once on:** a seat on auto-play makes one move every 1.5 s (`AUTO_STEP_MS`). 1.5 s after its turn begins it draws (everyone sees the card, per R6), and 1.5 s later it discards and flips. When the 30 s run out, the first move is played at once. _Reason: everyone can follow each move and its card flight (≤ 380 ms), and an auto turn still takes only 3 s._
+- **The checkbox:** one **Auto-play** checkbox in the header row of your own grid, next to your name and points. Every seated player always has it, and its label is a tap target of at least 44 px. The server ticks it when your 30 s run out, and you can tick it yourself before stepping away. Only you can untick it (the user's request); playing a card yourself doesn't. While it's on, your prompt reads "Auto-play is on · untick it to play" and your grid is marked as auto-play. Unticking during your turn gives you a fresh 30 s. Reconnecting doesn't untick it, so when you come back the ticked box tells you why your cards moved. _Reason: the row already exists, so the checkbox adds no height at 375×548. Ticking it yourself uses the same control, and it lets E2E test auto-play without waiting 30 s._
+- **How others see it:** players and spectators see an "Auto" tag next to that player's name on their panel and in the turn pill ("Ana · auto"). _Reason: otherwise a player seems to be moving instantly, and nobody knows why._
+- **The 60 s stall guard is folded in.** The turn timer replaces it: whether a seat is offline or not, it gets 30 s from `waitSince` and then goes on auto-play. Delete `STALL_MS` and the deadline rule that counts absence from when the seat went quiet. Keep `canStall` (an empty table doesn't play itself) and the `STALE_MS` presence check. _Reason: one rule and one countdown instead of two, and an offline seat now moves after 30 s instead of 60 s._
+- **Leading while on auto-play:** a host on auto-play counts as away, so any seated player may advance to the next round, start a rematch, or start the game. _Reason: the host-away rule only notices a dropped socket, so a host who stepped away with the screen on would freeze the round summary._
+- **Spectators** see the countdown and the Auto tags. They have no checkbox and don't affect the timer.
+- **No host setting to turn the timer off** (AGENTS: no speculative config). 30 s per step is generous for Skyjo, and a player who times out loses one move and then unticks. Revisit if the user asks.
+- **Protocol:** a client message `{ t: "auto", on: boolean }` that applies only to the sender's seat; `Seat.auto`, persisted in `RoomData`; and `SeatView.auto`. `RoomView.wait` now covers every waited-on seat, online or offline, with the ms until auto-play moves for it.
+- Lands the After-M6 "Do first" test: an E2E for a full draw → discard → flip turn through the UI.
+- Update § Multiplayer behavior (stall guard), `AGENTS.md` (online flow) and the README's how-to-play.
+
+**Acceptance:**
+- Room unit tests on the injected clock (`t.advance`), one for each of these:
+  - Nothing happens at 30 s − 1 ms. At 30 s, the waited-on seat's move is played and its auto-play is on.
+  - Each move restarts the clock: a draw at 29 s leaves the seat until 59 s.
+  - In the flip phase, seats that haven't flipped are auto-flipped 30 s after the last flip, and seats that have flipped are left alone.
+  - A seat on auto-play makes one move per 1.5 s (a whole turn in 3 s), and `nextAlarm` returns exactly those times.
+  - `auto` with `on: false` from the seat stops auto-play and starts a fresh 30 s; `on: true` works for your own seat. Nobody can change another seat's auto-play, since the message carries no seat.
+  - An offline seat goes on auto-play after 30 s. When nobody else is connected, nothing plays.
+  - While the host is on auto-play, another seat may send `nextRound` and `rematch`.
+  - `parseClientMsg` accepts `auto` only with a boolean `on`.
+  - The hidden-information test still passes with seats on auto-play.
+- Client unit test: the 10 s cue fires once per wait, only on the waited-on player's phone, and never when muted.
+- E2E on all 3 devices:
+  - Table harness: with 25 s left there is no countdown. At 9 s, the waited-on player reads "Auto-play in 9 s" and the others see the bar on that seat. At 4 s the bar is red. A seat on auto-play shows the Auto tag, and the checkbox is ≥ 44 px.
+  - Online, 2 phones: A ticks Auto-play, and within 4 s A's turn plays itself (a draw, then a discard and flip, leaving one fewer face-down card). B sees "Auto" on A. A unticks, and A's next turn waits for A.
+  - The discard-and-flip E2E (After M6), on all 3 devices.
+  - The existing offline-countdown test, updated to the new wording.
+- **Delivery health:** no E2E waits for the 30 s in real time: nothing sleeps on the timer, and no test-only timer setting ships to production. The expiry itself is covered by the room unit tests on the injected clock, and the online E2E reaches auto-play by ticking the checkbox. PR CI wall time grows by ≤ 15 s over the M7 merge, and the PR reports per-job times. No existing E2E starts tripping the timer: any test that leaves a seated player idle for more than 10 s mid-game is listed in the PR and asserts the auto-play.
+- Every new string exists in en, es and pt.
+- Version 2.1.0 with its CHANGELOG section. The README's how-to-play covers the 30 s and auto-play, with fresh images. `docs/screenshots/m8/` has the countdown, the red warning, the Auto tag, and the ticked checkbox at iPhone size.
+- The PO scores Mobile UX ≥ 4 and Game feel ≥ 4.
+
+### M9 — Smooth animations (user request, 2026-10-24) · v2.1.1
+
+The user asked for smooth animations. Every card flight, flip and count-up should run at frame rate on a mid-range phone, start exactly where the card was, and land exactly where it goes. A patch release, unless the UX findings turn it into a feature (then 2.2.0).
+- **The diagnosis is pending.** The UX expert's findings (audit started 2026-10-24) name what stutters or jumps, and the PO refines these bullets when they arrive. Until then, the bullets below are the bar.
+- Animate only `transform` and `opacity`; layout and paint properties (`top`, `left`, `width`, `height`, `box-shadow`, `filter`) are never keyframed.
+- Lands the After-M6 item "Let the final reveal play before the round summary".
+- A measuring tool, `e2e/perf.spec.ts`. It runs on Pixel only, with `PERF=1`, and is skipped in CI, because frame timings on shared runners are noise. It throttles the CPU 4× through CDP (`Emulation.setCPUThrottlingRate`), then plays a scripted 8-player sequence with motion on: draw, swap, discard and flip, column removal, the round-end reveal, and the score count-up. It records frame intervals with `requestAnimationFrame` and long tasks with `PerformanceObserver`.
+
+**Acceptance:**
+- Perf spec (Pixel, 4× CPU throttle, 8 players, motion on): during flights, the p95 frame interval is ≤ 20 ms, no frame takes more than 50 ms, and there are no long tasks over 50 ms. The PR reports the numbers before (v2.1.0) and after. The PO may move a target if the before numbers show it is wrong; the reason goes in the PR.
+- In CI on all 3 devices, deterministic: during each flight, every running animation (`document.getAnimations()`) keyframes only `transform` and/or `opacity`.
+- No jump, for each flight type (draw from deck, take the discard, swap, discard, column removal): with the Web Animations paused and stepped through `currentTime`, the flying card's box at time 0 matches its source within 1 px and at the end matches its target slot within 1 px. The card is visible in exactly one place on every frame: never in two places, never missing.
+- At round end, the summary sheet appears only after the R11 flips finish (or after about 1 s). With reduced motion it appears at once.
+- Reduced motion still disables every animation (existing test).
+- CI wall time grows by ≤ 10 s; the perf spec doesn't run in CI.
+- Version, CHANGELOG and README per the release checklist.
+- Playing with motion on, the PO scores Visual polish 5 and Game feel ≥ 4, or adds whatever keeps Visual polish from a 5 to this plan as an item.
+
+### M10 onward — UX passes (user request, 2026-10-24) · one patch or minor each
+
+The user asked for a UX expert agent to find improvements and ship them step by step, not all at once.
+1. **Audit.** A UX expert agent audits the live game: phones, 2–8 players, all 3 languages, players and spectators. It returns findings with evidence (screenshots, measurements, steps to reproduce).
+2. **Triage.** The PO puts each finding in the table below with a severity (blocker / major / minor), an effort (S / M / L) and a verdict. A verdict is one of: **do** (with its milestone number), **fold** (into M8 or M9 if one is still open), **defer**, or **decline**. Each verdict gets a one-line reason. The remaining After-M6 follow-ups join the same pool. Triage is a docs-only PR.
+3. **Order.** Blockers first, then by value for effort. A blocker may jump ahead of M9, and the PR that changes the order says why.
+4. **Ship.** One small PR per finding, or per tight group (same screen, same files), numbered M10, M11, … on branches `m<N>-<slug>`. Each goes through the normal loop: review → PR → PO, plus the release checklist. Fixes and polish are a patch version; anything a player would call new is a minor version.
+5. **Acceptance per item** is written at triage time: the finding's evidence, measured again, no longer reproduces, and a test fails without the fix (E2E for layout and interaction, a unit test for logic).
+6. **Done** when every finding is shipped, deferred or declined. Another audit runs only if the user asks for one.
+
+| #   | Finding                                                        | Severity | Effort | Verdict |
+| --- | -------------------------------------------------------------- | -------- | ------ | ------- |
+| —   | _Pending: the UX expert's audit (2026-10-24) is triaged here._ |          |        |         |
+
 ### After M5: follow-ups
 
 Non-blocking items from the M5 PO review. Do them in one small PR if the project continues.
@@ -143,9 +227,9 @@ Non-blocking items from the M5 PO review. Do them in one small PR if the project
 
 ### After M6: follow-ups
 
-Follow-ups from the M6 PO reviews (Game feel scored 4): one test gap, then game-feel items. None blocks; do them in one small PR if the project continues.
-- **Do first: an E2E for a full discard-and-flip turn.** Since PR #7, `botStep` swaps the drawn card into a face-down slot, so no E2E in CI, and not the live smoke test, ever finishes draw → discard → flip; "discard mode can be cancelled" only enters the mode and leaves it. Add one test on all 3 devices: draw, discard, flip, then check that one fewer card is face down, the drawn card is on the discard pile, and the turn has passed. The PO ran this as a throwaway spec in round 2: it passed in 2.2–3.1 s per device.
-- **Let the final reveal play before the round summary.** At round end the summary sheet is fully opaque 200 ms after the last move, while the R11 flips are still animating under it (4 running animations at 0 ms; WebKit, 2 phones). Nobody sees the last hidden cards turn over or who gets doubled. Hold the sheet about 1 s, or until the flips finish (no hold with reduced motion).
+Follow-ups from the M6 PO reviews (Game feel scored 4): one test gap, then game-feel items. None blocks. **Planned (PO, 2026-10-24):** the first item goes into M8, the final-reveal hold into M9, and the rest into the M10+ triage pool.
+- **→ M8. Do first: an E2E for a full discard-and-flip turn.** Since PR #7, `botStep` swaps the drawn card into a face-down slot, so no E2E in CI, and not the live smoke test, ever finishes draw → discard → flip; "discard mode can be cancelled" only enters the mode and leaves it. Add one test on all 3 devices: draw, discard, flip, then check that one fewer card is face down, the drawn card is on the discard pile, and the turn has passed. The PO ran this as a throwaway spec in round 2: it passed in 2.2–3.1 s per device.
+- **→ M9. Let the final reveal play before the round summary.** At round end the summary sheet is fully opaque 200 ms after the last move, while the R11 flips are still animating under it (4 running animations at 0 ms; WebKit, 2 phones). Nobody sees the last hidden cards turn over or who gets doubled. Hold the sheet about 1 s, or until the flips finish (no hold with reduced motion).
 - **A real game-over moment.** `public/sfx/end.mp3` lasts 0.16 s, a click rather than an ending (`win.mp3` is 0.52 s). Give game over a fuller cue.
 - **Last-round cue.** When someone reveals their whole grid, only the header pill turns red. Play a short cue for everyone (and vibrate where supported), since everyone's next turn is now their last.
 - **Spectators lose the piles at 8 seats.** At 390×664 with 8 players, a spectator's deck, discard and drawn card were off screen on 16 of 16 turns while the table followed whoever was playing, and R6 makes the drawn card public. Keep the piles in view, for example above the grids.
@@ -153,6 +237,8 @@ Follow-ups from the M6 PO reviews (Game feel scored 4): one test gap, then game-
 - **Idea, the user's call:** quick reactions (👏 😂 😱) for friends who aren't in the same room or on a call.
 
 ## Process
+
+**One PR at a time.** The next PR starts only after the previous one merges: its branch is cut from the `main` that includes it. That way every milestone builds on the shipped game and every PO review sees a single change (user request, 2026-10-24). Docs-only PRs, such as plan or triage edits, follow the same rule but don't bump the version. CI's CHANGELOG check passes because the current version already has its section, and the release job skips a version that is already released.
 
 Per milestone:
 1. Branch `m<N>-<slug>` from `main`. Build test-first for engine and room code.
