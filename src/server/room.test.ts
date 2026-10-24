@@ -397,9 +397,9 @@ describe("protocol", () => {
     expect(parseClientMsg('{"t":"start","seq":-1}')).toEqual({ t: "start" });
   });
 
-  it("a socket flooding more than 40 messages in 10 s is cut off", () => {
+  it("a socket flooding more than 120 messages in 10 s is cut off", () => {
     const c = newConn(0);
-    for (let i = 0; i < 40; i++) expect(allowMessage(c, 1_000)).toBe(true);
+    for (let i = 0; i < 120; i++) expect(allowMessage(c, 1_000)).toBe(true);
     expect(allowMessage(c, 2_000)).toBe(false);
     expect(allowMessage(c, 11_000)).toBe(true);
   });

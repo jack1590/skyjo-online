@@ -64,9 +64,9 @@ export const STALE_MS = 45_000;
 export const STALL_MS = 60_000;
 /** No client message for this long and the room is deleted. */
 export const IDLE_MS = 24 * 60 * 60_000;
-/** Per-socket flood limit: a real player sends a few messages per turn. */
+/** Per-socket flood limit: far above any human pace (a test bot taps ~7/s), far below a script loop. */
 const WINDOW_MS = 10_000;
-const WINDOW_MAX = 40;
+const WINDOW_MAX = 120;
 
 export const newRoom = (code: string, now: number): RoomData => ({
   code,
