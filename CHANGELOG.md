@@ -4,6 +4,31 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.1.0] - 2026-10-24
+
+### Added
+
+- **A turn clock.** Each turn has 30 seconds, and after you draw you always get at least 10 to place the card. A thin bar above your cards drains through your turn, with no number. In the last 10 seconds it turns orange and the pill reads "Your turn · 10", counting down; at 5 seconds it turns red, and your phone vibrates once and plays a soft tick, unless sound is off. Everyone else sees that player's gold border drain like a ring, with the seconds in its last 10. The opening flip has the same 30 seconds from the deal, shared by everyone still flipping. The round summary, game over and the lobby have no clock.
+- **Auto-play.** When your time runs out, the game makes that move for you and switches on Auto-play ("Juego automático", "Jogada automática"), which keeps playing your turns until you switch it off. It plays one step at a time, so everyone sees the card it draws, then where it goes. The switch is in the row above your cards; switch it on yourself before you step away. While it's on, that row says "Auto-play is on", or "Auto-play was on while you were away" when you come back, and tapping your cards shakes it instead of playing. Switching it off during your turn gives you a fresh 30 seconds. Everyone else sees 🤖 by your name, "Ana · auto" while it's your turn, and 🤖 in the round summary. People watching see the clocks and the 🤖 too.
+- Auto-play plays sensibly. It draws from the deck and swaps the card into your highest face-up card if it's lower. Otherwise it throws the card away and turns over your first face-down card. It never turns over your last face-down card while it can swap instead, since that would end the round and likely double your score.
+- The screen stays on during a game, so at a big table your phone doesn't lock between turns and get played for. It lets go when you leave the table.
+- "How to play" explains the clock.
+
+### Changed
+
+- A phone that drops gets the same 30 seconds as everyone else, then Auto-play, and the table shows it in the prompt line: "Cris is offline · auto-play in 24 s". This replaces the 60-second wait on every turn of an offline player, which at 8 players added about 10 minutes a round. It also replaces 2.0.4's rule that moved for a phone that dropped mid-turn 60 seconds after its turn began.
+- A host on Auto-play counts as away, so anyone seated can start, deal the next round or play again.
+- A table only plays itself while someone is really there. A clock runs, and Auto-play plays, only while another seated player is connected and not on Auto-play. A table where everyone is on Auto-play waits for someone to come back, and costs nothing meanwhile.
+- The "Your turn" pill pops once per turn, not twice.
+- Your cards no longer shrink mid-turn. The offline note now sits in the prompt line instead of a line of its own. The drawn card's "tap to keep" label stays on one line, with shorter Spanish and Portuguese wording, and the Portuguese discard prompt is shorter. To make room for the Auto-play switch, cards on a 390 × 664 screen are 58 px wide instead of 61; on smaller screens they still never go below 44 px.
+- With reduced motion, the clock's bar and ring stay still; their colours and seconds still change.
+
+### Security
+
+- Auto-play moves are made by the server with no message from anyone, so they're paid for like the presence checks in 2.0.4. Each step is an alarm run that costs 2 of the 120-a-minute budget of every network with a phone in the room. One auto turn is 2 steps: 4 storage writes (2 saves, 2 alarms) and 2 Durable Object requests, and it costs each such network 4. A table where everyone is on Auto-play writes nothing.
+- The new `auto` message only changes the sender's own seat, writes nothing when it changes nothing, and counts against the same budget as any message.
+- Nothing changes for a normal table: 8 friends on one home Wi-Fi still stay under every limit. The busiest case is one player who plays a turn a second while the other 7 are on Auto-play, all on one network: 112 of the 120 in the busiest minute, so nobody is disconnected. One network at every limit still needs at least 14 hours to use up the day's writes.
+
 ## [2.0.5] - 2026-10-24
 
 ### Changed

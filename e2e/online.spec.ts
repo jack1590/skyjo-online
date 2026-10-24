@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
+import type { RoomView } from "../src/protocol";
 import { botStep, createRoom, join, phones, playToEnd, seatedRoom, startGame } from "./helpers";
 
 test("two phones create, join, and play a full game to 100", async ({ browser }, info) => {
@@ -60,7 +61,102 @@ test("everyone sees who is offline and when the server will move for them", asyn
   const { pages } = await seatedRoom(browser, info, ["Ana", "Ben"]);
   await startGame(pages[0]);
   await pages[1].context().close(); // Ben's phone dies during the opening flip
-  await expect(pages[0].getByText(/^Ben is offline · auto-move in \d+ s$/)).toBeVisible();
+  // Ana's own flips come first in her prompt line; then it says who the table waits for.
+  while (await botStep(pages[0]));
+  await expect(pages[0].getByText(/^Ben is offline · auto-play in \d+ s$/)).toBeVisible();
+});
+
+/** Plays the opening flip on every phone; returns the phone to move first, then the others. */
+async function pastFlips(pages: Page[]) {
+  while ((await pages[0].getByTestId("table").getAttribute("data-phase")) === "flip") {
+    for (const page of pages) await botStep(page);
+  }
+  const current = Number(await pages[0].getByTestId("table").getAttribute("data-current"));
+  return [pages[current], ...pages.filter((_, i) => i !== current)];
+}
+
+test("a whole discard-and-flip turn: draw, throw the card away, flip one", async ({
+  browser,
+}, info) => {
+  const { pages } = await seatedRoom(browser, info, ["Ana", "Ben"]);
+  await startGame(pages[0]);
+  const [mover, other] = await pastFlips(pages);
+  const grid = mover.getByTestId("my-grid");
+  const down = await grid.locator('[data-face="down"]').count();
+  await mover.getByTestId("deck").click();
+  const drawn = (await mover.getByTestId("drawn").getAttribute("aria-label"))?.split(": ")[1];
+  await mover.getByTestId("discard").click();
+  await grid.locator('button[data-face="down"]').first().click();
+  await expect(grid.locator('[data-face="down"]')).toHaveCount(down - 1);
+  await expect(mover.getByTestId("discard")).toHaveAttribute(
+    "aria-label",
+    `Discard pile: ${drawn}`,
+  );
+  await expect(mover.getByTestId("table")).toHaveAttribute("data-myturn", "false");
+  await expect(other.getByTestId("table")).toHaveAttribute("data-myturn", "true");
+});
+
+test("M8: a player who ticks Auto-play is played for, a step at a time, until they untick it", async ({
+  browser,
+}, info) => {
+  const all = await phones(browser, info, 2);
+  /** Every message each phone sends, and every room state it gets, with when it came. */
+  const sent = new Map(all.map((page) => [page, [] as string[]]));
+  const states = new Map(all.map((page) => [page, [] as { at: number; room: RoomView }[]]));
+  for (const page of all) {
+    page.on("websocket", (ws) => {
+      ws.on("framesent", (f) => sent.get(page)?.push(String(f.payload)));
+      ws.on("framereceived", (f) => {
+        const msg = String(f.payload).startsWith("{") ? JSON.parse(String(f.payload)) : null;
+        if (msg?.t === "state") states.get(page)?.push({ at: Date.now(), room: msg.room });
+      });
+    });
+  }
+  const code = await createRoom(all[0]);
+  for (const [i, page] of all.entries()) await join(page, code, ["Ana", "Ben"][i]);
+  await startGame(all[0]);
+  const [a, b] = await pastFlips(all);
+  const name = (await a.getByTestId("mine-head").locator("strong").textContent()) ?? "";
+  const seat = Number(await a.getByTestId("my-grid").getAttribute("data-seat"));
+  const toggle = a.getByRole("checkbox", { name: "Auto-play" });
+  const ticked = Date.now();
+  await toggle.click();
+  await expect(toggle).toBeChecked();
+  await expect(a.getByTestId("mine-head")).toHaveText(/^Auto-play is on/);
+  // B's own states: A's drawn card within 4 s, then the card placed in a later state.
+  const seen = () => {
+    const after = states.get(b)?.filter((s) => s.at >= ticked) ?? [];
+    const drew = after.findIndex(
+      (s) => s.room.game?.current === seat && s.room.game.drawn !== null,
+    );
+    const placed = after.findIndex((s, i) => i > drew && s.room.game?.current !== seat);
+    if (drew === -1) return "waiting";
+    if (after[drew].at - ticked > 4_000) return "late";
+    return placed === -1 ? "drawn" : "placed";
+  };
+  await expect.poll(seen, { timeout: 6_000 }).toBe("placed");
+  await expect(b.getByTestId("table")).toHaveAttribute("data-myturn", "true");
+  await expect(b.getByRole("img", { name: "Auto-play" })).toBeVisible();
+  await expect(b.getByTestId("opponent")).toContainText(name);
+  if (process.env.SHOTS && info.project.name === "iphone") {
+    await b.screenshot({ path: "docs/screenshots/m8/10-others-see-auto-play.jpg", scale: "css" });
+    await a.screenshot({ path: "docs/screenshots/m8/11-auto-play-on.jpg", scale: "css" });
+  }
+  // A's taps on its cards point at the switch and send no move.
+  const moves = () => (sent.get(a) ?? []).filter((m) => m.includes('"t":"act"')).length;
+  const before = moves();
+  await a.getByTestId("my-grid").locator("button").first().click();
+  await expect(a.getByTestId("mine-head")).toHaveText(/^Auto-play is on/);
+  expect(moves()).toBe(before);
+  // Unticked, A's next turn waits for A: an auto-play draw would come after 1.5 s.
+  await toggle.click();
+  await expect(toggle).not.toBeChecked();
+  await botStep(b);
+  await botStep(b);
+  await expect(a.getByTestId("table")).toHaveAttribute("data-myturn", "true");
+  await a.waitForTimeout(2_500);
+  await expect(a.getByTestId("table")).toHaveAttribute("data-phase", "draw");
+  await expect(b.getByRole("img", { name: "Auto-play" })).toHaveCount(0);
 });
 
 test("a 9th phone can't take a seat and watches instead", async ({ browser }, info) => {
@@ -138,6 +234,7 @@ test("m5 screenshots", async ({ browser }, info) => {
   const { pages } = await seatedRoom(browser, info, ["Ana", "Ben", "Cris"]);
   await startGame(pages[0]);
   await pages[2].context().close();
+  while (await botStep(pages[0])); // Ana's own flips come first in her prompt line
   await expect(pages[0].getByText(/Cris is offline/)).toBeVisible();
   await shot(pages[0], "02-offline-countdown");
 });

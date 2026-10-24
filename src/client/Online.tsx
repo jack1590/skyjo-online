@@ -83,8 +83,10 @@ export function Online({ code }: { code: string }) {
         seat={room.you}
         lead={room.lead}
         connected={room.seats.map((s) => s.connected)}
+        auto={room.seats.map((s) => s.auto)}
         wait={room.wait}
         onAction={(action) => send({ t: "act", action })}
+        onAuto={(on) => send({ t: "auto", on })}
         onPlayAgain={() => send({ t: "rematch" })}
         onExit={goHome}
       />

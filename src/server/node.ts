@@ -59,7 +59,7 @@ const send = (ws: WebSocket, msg: ServerMsg) => {
   if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg));
 };
 
-/** Sends each socket (or only `only`) its own view and schedules the next stall/idle check (the DO alarm's job). */
+/** Sends each socket (or only `only`) its own view and schedules the room's next check (the DO alarm's job). */
 function commit(code: string, only?: WebSocket) {
   const live = rooms.get(code);
   if (!live) return;

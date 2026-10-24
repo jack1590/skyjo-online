@@ -2,9 +2,22 @@
 // Audio buffers. Which sounds play is derived from consecutive views, like the card flights.
 import { useEffect, useRef, useState } from "react";
 import type { GameView } from "../engine/view";
+import type { Wait } from "../protocol";
 import { flightsBetween } from "./motion";
 
-const NAMES = ["flip", "draw", "place", "discard", "deal", "column", "turn", "win", "end"] as const;
+/** tick.mp3, the 5 s warning, is generated for this project (ffmpeg, two decaying sines). */
+const NAMES = [
+  "flip",
+  "draw",
+  "place",
+  "discard",
+  "deal",
+  "column",
+  "turn",
+  "win",
+  "end",
+  "tick",
+] as const;
 export type Sound = (typeof NAMES)[number];
 
 /** Sounds that announce something rather than accompany a card; they land just after the card. */
@@ -34,7 +47,7 @@ export function preloadSounds() {
     NAMES.map(
       async (name) => [name, await (await fetch(`/sfx/${name}.mp3`)).arrayBuffer()] as const,
     ),
-  ).catch(() => []);
+  ).catch(() => []); // offline before the service worker cached them: the game just stays silent
 }
 
 /**
@@ -139,6 +152,21 @@ export function useSounds(view: GameView, seat: number | null) {
     prev.current = view;
     for (const name of soundsBetween(before, view, seat)) play(name);
   }, [view, seat]);
+}
+
+let nudged: string | null = null;
+
+/**
+ * The turn-ending nudge (M8): one vibration and one soft tick when this phone's own clock reaches
+ * 5 s, once per turn, never when muted. Only the acting player has a clock of its own: their seat's
+ * `wait` entry, with reason "timer". `turn` names the turn, so a draw's extra time can't nudge twice.
+ */
+export function nudge(own: Wait | undefined, left: number | null, turn: string) {
+  if (own?.reason !== "timer" || left === null || left > 5 || muted || nudged === turn) return;
+  nudged = turn;
+  // Browsers block vibrate before the first tap on the page (e.g. right after a reload).
+  if (navigator.userActivation?.hasBeenActive) navigator.vibrate?.(200);
+  play("tick");
 }
 
 /** The mute switch, remembered across visits. */

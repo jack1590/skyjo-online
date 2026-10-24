@@ -3,7 +3,7 @@
 import { execFileSync } from "node:child_process";
 import { expect, type Page, test } from "@playwright/test";
 import { toView } from "../src/engine/view";
-import { atTurnStart, roundOver, show } from "./harness";
+import { atTurnStart, lastTurnGame, roundOver, show } from "./harness";
 import { botStep, seatedRoom, startGame } from "./helpers";
 
 test.skip(!process.env.SHOTS, "run with npm run shots:readme");
@@ -31,9 +31,19 @@ test("README stills", async ({ browser, page }, info) => {
   });
   await shot(pages[0], "lobby");
 
-  await show(page, atTurnStart(4));
+  // Your turn with 9 s on the clock (M8).
+  const four = atTurnStart(4);
+  await show(page, { ...four, wait: [{ seat: four.seat ?? 0, inMs: 9_000, reason: "timer" }] });
   await shot(page, "table-4");
-  await show(page, atTurnStart(8));
+  // Waiting on a player whose clock runs, with another on Auto-play.
+  const eight = lastTurnGame(8, 3);
+  const me = (eight.current + 2) % 8;
+  await show(page, {
+    view: toView(eight),
+    seat: me,
+    auto: Array.from({ length: 8 }, (_, i) => i === (eight.current + 1) % 8),
+    wait: [{ seat: eight.current, inMs: 7_000, reason: "timer" }],
+  });
   await shot(page, "table-8");
   await page.getByTestId("opponent").first().click();
   await expect(page.getByTestId("zoom")).toBeVisible();

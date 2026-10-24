@@ -8,11 +8,11 @@ A free, phone-first multiplayer card game based on Skyjo's mechanics. Open a lin
   <img src="docs/readme/card-flights.gif" width="260" alt="A two-player game: cards are flipped, drawn from the deck, swapped into the grid and thrown onto the discard pile">
 </p>
 
-|                                            Start or join a room                                             |                                                  Invite friends                                                   |                                                                  4 players                                                                   |
-| :---------------------------------------------------------------------------------------------------------: | :---------------------------------------------------------------------------------------------------------------: | :------------------------------------------------------------------------------------------------------------------------------------------: |
-|     <img src="docs/readme/home.jpg" width="220" alt="Home screen with Create a room and Join by code">      | <img src="docs/readme/lobby.jpg" width="220" alt="Lobby with the room code, invite link and four seated players"> | <img src="docs/readme/table-4.jpg" width="220" alt="A four-player table: three opponents across the top, deck and discard, your grid below"> |
-|                                                **8 players**                                                |                                                **Tap an opponent**                                                |                                                              **Round summary**                                                               |
-| <img src="docs/readme/table-8.jpg" width="220" alt="An eight-player table: a swipeable strip of opponents"> |              <img src="docs/readme/zoom.jpg" width="220" alt="One opponent's grid shown full size">               |          <img src="docs/readme/summary.jpg" width="220" alt="Round scores with the ender's doubled score shown as base ×2 = total">          |
+|                                                                                             Start or join a room                                                                                             |                                                  Invite friends                                                   |                                                                            Your turn, 9 seconds left                                                                            |
+| :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------: | :---------------------------------------------------------------------------------------------------------------: | :-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------: |
+|                                                      <img src="docs/readme/home.jpg" width="220" alt="Home screen with Create a room and Join by code">                                                      | <img src="docs/readme/lobby.jpg" width="220" alt="Lobby with the room code, invite link and four seated players"> | <img src="docs/readme/table-4.jpg" width="220" alt="A four-player table on your turn: the pill reads Your last turn · 9 and an orange bar above your grid shows the time left"> |
+|                                                                                       **8 players, one on Auto-play**                                                                                        |                                                **Tap an opponent**                                                |                                                                                **Round summary**                                                                                |
+| <img src="docs/readme/table-8.jpg" width="220" alt="An eight-player table: a swipeable strip of opponents, the player to move ringed with 7 seconds left, and a robot by the name of a player on Auto-play"> |              <img src="docs/readme/zoom.jpg" width="220" alt="One opponent's grid shown full size">               |                           <img src="docs/readme/summary.jpg" width="220" alt="Round scores with the ender's doubled score shown as base ×2 = total">                            |
 
 The images come from the real app (`npm run shots:readme`) and are refreshed whenever the UI changes. See [`docs/PLAN.md`](docs/PLAN.md) for the roadmap and how it was built.
 
@@ -21,7 +21,8 @@ The images come from the real app (`npm run shots:readme`) and are refreshed whe
 - **Online with friends:** tap **Create a room**, then **Invite friends** to share the link (or read out the 5-letter code). Everyone enters a name and joins. The host taps **Start game**. If you reload or lose signal, you get your seat back automatically. A ninth person, or anyone arriving mid-game, watches until the game ends. A room holds 20 connected phones, players included, and players always get back in.
 - **At the table:** swipe the strip of opponents to see every grid; tap one to see it full size. Whoever is playing scrolls into view. 🔊 in the header mutes sounds (remembered; an iPhone on silent stays silent).
 - **Install it:** on Android, Chrome offers _Install app_. On iPhone, tap **Share → Add to Home Screen**. It then opens full-screen like an app.
-- **If a phone drops:** everyone sees "Cris is offline · auto-move in 42 s". After 60 s the server plays a safe move for them: draw, discard, flip their first face-down card. They get their seat back as soon as they reconnect.
+- **Turn clock and Auto-play:** each turn has 30 seconds, and at least 10 to place a card you drew. A bar above your cards drains; at 10 seconds it turns orange and counts down, at 5 it turns red with one buzz and one tick. When time runs out the game plays for you and switches on **Auto-play**, the switch above your cards, which keeps playing your turns until you switch it off. Switch it on yourself before stepping away. Everyone sees 🤖 by your name. The screen stays on during a game.
+- **If a phone drops:** it gets the same 30 seconds, and everyone sees "Cris is offline · auto-play in 24 s". Then Auto-play takes over. They get their seat back as soon as they reconnect, and switch Auto-play off to play again.
 
 ## How to play
 
@@ -33,6 +34,7 @@ The images come from the real app (`npm run shots:readme`) and are refreshed whe
 - Three equal face-up cards in a column disappear.
 - Reveal your whole grid to end the round. Everyone else gets one last turn, then all cards are revealed and counted. If you ended the round without the strictly lowest score, your positive score is doubled.
 - When someone reaches 100 points the game ends. Lowest total wins.
+- Each turn has 30 seconds (and at least 10 to place a card you drew). When time runs out, Auto-play plays for you until you switch it off. It draws from the deck, keeps a card that beats your highest face-up card, and never reveals your last face-down card while it can swap instead.
 
 The exact rules, including how edge cases are decided, are in [`AGENTS.md` § Rules](AGENTS.md#rules).
 
@@ -85,7 +87,7 @@ Read [`AGENTS.md`](AGENTS.md) for architecture, commands, conventions, and the P
 
 ## Credits
 
-Sound effects: [Kenney](https://kenney.nl) "Casino Audio" and "Interface Sounds" (CC0). Card art and app icon are original, generated for this project.
+Sound effects: [Kenney](https://kenney.nl) "Casino Audio" and "Interface Sounds" (CC0); the clock's tick is generated for this project. Card art and app icon are original, generated for this project.
 
 ## License
 

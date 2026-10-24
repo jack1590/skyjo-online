@@ -20,6 +20,9 @@ export const CLOSE_ROOM_FULL = 4029;
 export const PING = "ping";
 export const PONG = "pong";
 
+/** The turn clock (M8): each turn, and the opening flip, gets 30 s before the server plays for it. */
+export const TURN_MS = 30_000;
+
 export type ClientMsg = (
   | { t: "hello"; token: string }
   | { t: "join"; name: string }
@@ -28,6 +31,8 @@ export type ClientMsg = (
   | { t: "start" }
   | { t: "act"; action: Action }
   | { t: "rematch" }
+  /** Ticks or unticks Auto-play for the sender's own seat. */
+  | { t: "auto"; on: boolean }
 ) & {
   /** Client counter; the server echoes the highest one handled as `ack`. */
   seq?: number;
@@ -44,6 +49,18 @@ export type ErrorCode =
 export interface SeatView {
   name: string;
   connected: boolean;
+  /** Auto-play is on: the server plays this seat's turns. */
+  auto: boolean;
+}
+
+/**
+ * A seat the table waits on, and ms until the server moves for it: when its clock runs out
+ * ("timer", or "offline" when its phone is gone), or its next auto-play step ("auto").
+ */
+export interface Wait {
+  seat: number;
+  inMs: number;
+  reason: "timer" | "offline" | "auto";
 }
 
 export interface RoomView {
@@ -54,8 +71,8 @@ export interface RoomView {
   you: number | null;
   /** Whether you may start, advance rounds, and rematch (the host, or anyone if the host is away). */
   lead: boolean;
-  /** The offline seat the table is waiting on, and ms until the server moves for it. */
-  wait: { seat: number; inMs: number } | null;
+  /** Every waited-on seat whose clock runs (several in the opening flip); empty when none does. */
+  wait: Wait[];
   game: GameView | null;
 }
 
@@ -102,6 +119,8 @@ function parseBody(msg: Record<string, unknown>): ClientMsg | null {
       return { t: msg.t };
     case "kick":
       return Number.isInteger(msg.seat) ? { t: "kick", seat: msg.seat as number } : null;
+    case "auto":
+      return typeof msg.on === "boolean" ? { t: "auto", on: msg.on } : null;
     case "act": {
       const a = msg.action;
       if (!isObject(a)) return null;

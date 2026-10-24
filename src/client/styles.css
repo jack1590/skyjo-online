@@ -311,6 +311,19 @@ button {
   visibility: hidden;
 }
 
+/* Your clock's last 10 s, then its last 5 (M8). */
+.turn.warn,
+.clock.warn {
+  background: #ffa630;
+  color: #2a1700;
+}
+
+.turn.danger,
+.clock.danger {
+  background: #ff5247;
+  color: #2a0503;
+}
+
 @keyframes pop {
   from {
     transform: scale(0.85);
@@ -344,6 +357,7 @@ button {
 }
 
 .opp {
+  position: relative;
   flex: 0 0 auto;
   width: min(128px, calc((100% - 16px) / 3));
   padding: 5px;
@@ -397,6 +411,69 @@ dialog.zoom::backdrop {
   border-color: var(--accent);
 }
 
+/* A waited-on opponent's gold border drains as its clock runs (M8): a conic gradient masked to the
+   2px border, driven by one animation of --left. Each change repaints the ring, so it moves in 120
+   steps, 4 a second, not every frame. Without @property it stays a full ring. */
+@property --left {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 100%;
+}
+
+.opp.timed {
+  border-color: transparent;
+}
+
+.ring {
+  --ring: var(--accent);
+  position: absolute;
+  inset: -2px;
+  padding: 2px;
+  border-radius: 10px;
+  background: conic-gradient(var(--ring) var(--left), rgb(255 255 255 / 0.12) 0);
+  mask:
+    linear-gradient(#000 0 0) content-box exclude,
+    linear-gradient(#000 0 0);
+  animation-name: ring;
+  animation-timing-function: steps(120);
+  animation-fill-mode: forwards;
+  pointer-events: none;
+}
+
+.ring.warn {
+  --ring: #ffa630;
+}
+
+.ring.danger {
+  --ring: #ff5247;
+}
+
+@keyframes ring {
+  from {
+    --left: 100%;
+  }
+  to {
+    --left: 0%;
+  }
+}
+
+.opp-left {
+  padding: 0 5px;
+  border-radius: 6px;
+  font-weight: 800;
+  color: #2a1700;
+  background: #ffa630;
+}
+
+.opp-left.danger {
+  color: #2a0503;
+  background: #ff5247;
+}
+
+.bot {
+  margin-right: 2px;
+}
+
 .opp-head {
   display: flex;
   justify-content: space-between;
@@ -431,7 +508,7 @@ dialog.zoom::backdrop {
 }
 
 .pile {
-  /* Fixed width: a long label (e.g. pt "Toque para ficar com ela") wraps instead of shifting the piles. */
+  /* Fixed width, so a long label can't shift the piles. */
   width: 84px;
   display: flex;
   flex-direction: column;
@@ -439,21 +516,13 @@ dialog.zoom::backdrop {
   gap: 4px;
 }
 
+/* One line, centred over the gap if it's wider than the pile: a wrapped label would shrink your
+   cards mid-turn (UX-12). */
 .pile-label {
   font-size: 12px;
   color: var(--muted);
   text-align: center;
-}
-
-.offline-note {
-  margin: 0;
-  padding: 6px 10px;
-  border-radius: 10px;
-  background: rgb(255 122 89 / 0.16);
-  border: 1px solid rgb(255 122 89 / 0.45);
-  text-align: center;
-  font-size: 14px;
-  font-weight: 700;
+  white-space: nowrap;
 }
 
 .prompt {
@@ -472,16 +541,148 @@ dialog.zoom::backdrop {
   gap: 4px;
 }
 
+/* The row above your grid: name, points and the Auto-play switch; while it's on, a bar holding
+   the same switch. One fixed height, so your cards never change size with it (M8, UX-12). */
 .mine-head {
+  position: relative;
   display: flex;
+  align-items: center;
   justify-content: space-between;
+  gap: 8px;
+  height: 32px;
   padding: 0 4px;
+  border-radius: 10px;
   font-size: 15px;
 }
 
-.mine-head span {
+.mine-head .pts {
   color: var(--accent);
   font-weight: 800;
+}
+
+.mine-head.auto-on {
+  padding-left: 12px;
+  background: rgb(242 193 78 / 0.16);
+  border: 1px solid rgb(242 193 78 / 0.55);
+}
+
+/* Up to two lines (es, pt) inside the row. */
+.auto-note {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.auto {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 100%;
+  color: var(--muted);
+  font-size: 14px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.switch {
+  position: relative;
+  flex: none;
+  width: 40px;
+  height: 24px;
+  border-radius: 12px;
+  background: rgb(255 255 255 / 0.18);
+  transition: background 0.15s;
+}
+
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--text);
+  transition: transform 0.15s;
+  pointer-events: none;
+}
+
+.auto-on .switch {
+  background: var(--accent);
+}
+
+.auto-on .switch::after {
+  transform: translateX(16px);
+  background: var(--accent-ink);
+}
+
+/* The real checkbox is invisible and 44px square over the drawn switch. It reaches up into the gap
+   above the row rather than down, where it would cover your top-right card. */
+.switch input {
+  appearance: none;
+  position: absolute;
+  top: -14px;
+  left: -2px;
+  width: 44px;
+  height: 44px;
+  z-index: 1;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.switch:has(input:focus-visible) {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Tapping your cards while Auto-play is on points at the switch. */
+.mine-head.nudge {
+  animation: shake 0.4s ease-in-out;
+}
+
+@keyframes shake {
+  20%,
+  60% {
+    transform: translateX(-6px);
+  }
+  40%,
+  80% {
+    transform: translateX(6px);
+  }
+}
+
+/* Your clock (M8): 4px under this row, draining for the whole turn. */
+.clock {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  bottom: -4px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--accent);
+  transform-origin: left;
+  animation-name: drain;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+@keyframes drain {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .grid-wrap {
@@ -729,7 +930,26 @@ button.card:active {
     animation: none;
   }
 
-  .card {
+  .card,
+  .switch,
+  .switch::after {
     transition: none;
+  }
+
+  /* The clock holds still; its colours and seconds still change. */
+  .clock,
+  .ring {
+    animation: none;
+  }
+
+  /* No shaking: the bar flashes instead. */
+  .mine-head.nudge {
+    animation: flash 0.4s;
+  }
+}
+
+@keyframes flash {
+  50% {
+    background: rgb(242 193 78 / 0.45);
   }
 }
