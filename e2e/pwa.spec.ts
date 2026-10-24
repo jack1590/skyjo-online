@@ -26,7 +26,7 @@ test("installable: manifest with icons, and a service worker controls the page",
   expect(state).toBe("activated");
 });
 
-test("after a single visit the app opens offline, with card art, and hot-seat works", async ({
+test("after a single visit the app opens offline, with its card art cached", async ({
   page,
   context,
 }, info) => {
@@ -36,18 +36,21 @@ test("after a single visit the app opens offline, with card art, and hot-seat wo
   await page.evaluate(async () => {
     await navigator.serviceWorker.ready; // installed = the whole build is precached
   });
+  const art = await page.evaluate(async () =>
+    ((await (await fetch("/sw.js")).text()).match(/"(\/assets\/[^"]+\.webp)"/g) ?? []).map((m) =>
+      m.slice(1, -1),
+    ),
+  );
+  expect(art.length).toBeGreaterThanOrEqual(6); // back + 5 value bands
   await context.setOffline(true);
   await page.reload();
   await expect(page.getByText("You're offline.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Create a room" })).toBeDisabled();
-  await page.getByRole("button", { name: "Start game" }).click();
-  await expect(page.getByTestId("table")).toHaveAttribute("data-phase", "flip");
-  const artLoads = await page.evaluate(async () => {
-    const card = document.querySelector<HTMLElement>('[data-testid="my-grid"] [data-face="down"]');
-    const url = card && getComputedStyle(card).backgroundImage.match(/url\("?([^")]+)"?\)/)?.[1];
-    return !!url && (await fetch(url)).ok;
-  });
-  expect(artLoads).toBe(true);
+  const cached = await page.evaluate(
+    async (urls) => (await Promise.all(urls.map((u) => fetch(u)))).every((r) => r.ok),
+    art,
+  );
+  expect(cached).toBe(true);
   await context.setOffline(false);
 });
 

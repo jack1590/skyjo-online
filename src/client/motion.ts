@@ -1,6 +1,6 @@
 // Card movement: compares the previous view with the new one, works out what travelled where,
 // and animates those elements from their old position (FLIP) with the Web Animations API.
-// Works for every player's moves, online or hot-seat, because it only needs views.
+// Works for every player's moves (and for spectators), because it only needs views.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { GameView } from "../engine/view";
 

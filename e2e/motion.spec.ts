@@ -1,12 +1,9 @@
 import { expect, type Page, test } from "@playwright/test";
+import { seatedRoom, startGame } from "./helpers";
 
-/**
- * Flips the first card of a fresh hot-seat game and reports whether the app started an animation.
- * Counts Element.animate calls rather than sampling getAnimations(), which is timing-dependent
- * across engines (it came back empty on CI's Linux WebKit).
- */
-async function flipAnimates(page: Page): Promise<boolean> {
-  await page.addInitScript(() => {
+/** Counts Element.animate calls (deterministic across engines, unlike sampling getAnimations()). */
+const countAnimations = (page: Page) =>
+  page.addInitScript(() => {
     const original = Element.prototype.animate;
     (window as unknown as { animations: number }).animations = 0;
     Element.prototype.animate = function (...args) {
@@ -14,56 +11,61 @@ async function flipAnimates(page: Page): Promise<boolean> {
       return original.apply(this, args);
     };
   });
-  await page.goto("/?seed=7");
-  await page.getByRole("button", { name: "Start game" }).click();
-  await page.getByTestId("my-grid").locator("button").first().click();
-  await page.waitForTimeout(200);
-  return page.evaluate(() => (window as unknown as { animations: number }).animations > 0);
+
+/** Ana flips her first card in a fresh 2-phone game; did Ben's phone animate it? */
+async function opponentFlipAnimates(pages: Page[]): Promise<boolean> {
+  await countAnimations(pages[1]);
+  await pages[1].reload();
+  await startGame(pages[0]);
+  await pages[0].getByTestId("my-grid").locator("button").first().click();
+  await pages[1].waitForTimeout(400);
+  return pages[1].evaluate(() => (window as unknown as { animations: number }).animations > 0);
 }
 
 test.describe("with motion allowed", () => {
   test.use({ reducedMotion: "no-preference" });
 
-  test("a flipped card animates", async ({ page }) => {
-    expect(await flipAnimates(page)).toBe(true);
+  test("an opponent's flip animates on everyone's phone", async ({ browser }, info) => {
+    const { pages } = await seatedRoom(browser, info, ["Ana", "Ben"], {
+      reducedMotion: "no-preference",
+    });
+    expect(await opponentFlipAnimates(pages)).toBe(true);
   });
 });
 
-test("reduced motion: nothing animates", async ({ page }) => {
-  expect(await flipAnimates(page)).toBe(false);
+test("reduced motion: nothing animates", async ({ browser }, info) => {
+  const { pages } = await seatedRoom(browser, info, ["Ana", "Ben"]);
+  expect(await opponentFlipAnimates(pages)).toBe(false);
 });
 
 test("flights video for the PR", async ({ browser }, info) => {
   test.skip(!process.env.SHOTS || info.project.name !== "iphone", "run with SHOTS=1");
-  const context = await browser.newContext({
-    ...info.project.use,
+  const { pages } = await seatedRoom(browser, info, ["Ana", "Ben"], {
     reducedMotion: "no-preference",
     recordVideo: { dir: "test-results/flights-video", size: { width: 390, height: 664 } },
   });
-  const page = await context.newPage();
-  const pause = () => page.waitForTimeout(700);
-  await page.goto("/?seed=11");
-  await page.getByRole("button", { name: "Start game" }).click();
-  const grid = page.getByTestId("my-grid");
-  for (let i = 0; i < 2; i++) {
-    await grid.locator('button[data-face="down"]').first().click(); // flip
+  const [ana, ben] = pages;
+  const pause = () => ana.waitForTimeout(700);
+  await startGame(ana);
+  for (const page of [ana, ben]) {
+    for (let i = 0; i < 2; i++) {
+      await page.getByTestId("my-grid").locator('button[data-face="down"]').first().click();
+      await pause();
+    }
+  }
+  for (let turn = 0; turn < 3; turn++) {
+    const mover =
+      (await ana.getByTestId("table").getAttribute("data-myturn")) === "true" ? ana : ben;
+    await mover.getByTestId("deck").click();
+    await pause();
+    if (turn === 1) {
+      await mover.getByTestId("discard").click();
+      await mover.getByTestId("my-grid").locator('button[data-face="down"]').first().click();
+    } else {
+      await mover.getByTestId("my-grid").locator("button").nth(5).click();
+    }
     await pause();
   }
-  await page.getByRole("button", { name: /^Pass to / }).click();
-  for (let i = 0; i < 2; i++) {
-    await grid.locator('button[data-face="down"]').first().click();
-    await pause();
-  }
-  await page.getByRole("button", { name: /^Pass to / }).click();
-  await page.getByTestId("deck").click(); // deck → drawn
-  await pause();
-  await grid.locator("button").nth(5).click(); // drawn → grid, old card → discard
-  await pause();
-  await page.getByRole("button", { name: /^Pass to / }).click();
-  await page.getByTestId("deck").click();
-  await pause();
-  await page.getByTestId("discard").click(); // discard mode
-  await grid.locator('button[data-face="down"]').first().click(); // drawn → discard, flip
-  await page.waitForTimeout(1200);
-  await context.close();
+  await ana.waitForTimeout(800);
+  await ana.context().close(); // writes Ana's video
 });

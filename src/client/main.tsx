@@ -1,12 +1,9 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { App, Recover } from "./App";
+import { App } from "./App";
 import { I18nProvider } from "./i18n";
-import { Online } from "./Online";
+import { unlockAudio } from "./sound";
 import "./styles.css";
-
-/** Share links look like /r/ABCDE; anything else is the home screen. */
-const roomCode = window.location.pathname.match(/^\/r\/([a-z0-9]{5})\/?$/i)?.[1]?.toUpperCase();
 
 // Installable app + offline shell. Production only: in dev it would cache stale modules.
 if (import.meta.env.PROD && "serviceWorker" in navigator) {
@@ -15,13 +12,16 @@ if (import.meta.env.PROD && "serviceWorker" in navigator) {
   });
 }
 
+// Browsers allow audio only after a user gesture; any tap unlocks it.
+document.addEventListener("pointerdown", unlockAudio, true);
+
 const root = document.getElementById("root");
 if (!root) throw new Error("#root missing");
 
 createRoot(root).render(
   <StrictMode>
     <I18nProvider>
-      <Recover>{roomCode ? <Online code={roomCode} /> : <App />}</Recover>
+      <App />
     </I18nProvider>
   </StrictMode>,
 );

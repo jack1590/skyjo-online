@@ -1,10 +1,8 @@
 import { type FormEvent, useState } from "react";
-import { MAX_PLAYERS, MIN_PLAYERS } from "../engine/game";
 import { CODE_LENGTH, isRoomCode } from "../protocol";
 import { LOCALES, type Locale, useI18n } from "./i18n";
 import { useOnline } from "./useOnline";
 
-const NAMES_KEY = "skyjo:names";
 const IOS_HINT_KEY = "skyjo:ios-hint-dismissed";
 
 /** iOS Safari has no install prompt, so say how; once dismissed (or installed), never again. */
@@ -20,30 +18,8 @@ function shouldShowIosHint(): boolean {
   }
 }
 
-/** Last hot-seat names, so a rematch after Quit doesn't mean retyping everyone. */
-function loadNames(): string[] {
-  try {
-    const saved: unknown = JSON.parse(localStorage.getItem(NAMES_KEY) ?? "null");
-    const ok =
-      Array.isArray(saved) &&
-      saved.length >= MIN_PLAYERS &&
-      saved.length <= MAX_PLAYERS &&
-      saved.every((n) => typeof n === "string");
-    return ok ? saved : ["", ""];
-  } catch {
-    return ["", ""];
-  }
-}
-
-export function Home({ onStart }: { onStart: (names: string[]) => void }) {
+export function Home() {
   const { t, locale, setLocale } = useI18n();
-  // Blank means "use the default name", so defaults follow the chosen language.
-  const [names, setNames] = useState(loadNames);
-  const defaultName = (i: number) => t("defaultName", { n: i + 1 });
-
-  const setCount = (count: number) =>
-    setNames((prev) => Array.from({ length: count }, (_, i) => prev[i] ?? ""));
-
   const [code, setCode] = useState("");
   const [iosHint, setIosHint] = useState(shouldShowIosHint);
   const online = useOnline();
@@ -75,16 +51,6 @@ export function Home({ onStart }: { onStart: (names: string[]) => void }) {
   const joinRoom = (e: FormEvent) => {
     e.preventDefault();
     if (isRoomCode(code)) window.location.assign(`/r/${code}`);
-  };
-
-  const start = (e: FormEvent) => {
-    e.preventDefault();
-    try {
-      localStorage.setItem(NAMES_KEY, JSON.stringify(names));
-    } catch {
-      // Names just won't be prefilled next time.
-    }
-    onStart(names.map((name, i) => name.trim() || defaultName(i)));
   };
 
   return (
@@ -153,55 +119,6 @@ export function Home({ onStart }: { onStart: (names: string[]) => void }) {
           </button>
         </form>
       </section>
-
-      <form className="panel" onSubmit={start}>
-        <h2>{t("playOnPhone")}</h2>
-        <div className="stepper">
-          <button
-            type="button"
-            className="btn"
-            aria-label={t("fewerPlayers")}
-            disabled={names.length <= MIN_PLAYERS}
-            onClick={() => setCount(names.length - 1)}
-          >
-            −
-          </button>
-          <output aria-live="polite">{t("playersCount", { n: names.length })}</output>
-          <button
-            type="button"
-            className="btn"
-            aria-label={t("morePlayers")}
-            disabled={names.length >= MAX_PLAYERS}
-            onClick={() => setCount(names.length + 1)}
-          >
-            +
-          </button>
-        </div>
-        {names.map((name, i) => (
-          <input
-            // Inputs are positional: a seat's name stays put when the count changes.
-            // biome-ignore lint/suspicious/noArrayIndexKey: position is the identity here
-            key={i}
-            className="name-input"
-            value={name}
-            placeholder={defaultName(i)}
-            name={`name-${i}`}
-            maxLength={16}
-            enterKeyHint={i < names.length - 1 ? "next" : "go"}
-            aria-label={t("playerName", { n: i + 1 })}
-            onKeyDown={(e) => {
-              if (e.key !== "Enter" || i === names.length - 1) return;
-              e.preventDefault();
-              const nextInput = e.currentTarget.form?.elements.namedItem(`name-${i + 1}`);
-              if (nextInput instanceof HTMLInputElement) nextInput.focus();
-            }}
-            onChange={(e) => setNames(names.map((n, j) => (j === i ? e.target.value : n)))}
-          />
-        ))}
-        <button type="submit" className="btn primary">
-          {t("startGame")}
-        </button>
-      </form>
 
       <details className="panel rules">
         <summary>{t("howToPlay")}</summary>

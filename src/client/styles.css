@@ -230,16 +230,6 @@ button {
   font-size: 18px;
 }
 
-.stepper {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.stepper output {
-  font-weight: 700;
-}
-
 .name-input {
   min-height: 48px;
   padding: 0 14px;
@@ -326,20 +316,65 @@ button {
   }
 }
 
+/* Opponents: one swipeable strip. Up to 3 fill the width; more scroll sideways (whoever is playing
+   is scrolled into view). Panels never shrink below a readable size: numbers stay about 15px. */
 .opponents {
-  display: grid;
-  grid-template-columns: repeat(var(--cols), minmax(0, 1fr));
-  gap: 6px;
-  max-width: calc(var(--cols) * 120px);
-  width: 100%;
-  margin: 0 auto;
+  display: flex;
+  gap: 8px;
+  padding: 2px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+}
+
+.opponents::-webkit-scrollbar {
+  display: none;
+}
+
+/* Centred while they fit; when they overflow, scrolling still starts at the first panel. */
+.opp:first-child {
+  margin-left: auto;
+}
+
+.opp:last-child {
+  margin-right: auto;
 }
 
 .opp {
+  flex: 0 0 auto;
+  width: min(128px, calc((100% - 16px) / 3));
   padding: 5px;
   border-radius: 10px;
   background: var(--panel);
   border: 2px solid transparent;
+  text-align: left;
+  scroll-snap-align: center;
+}
+
+/* More than 3: a fourth panel peeks in from the edge, so it's clear the strip scrolls. */
+.opponents.many .opp {
+  width: calc((100% - 24px) / 3.4);
+}
+
+/* Spectators have no grid of their own, so everyone gets half the width. */
+.opponents.watch {
+  flex-wrap: wrap;
+  justify-content: center;
+  overflow: visible;
+}
+
+.opponents.watch .opp {
+  width: calc((100% - 8px) / 2);
+  margin: 0;
+}
+
+.zoom-grid {
+  display: grid;
+  grid-template-columns: repeat(4, auto);
+  justify-content: center;
+  gap: 8px;
+  perspective: 700px;
 }
 
 .opp.active {
@@ -403,10 +438,6 @@ button {
   text-align: center;
   font-size: 14px;
   font-weight: 700;
-}
-
-.pass {
-  width: 100%;
 }
 
 .prompt {
@@ -494,6 +525,8 @@ button {
 
 .card.sm {
   width: 100%;
+  /* A little squatter than a real card: three rows of opponent cards fit in less height. */
+  aspect-ratio: 4 / 5;
   border-radius: 12% / 9%;
   box-shadow: none;
 }
@@ -532,21 +565,6 @@ button {
 
 button.card:active {
   transform: scale(0.96);
-}
-
-/* 5+ players: smaller opponent grids so your own cards keep ≥ 44px tap targets. */
-.opponents.compact .mini {
-  width: 56px;
-  margin: 0 auto;
-}
-
-.opponents.compact .card.sm {
-  aspect-ratio: 5 / 6;
-}
-
-.opponents.compact .opp-head {
-  font-size: 11px;
-  margin-bottom: 2px;
 }
 
 /* Round / game summary */

@@ -52,8 +52,8 @@ export function Card({ slot, size, label, onClick, highlight, testId, cardRef }:
       {content}
     </button>
   ) : (
-    <div role="img" {...props} ref={cardRef}>
+    <span role="img" {...props} ref={cardRef}>
       {content}
-    </div>
+    </span>
   );
 }

@@ -121,6 +121,15 @@ Moved ahead of polish (the brief listed it last) so hosting risk is retired earl
 
 **Acceptance:** Playwright verifies the manifest and service worker are installable. Reduced motion disables animations. The README covers every section listed in the brief. At 375×548, Playwright asserts the acting player's grid is fully in view at the start of a turn for 2 and 8 players. Playwright asserts the offline notice and countdown appear when the current player's phone closes. The PO scores visual polish ≥ 4.
 
+### M6 — Online only, sound, readable tables (user request, 2026-10-24)
+
+The user asked for three things after M5: remove the local mode, add effects for flipping and discarding, and make 4–8 player tables great so everyone's cards can be seen. The PO hadn't proposed any of them, because it only checked the plan; "Game feel" is now a rubric row and a standing PO duty.
+- Remove the local (hot-seat) mode: Home is online-only. Layout tests use a test-only table harness instead of hot-seat games.
+- Sound effects for draw, flip, place, discard, deal, column cleared, your turn, win and game over. CC0 recordings (Kenney), derived from view changes like the card flights. Mute switch, remembered; respects the iPhone silent switch.
+- Readable opponents at 4–8 players: one swipeable strip with numbers ≥ 12 px, a peek of the next panel, whoever is playing scrolled into view, tap an opponent to see their grid full size; spectators get two columns.
+
+**Acceptance:** No local mode remains anywhere (UI, docs, tests). Every sound fires from a unit-tested view diff, the mute switch persists, and E2E proves sounds start and stop. For 2–8 players at 390×664: no horizontal scroll, every tap target ≥ 44 px, opponents' numbers ≥ 12 px, the active opponent in view, and zoom works (Playwright, all 3 devices). Screenshots for 2, 4, 5, 6, 7 and 8 players in the PR. The PO scores Game feel ≥ 4.
+
 ### After M5: follow-ups
 
 Non-blocking items from the M5 PO review. Do them in one small PR if the project continues.
@@ -154,6 +163,7 @@ Each criterion is scored 1–5, or N/A when the milestone has no surface for it 
 | Multiplayer stability | No desyncs; reload and network drop recover; no leaked hidden info                                                                      |
 | Code health           | Small, tested, readable; matches `AGENTS.md`; no dead code                                                                              |
 | Delivery health       | PR CI wall time ≤ 3 min; no flaky, retried or timed-out jobs; every CI job has `timeout-minutes`; `npm run e2e` runs locally in ≤ 2 min |
+| Game feel             | Sound, haptics and motion make every move feel physical; any player count is readable at a glance; friends would want a rematch         |
 
 The PO measures delivery health on every review, using `gh run view --json jobs` for wall and per-job times and a timed local `npm run e2e`, and reports the numbers with the score.
 
