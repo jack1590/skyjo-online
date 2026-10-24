@@ -75,29 +75,6 @@ async function pastFlips(pages: Page[]) {
   return [pages[current], ...pages.filter((_, i) => i !== current)];
 }
 
-test("a whole discard-and-flip turn: draw, throw the card away, flip one", async ({
-  browser,
-}, info) => {
-  const { pages } = await seatedRoom(browser, info, ["Ana", "Ben"]);
-  await startGame(pages[0]);
-  const [mover, other] = await pastFlips(pages);
-  const grid = mover.getByTestId("my-grid");
-  const down = await grid.locator('[data-face="down"]').count();
-  // Forced taps, as in botStep: each move is confirmed by the expect after it.
-  await mover.getByTestId("deck").click({ force: true });
-  const drawn = (await mover.getByTestId("drawn").getAttribute("aria-label"))?.split(": ")[1];
-  await mover.getByTestId("discard").click({ force: true });
-  await expect(mover.getByTestId("drawn")).toHaveJSProperty("tagName", "BUTTON"); // discard mode
-  await grid.locator('button[data-face="down"]').first().click({ force: true });
-  await expect(grid.locator('[data-face="down"]')).toHaveCount(down - 1);
-  await expect(mover.getByTestId("discard")).toHaveAttribute(
-    "aria-label",
-    `Discard pile: ${drawn}`,
-  );
-  await expect(mover.getByTestId("table")).toHaveAttribute("data-myturn", "false");
-  await expect(other.getByTestId("table")).toHaveAttribute("data-myturn", "true");
-});
-
 test("M8: a player who ticks Auto-play is played for, a step at a time, until they untick it", async ({
   browser,
 }, info) => {
@@ -270,16 +247,12 @@ test("a round runs to its summary, then the next round (or the game ends)", asyn
   }
 });
 
-test("discard mode can be cancelled and the drawn card swapped in", async ({ browser }, info) => {
+test("discard mode can be cancelled and the drawn card swapped in; then a whole discard-and-flip turn", async ({
+  browser,
+}, info) => {
   const { pages } = await seatedRoom(browser, info, ["Ana", "Ben"]);
   await startGame(pages[0]);
-  while ((await pages[0].getByTestId("table").getAttribute("data-phase")) === "flip") {
-    for (const page of pages) await botStep(page);
-  }
-  const mover =
-    (await pages[0].getByTestId("table").getAttribute("data-myturn")) === "true"
-      ? pages[0]
-      : pages[1];
+  const [mover, other] = await pastFlips(pages);
   await mover.getByTestId("deck").click();
   const drawn = (await mover.getByTestId("drawn").getAttribute("aria-label"))?.split(": ")[1];
   await mover.getByTestId("discard").click();
@@ -290,6 +263,21 @@ test("discard mode can be cancelled and the drawn card swapped in", async ({ bro
   const position = (await target.getAttribute("aria-label"))?.split(":")[0];
   await target.click();
   await expect(mover.getByLabel(`${position}: ${drawn}`, { exact: true })).toBeVisible();
+
+  // The other player draws, throws the card away and flips one (After M6: no other E2E does).
+  const grid = other.getByTestId("my-grid");
+  await expect(other.getByTestId("table")).toHaveAttribute("data-myturn", "true");
+  const down = await grid.locator('[data-face="down"]').count();
+  // Forced taps, as in botStep: each move is confirmed by the expect after it.
+  await other.getByTestId("deck").click({ force: true });
+  const card = (await other.getByTestId("drawn").getAttribute("aria-label"))?.split(": ")[1];
+  await other.getByTestId("discard").click({ force: true });
+  await expect(other.getByTestId("drawn")).toHaveJSProperty("tagName", "BUTTON"); // discard mode
+  await grid.locator('button[data-face="down"]').first().click({ force: true });
+  await expect(grid.locator('[data-face="down"]')).toHaveCount(down - 1);
+  await expect(other.getByTestId("discard")).toHaveAttribute("aria-label", `Discard pile: ${card}`);
+  await expect(other.getByTestId("table")).toHaveAttribute("data-myturn", "false");
+  await expect(mover.getByTestId("table")).toHaveAttribute("data-myturn", "true");
 });
 
 test("an unknown room code says so, including codes that can't exist", async ({ page }) => {
