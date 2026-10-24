@@ -125,9 +125,10 @@ Moved ahead of polish (the brief listed it last) so hosting risk is retired earl
 
 Non-blocking items from the M5 PO review. Do them in one small PR if the project continues.
 - ✅ **Done (follow-ups PR):** `AGENTS.md`'s `public/` row said `sw.js` and `offline.html` live there. The worker template is `src/client/sw.js`, built by `vite.config.ts`, and the offline fallback page is inline in it.
-- **Open, declined for now:** column removal flies only one of the three removed cards to the discard. Flying all three needs temporary clone elements, which is more code than the polish is worth (Visual polish already scores 4). `flightsBetween` keeps one source per target, so the other two vanish.
-- ✅ **Done (follow-ups PR), Pixel only:** small-phone scroll with motion allowed had no E2E. Playwright's headless WebKit never animates `scrollIntoView({ behavior: "smooth" })` inside an overflow container: a 10-line page failed 5 out of 5. So the iPhone project can only check the reduced-motion path. Add the 375×548 turn-start check with `reducedMotion: "no-preference"` on the Pixel project. Chromium had 0 failures in 100 online turn starts in the PO run. Also confirm on a real iPhone SE.
+- **Declined (PO accepted, follow-ups review):** column removal flies only one of the three removed cards to the discard. Flying all three needs temporary clone elements, which is more code than the polish is worth (Visual polish already scores 4). `flightsBetween` keeps one source per target, so the other two vanish.
+- ✅ **Done (follow-ups PR), Pixel only:** small-phone scroll with motion allowed had no E2E. Playwright's headless WebKit never animates `scrollIntoView({ behavior: "smooth" })` inside an overflow container: a 10-line page failed 5 out of 5. So the iPhone project can only check the reduced-motion path. The 375×548 check now runs with `reducedMotion: "no-preference"` on the Pixel project. The PO confirmed its 8-player case fails when the scroll is removed.
 - **Open, needs the user:** the Spanish install hint says "Agregar a inicio". Check the share-sheet label on an iPhone set to Latin American Spanish.
+- **Open, needs the user:** on a real iPhone SE (or any phone about 548 px tall in the browser), check that your whole grid scrolls into view when your turn starts, with motion on. Headless WebKit can't test this.
 
 ## Process
 
