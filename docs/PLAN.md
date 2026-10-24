@@ -136,11 +136,13 @@ The user asked for three things after M5: remove the local mode, add effects for
 
 The user asked for four things on 2026-10-24: a 30 s turn timer that switches a player to auto-play until they untick a checkbox, smooth animations, a UX expert pass shipped step by step, and the PO organizing the work. The same day they added a security hardening track (SEC). The UX and security audits were triaged into this plan the same day (PO): **§ Queue after M7** below is the order, one PR at a time (see Process).
 
-### M7 — iPhone sound (in flight) · v2.0.1
+### M7 — iPhone sound (merged in PR #10, awaiting the user's iPhone) · v2.0.1
 
-Players on iPhone heard no sound. Branch `m7-ios-sound` unlocks audio the way iOS expects and resumes it when the app comes back from the background, a lock or a call. The ring/silent switch still silences the game.
+Players on iPhone heard no sound. PR #10 unlocks audio the way iOS expects and resumes it when the app comes back from the background, a lock or a call. The ring/silent switch still silences the game.
 
-**Acceptance:** unit tests and the release checklist as usual, plus: a real iPhone plays sound, and the user confirms it.
+**Evidence (user, 2026-10-24):** in Chrome on iPhone, v2.0.0 had no sound; after force-closing and reopening Chrome, v2.0.0 played sound. So iOS left the open page's audio context interrupted, or running but silent, after a trip to the background, and v2.0.0's `resume()`-only path never got it back. It is not the silent switch or the standalone-PWA bug.
+
+**Acceptance:** unit tests and the release checklist as usual, plus: after deploy, on the user's iPhone, sound keeps working after switching apps or locking and returning, without restarting the browser. If it doesn't, `/sound-check.html` (hidden, unlinked) shows on the phone which step fails: unlock, decode, the audio session type, or the silent switch (`?session=playback` to compare). If sound dies only after a return, the next fix is to close and recreate the `AudioContext` on the first tap after the page becomes visible again, which does in the page what the browser restart did (PO, PR #10 review).
 
 ### M8 — Turn timer and auto-play (user request, 2026-10-24) · v2.1.0
 
@@ -447,6 +449,7 @@ Non-blocking items from the M5 PO review. Do them in one small PR if the project
 
 Follow-ups from the M6 PO reviews (Game feel scored 4): one test gap, then game-feel items. None blocks. **Planned (PO, 2026-10-24):** items marked → go to that milestone. The rest were triaged with the UX audit (§ UX passes): the game-over cue → M13, the last-round cue → M14, spectators' piles → M12, the `sound.ts` nit → M8, and quick reactions are deferred.
 - **→ M8. Do first: an E2E for a full discard-and-flip turn.** Since PR #7, `botStep` swaps the drawn card into a face-down slot, so no E2E in CI, and not the live smoke test, ever finishes draw → discard → flip; "discard mode can be cancelled" only enters the mode and leaves it. Add one test on all 3 devices: draw, discard, flip, then check that one fewer card is face down, the drawn card is on the discard pile, and the turn has passed. The PO ran this as a throwaway spec in round 2: it passed in 2.2–3.1 s per device.
+- **→ M8. Fix the race in `e2e/sound.spec.ts`.** It failed the `main` run for PR #8 on Pixel (run 40105073659), and `failOnFlakyTests` blocked that deploy. The check "Ben heard a sound after Ana's flip" already passes on the deal sound, so Ana's second tap can land before her first flip comes back and hit the same card: Ben's table then shows 1 face-up card, not 2. Wait for Ana's grid to show 1 face-up card before the second tap, and count sounds from after the deal (PO, PR #10 review).
 - **→ M9. Let the final reveal play before the round summary.** At round end the summary sheet is fully opaque 200 ms after the last move, while the R11 flips are still animating under it (4 running animations at 0 ms; WebKit, 2 phones). Nobody sees the last hidden cards turn over or who gets doubled. Hold the sheet about 1 s, or until the flips finish (no hold with reduced motion).
 - **A real game-over moment.** `public/sfx/end.mp3` lasts 0.16 s, a click rather than an ending (`win.mp3` is 0.52 s). Give game over a fuller cue.
 - **Last-round cue.** When someone reveals their whole grid, only the header pill turns red. Play a short cue for everyone (and vibrate where supported), since everyone's next turn is now their last.
