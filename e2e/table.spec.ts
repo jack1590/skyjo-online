@@ -1,50 +1,8 @@
 // Layout checks at exact game states, through the test-only table harness (src/client/App.tsx):
 // the page renders a static table from an injected view instead of playing up to that state.
 import { expect, type Page, test } from "@playwright/test";
-import { apply, createGame, type GameState, legalActions } from "../src/engine/game";
-import { type GameView, toView } from "../src/engine/view";
-
-/** A game one move into its last turns: someone revealed everything; the next player is to draw. */
-function lastTurnGame(players: number, seed: number): GameState {
-  const names = Array.from({ length: players }, (_, i) => `Player ${i + 1}`);
-  let state = createGame(names, [seed, 0, 0, 0]);
-  while (state.ender === null || state.phase !== "draw") {
-    const legal = legalActions(state);
-    // Discard-and-flip (listed last) always reveals a card, so the round heads for its end.
-    state = apply(state, legal[state.phase === "place" ? legal.length - 1 : 0]);
-  }
-  return state;
-}
-
-/** The finished round: everyone takes their last turn the same way. */
-function roundOver(players: number, seed: number): GameState {
-  let state = lastTurnGame(players, seed);
-  while (state.phase === "draw" || state.phase === "place") {
-    const legal = legalActions(state);
-    state = apply(state, legal[state.phase === "place" ? legal.length - 1 : 0]);
-  }
-  return state;
-}
-
-interface Shown {
-  view: GameView;
-  seat: number | null;
-  lead?: boolean;
-}
-
-async function show(page: Page, table: Shown) {
-  await page.addInitScript((t) => {
-    (window as unknown as { __SKYJO_TABLE__: unknown }).__SKYJO_TABLE__ = t;
-  }, table);
-  await page.goto("/");
-  await expect(page.getByTestId("table")).toBeVisible();
-}
-
-/** The table as seen by the player about to move (seat = current). */
-const atTurnStart = (players: number, seed = 3): Shown => {
-  const state = lastTurnGame(players, seed);
-  return { view: toView(state), seat: state.current };
-};
+import { toView } from "../src/engine/view";
+import { atTurnStart, lastTurnGame, roundOver, show } from "./harness";
 
 async function expectMobileFriendly(page: Page) {
   const { scrollWidth, innerWidth, small } = await page.evaluate(() => ({
@@ -79,6 +37,23 @@ for (const players of [2, 3, 4, 5, 6, 7, 8]) {
   });
 }
 
+test.describe("360×740 (common Android width)", () => {
+  test.use({ viewport: { width: 360, height: 740 } });
+
+  test("8 players: opponents' numbers stay ≥ 12px", async ({ page }) => {
+    await show(page, atTurnStart(8));
+    await expectMobileFriendly(page);
+    const smallest = await page.evaluate(() =>
+      Math.min(
+        ...[...document.querySelectorAll('[data-testid="opponent"] .num')].map((n) =>
+          Number.parseFloat(getComputedStyle(n).fontSize),
+        ),
+      ),
+    );
+    expect(smallest).toBeGreaterThanOrEqual(12);
+  });
+});
+
 test("8 players: the strip scrolls sideways and keeps whoever is playing in view", async ({
   page,
 }) => {
@@ -99,6 +74,10 @@ test("tapping an opponent shows their whole grid at full size", async ({ page })
   await expect(zoom).toBeVisible();
   await expect(zoom.getByRole("img")).toHaveCount(12);
   await zoom.getByRole("button", { name: "Close" }).click();
+  await expect(zoom).toBeHidden();
+  await first.click();
+  await expect(zoom).toBeVisible();
+  await page.keyboard.press("Escape");
   await expect(zoom).toBeHidden();
 });
 

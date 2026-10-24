@@ -45,6 +45,7 @@ Engine API: `createGame(names, seed)` (`seed` is 4 int32s from `crypto.getRandom
 | `npm run build`                                                      | Production build                                                                                                             |
 | `npm run e2e`                                                        | Playwright on iPhone 13, Pixel 7, Desktop Chrome (builds + previews first)                                                   |
 | `npm run screenshots`                                                | Refreshes `docs/screenshots/m<N>/` at iPhone size                                                                            |
+| `npm run shots:readme`                                               | Regenerates the README's images and card-flight GIF in `docs/readme/` (needs ffmpeg)                                         |
 | `npm run art`                                                        | Regenerates missing card art with Gemini (local only; needs `.env` and ffmpeg)                                               |
 | `npm run build:node` / `npm start`                                   | Self-host build / run (Node + `ws`, `127.0.0.1:8787`; `PORT`, and `HOST=0.0.0.0` only to open it to your network on purpose) |
 | `SERVER=node npx playwright test e2e/online.spec.ts --project=pixel` | Online suite against the Node server                                                                                         |
@@ -54,7 +55,8 @@ CI (`.github/workflows/ci.yml`) runs on every PR and on `main`, as parallel jobs
 - `ci`: lint, typecheck, unit tests, build (~1 min).
 - `e2e (iphone)`, `e2e (pixel)`, `e2e (desktop)`: Playwright, one device per job, inside the `mcr.microsoft.com/playwright` container (browsers preinstalled). Long full-game play-throughs run on Pixel only; layout, 44px, i18n, reload, and interaction tests run on all three.
 - `e2e (node)`: the online suite against the Node self-host server.
-- On `main` only: `deploy` (`wrangler deploy` with the repo secrets) then `smoke (live)`, which plays a 2-phone game on the live URL. Deploys are never cancelled mid-run.
+- On `main` only: `deploy` (`wrangler deploy` with the repo secrets) then `smoke (live)`, which plays a 2-phone game on the live URL, then `release`: if the tag `v<package.json version>` doesn't exist yet, it creates it and a GitHub Release whose notes are that version's `CHANGELOG.md` section. Deploys are never cancelled mid-run.
+- `ci` fails when `CHANGELOG.md` has no section for the `package.json` version.
 
 `@playwright/test` is pinned to an exact version. When bumping it, change the container tag in `ci.yml` to the same version.
 
@@ -66,7 +68,7 @@ CI (`.github/workflows/ci.yml`) runs on every PR and on `main`, as parallel jobs
 - All user-facing text goes through `t()` from `src/client/i18n.tsx`. Add every new key to `en`, `es` (Latin American Spanish) and `pt` (Brazilian Portuguese); the type checker rejects a missing one. Never hardcode UI strings.
 - Grid positions are `0–11`, index `row * 4 + col` (3 rows × 4 columns). A removed slot is `null`.
 - Prefer deleting code to adding it. No abstractions with one user, no speculative config.
-- E2E runs with `reducedMotion: "reduce"` so clicks never wait on animations; `e2e/motion.spec.ts` opts back in. Playwright never reuses a server it didn't start; set `E2E_PORT` if 4173 is taken. `e2e/table.spec.ts` checks layouts at exact game states through a test-only harness (`window.__SKYJO_TABLE__`, see `App.tsx`).
+- E2E runs with `reducedMotion: "reduce"` so clicks never wait on animations; `e2e/motion.spec.ts` opts back in. Playwright never reuses a server it didn't start; set `E2E_PORT` if 4173 is taken. `e2e/table.spec.ts` checks layouts at exact game states through a test-only harness (`e2e/harness.ts` renders them via `window.__SKYJO_TABLE__`, see `App.tsx`).
 - Never commit `.env` or any secret. `GEMINI_API_KEY` in `.env` is for `scripts/` only.
 - Conventional commit messages (`feat:`, `fix:`, `chore:`, `docs:`, `test:`).
 
@@ -75,8 +77,11 @@ CI (`.github/workflows/ci.yml`) runs on every PR and on `main`, as parallel jobs
 1. **Branch:** `m<N>-<slug>` from `main`. `main` is protected: PRs only, `ci` must pass, linear history, no force-push.
 2. **Build test-first** for engine and server code.
 3. **Review:** run the `superpowers:requesting-code-review` skill on the branch, fix findings, keep CI green.
-4. **PR:** summary, mobile screenshots (Playwright, under `docs/screenshots/m<N>/`), and test results.
-5. **Product Owner (PO):** a fresh agent that has not seen the implementation reads `docs/PLAN.md` and the PR, runs the game, plays it through Playwright at a mobile viewport, and scores the rubric in `docs/PLAN.md`. It may edit `docs/PLAN.md`, justifying each change in the PR. It also owns **delivery health**: CI wall time, flaky or timing-out jobs, slow test suites, slow dev loop. When it finds a bottleneck it acts (requests a change or adds a PLAN item) with the measured numbers. It also owns **game feel**: it plays like a group of friends would and proposes what players would expect even when the plan is silent (sound, haptics, readable opponents, juice), as requested changes or PLAN items.
+4. **PR:** summary, mobile screenshots (Playwright, under `docs/screenshots/m<N>/`), and test results. Every PR also:
+   - bumps `version` in `package.json` (semver: major when it removes or breaks something players relied on, minor for features, patch for fixes);
+   - adds that version's section to `CHANGELOG.md`, written for players (CI checks it exists; the `release` job publishes it);
+   - keeps `README.md` current, and reruns `npm run shots:readme` when the UI changed, so its images show the current game.
+5. **Product Owner (PO):** a fresh agent that has not seen the implementation reads `docs/PLAN.md` and the PR, runs the game, plays it through Playwright at a mobile viewport, and scores the rubric in `docs/PLAN.md`. It may edit `docs/PLAN.md`, justifying each change in the PR. It also owns **delivery health**: CI wall time, flaky or timing-out jobs, slow test suites, slow dev loop. When it finds a bottleneck it acts (requests a change or adds a PLAN item) with the measured numbers. It checks the PR's version bump, CHANGELOG section and README (text and images) against what the PR changed; a stale or missing one is a requested change. It also owns **game feel**: it plays like a group of friends would and proposes what players would expect even when the plan is silent (sound, haptics, readable opponents, juice), as requested changes or PLAN items.
 6. **Verdict:** GitHub does not let an account approve its own PR, and the author and PO share the `jack1590` account. So the PO posts a comment review whose first line is `PO VERDICT: APPROVE` or `PO VERDICT: CHANGES REQUESTED`, with inline comments for each requested change. On approve it merges with `gh pr merge --squash`.
 7. **Cap:** 3 PO rounds per PR. After that, stop and summarize the open issues for the user.
 

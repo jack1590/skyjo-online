@@ -142,6 +142,32 @@ test("m5 screenshots", async ({ browser }, info) => {
   await shot(pages[0], "02-offline-countdown");
 });
 
+test("a round runs to its summary, then the next round (or the game ends)", async ({
+  browser,
+}, info) => {
+  const { pages } = await seatedRoom(browser, info, ["Ana", "Ben"]);
+  await startGame(pages[0]);
+  const phase = () => pages[0].getByTestId("table").getAttribute("data-phase");
+  for (let idle = 0; !["roundOver", "gameOver"].includes((await phase()) ?? ""); ) {
+    let moved = false;
+    for (const page of pages) moved = (await botStep(page)) || moved;
+    idle = moved ? 0 : idle + 1;
+    if (idle > 100) throw new Error("table stalled");
+  }
+  if ((await phase()) === "gameOver") {
+    // Doubling can end a game in round 1; then the summary must offer a rematch instead.
+    await expect(pages[0].getByRole("button", { name: "Play again" })).toBeVisible();
+    return;
+  }
+  await expect(pages[1].getByTestId("round-summary")).toBeVisible();
+  await expect(pages[1].getByText("Waiting for the host…")).toBeVisible();
+  await pages[0].getByRole("button", { name: "Next round" }).click();
+  for (const page of pages) {
+    await expect(page.getByTestId("table")).toHaveAttribute("data-phase", "flip");
+    await expect(page.getByText("Round 2")).toBeVisible();
+  }
+});
+
 test("discard mode can be cancelled and the drawn card swapped in", async ({ browser }, info) => {
   const { pages } = await seatedRoom(browser, info, ["Ana", "Ben"]);
   await startGame(pages[0]);

@@ -50,8 +50,9 @@ function Crashed() {
   return (
     <main className="home">
       <p>{t("crashed")}</p>
-      <button type="button" className="btn primary" onClick={() => window.location.assign("/")}>
-        {t("startOver")}
+      {/* Reload, not Home: a reload reconnects an online player to their seat. */}
+      <button type="button" className="btn primary" onClick={() => window.location.reload()}>
+        {t("reload")}
       </button>
     </main>
   );

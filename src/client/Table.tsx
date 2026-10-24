@@ -53,8 +53,11 @@ export function Table(props: TableProps) {
   const reg = useFlights(view);
   useSounds(view, seat);
   const [muted, toggleMuted] = useMuted();
-  // Tapping an opponent opens their grid full size.
+  // Tapping an opponent opens their grid full size; your own turn closes it.
   const [zoom, setZoom] = useState<number | null>(null);
+  useEffect(() => {
+    if (myTurn) setZoom(null);
+  }, [myTurn]);
 
   // On short screens the grid can be below the fold: bring it into view when your turn starts.
   const gridRef = useRef<HTMLDivElement>(null);
@@ -331,22 +334,26 @@ function prompt(t: T, view: GameView, seat: number, myTurn: boolean, discardMode
   }
 }
 
-/** One opponent's grid at full size, opened by tapping their panel; follows the live view. */
+/**
+ * One opponent's grid at full size, opened by tapping their panel; follows the live view. A native
+ * modal <dialog> gives focus handling, Escape and an inert background; tapping outside closes it.
+ */
 function Zoom({ view, seat, onClose }: { view: GameView; seat: number; onClose: () => void }) {
   const { t } = useI18n();
-  const p = view.players[seat];
+  const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+    ref.current?.showModal();
+  }, []);
+  const p = view.players[seat];
   return (
-    <div
-      className="overlay"
-      role="dialog"
-      aria-modal="true"
+    // biome-ignore lint/a11y/useKeyWithClickEvents: Escape closes the dialog natively; this only adds tap-outside
+    <dialog
+      ref={ref}
+      className="zoom"
       aria-labelledby="zoom-title"
       data-testid="zoom"
+      onClose={onClose}
+      onClick={(e) => e.target === ref.current && onClose()}
     >
       <div className="sheet">
         <div className="sheet-head">
@@ -369,7 +376,7 @@ function Zoom({ view, seat, onClose }: { view: GameView; seat: number; onClose: 
           ))}
         </div>
       </div>
-    </div>
+    </dialog>
   );
 }
 

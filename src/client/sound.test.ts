@@ -22,6 +22,26 @@ const GRID = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 const draw: Action = { type: "draw", seat: 0, source: "deck" };
 
 describe("soundsBetween", () => {
+  it("a brand-new game deals with a sound; joining a game in progress is silent", () => {
+    const fresh = createGame(["A", "B"], [1, 0, 0, 0]);
+    expect(soundsBetween(null, toView(fresh), 0)).toEqual(["deal"]);
+    expect(soundsBetween(null, toView(table(GRID, [0, 1], 0)), 0)).toEqual([]);
+  });
+
+  it("an update that changes nothing on the table (e.g. presence) is silent", () => {
+    const view = toView(table(GRID, [0, 1], 0));
+    expect(soundsBetween(view, { ...view }, 0)).toEqual([]);
+  });
+
+  it("a spectator never hears 'your turn' or a win", () => {
+    const s = table(GRID, [0, 1], 0);
+    const over = { ...toView(s), phase: "gameOver" as const, winners: [1] };
+    expect(soundsBetween(toView(s), over, null)).toEqual(["end"]);
+    expect(
+      sounds(table(GRID, [0, 1], 0), 0, draw, { type: "swap", seat: 0, pos: 5 }),
+    ).not.toContain("turn");
+  });
+
   it("drawing slides a card", () => {
     expect(sounds(table(GRID, [0, 1], 0), 1, draw)).toEqual(["draw"]);
   });

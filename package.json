@@ -1,6 +1,6 @@
 {
   "name": "skyjo-online",
-  "version": "0.0.0",
+  "version": "2.0.0",
   "description": "Online multiplayer card game based on Skyjo's mechanics",
   "scripts": {
     "dev": "vite",
@@ -14,7 +14,8 @@
     "screenshots": "SHOTS=1 playwright test --project=iphone -g screenshots",
     "preview": "vite preview",
     "build:node": "vite build --mode node --ssr src/server/node.ts --outDir dist/node",
-    "start": "node dist/node/node.js"
+    "start": "node dist/node/node.js",
+    "shots:readme": "SHOTS=1 playwright test --project=iphone e2e/readme.spec.ts"
   },
   "license": "MIT",
   "private": true,

@@ -26,6 +26,10 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: CHANGELOG has a section for the package version
+        run: |
+          version=$(node -p "require('./package.json').version")
+          grep -q "^## \[$version\]" CHANGELOG.md || { echo "Add a '## [$version]' section to CHANGELOG.md"; exit 1; }
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
@@ -122,3 +126,24 @@ jobs:
           name: playwright-report-smoke
           path: playwright-report/
           retention-days: 7
+
+  # After the live smoke test passes: publish a GitHub Release for a version not released yet.
+  release:
+    needs: smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - name: Tag and publish v<version> with its CHANGELOG section
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if gh release view "v$version" >/dev/null 2>&1; then
+            echo "v$version is already released"; exit 0
+          fi
+          awk -v v="$version" 'index($0, "## [" v "]") == 1 { on = 1; next } /^## \[/ && on { exit } on' CHANGELOG.md > notes.md
+          test -s notes.md || { echo "CHANGELOG.md has no notes for $version"; exit 1; }
+          gh release create "v$version" --target "$GITHUB_SHA" --title "v$version" --notes-file notes.md

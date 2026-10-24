@@ -23,7 +23,13 @@ test("moves make sounds; the mute switch silences them and is remembered", async
   await countSounds(ben);
   await ben.reload();
   await ben.getByTestId("seats").click(); // a tap unlocks audio and loads the sounds
-  await ben.waitForTimeout(500);
+  await expect
+    .poll(() =>
+      ben.evaluate(
+        () => performance.getEntriesByName(new URL("/sfx/flip.mp3", location.href).href).length,
+      ),
+    )
+    .toBeGreaterThan(0);
   await startGame(ana);
   await ana.getByTestId("my-grid").locator("button").first().click(); // Ana flips
   await expect.poll(() => soundsOn(ben)).toBeGreaterThan(0);
@@ -33,7 +39,8 @@ test("moves make sounds; the mute switch silences them and is remembered", async
   await mute.click();
   const before = await soundsOn(ben);
   await ana.getByTestId("my-grid").locator('button[data-face="down"]').first().click();
-  await ben.waitForTimeout(500);
+  // Ben's table shows Ana's second flip; still no new sound.
+  await expect(ben.locator('[data-testid="opponent"] [data-face="up"]')).toHaveCount(2);
   expect(await soundsOn(ben)).toBe(before);
   await ben.reload();
   await expect(ben.getByRole("button", { name: "Sound" })).toHaveAttribute("aria-pressed", "false");

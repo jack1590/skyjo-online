@@ -2,7 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { I18nProvider } from "./i18n";
-import { unlockAudio } from "./sound";
+import { preloadSounds, unlockAudio } from "./sound";
 import "./styles.css";
 
 // Installable app + offline shell. Production only: in dev it would cache stale modules.
@@ -12,8 +12,12 @@ if (import.meta.env.PROD && "serviceWorker" in navigator) {
   });
 }
 
-// Browsers allow audio only after a user gesture; any tap unlocks it.
-document.addEventListener("pointerdown", unlockAudio, true);
+// Browsers allow audio only inside a user gesture. iOS Safari is strict about which events count,
+// so listen to all of the reliable ones; unlockAudio is cheap after the first call.
+for (const gesture of ["pointerdown", "pointerup", "click", "keydown"]) {
+  document.addEventListener(gesture, unlockAudio, true);
+}
+preloadSounds();
 
 const root = document.getElementById("root");
 if (!root) throw new Error("#root missing");

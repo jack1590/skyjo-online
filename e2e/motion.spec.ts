@@ -37,35 +37,3 @@ test("reduced motion: nothing animates", async ({ browser }, info) => {
   const { pages } = await seatedRoom(browser, info, ["Ana", "Ben"]);
   expect(await opponentFlipAnimates(pages)).toBe(false);
 });
-
-test("flights video for the PR", async ({ browser }, info) => {
-  test.skip(!process.env.SHOTS || info.project.name !== "iphone", "run with SHOTS=1");
-  const { pages } = await seatedRoom(browser, info, ["Ana", "Ben"], {
-    reducedMotion: "no-preference",
-    recordVideo: { dir: "test-results/flights-video", size: { width: 390, height: 664 } },
-  });
-  const [ana, ben] = pages;
-  const pause = () => ana.waitForTimeout(700);
-  await startGame(ana);
-  for (const page of [ana, ben]) {
-    for (let i = 0; i < 2; i++) {
-      await page.getByTestId("my-grid").locator('button[data-face="down"]').first().click();
-      await pause();
-    }
-  }
-  for (let turn = 0; turn < 3; turn++) {
-    const mover =
-      (await ana.getByTestId("table").getAttribute("data-myturn")) === "true" ? ana : ben;
-    await mover.getByTestId("deck").click();
-    await pause();
-    if (turn === 1) {
-      await mover.getByTestId("discard").click();
-      await mover.getByTestId("my-grid").locator('button[data-face="down"]').first().click();
-    } else {
-      await mover.getByTestId("my-grid").locator("button").nth(5).click();
-    }
-    await pause();
-  }
-  await ana.waitForTimeout(800);
-  await ana.context().close(); // writes Ana's video
-});

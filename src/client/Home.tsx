@@ -128,6 +128,9 @@ export function Home() {
           ))}
         </ul>
       </details>
+      <a className="version" href="https://github.com/jack1590/skyjo-online/releases">
+        v{__APP_VERSION__} · {t("whatsNew")}
+      </a>
     </main>
   );
 }
