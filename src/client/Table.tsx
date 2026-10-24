@@ -55,7 +55,8 @@ export function Table(props: TableProps) {
   const myTurn =
     me !== null && (phase === "flip" ? upCount(me.grid) < 2 : playing && view.current === seat);
   useEffect(() => {
-    if (online && myTurn) navigator.vibrate?.(40);
+    // Browsers block vibrate before the first tap on the page (e.g. right after a reload).
+    if (online && myTurn && navigator.userActivation?.hasBeenActive) navigator.vibrate?.(40);
   }, [online, myTurn]);
   const discardMode = discarding && myTurn && phase === "place" && view.drawnFrom === "deck";
 
@@ -203,7 +204,7 @@ export function Table(props: TableProps) {
 
       {banner ?? (
         <p className="prompt" aria-live="polite">
-          {seat === null ? t("watching") : prompt(t, view, seat, myTurn, discardMode)}
+          {seat === null ? t("watching") : prompt(t, view, seat, myTurn, discardMode, online)}
         </p>
       )}
 
@@ -248,18 +249,30 @@ export function Table(props: TableProps) {
   );
 }
 
-function prompt(t: T, view: GameView, seat: number, myTurn: boolean, discardMode: boolean) {
+function prompt(
+  t: T,
+  view: GameView,
+  seat: number,
+  myTurn: boolean,
+  discardMode: boolean,
+  online?: boolean,
+) {
   const me = view.players[seat];
   const waiting = t("waiting", { name: view.players[view.current].name });
   switch (view.phase) {
     case "flip": {
       const n = 2 - upCount(me.grid);
       if (!myTurn) return t("waitingFlip");
+      // Online the pill already says "Your turn"; hot-seat needs the name to know who holds the phone.
+      if (online) return n === 1 ? t("flipOnePlain") : t("flipManyPlain", { n });
       return n === 1 ? t("flipOne", { name: me.name }) : t("flipMany", { name: me.name, n });
     }
     case "draw":
       if (!myTurn) return waiting;
-      return (view.ender !== null ? t("lastTurn") : "") + t("draw", { name: me.name });
+      return (
+        (view.ender !== null ? t("lastTurn") : "") +
+        (online ? t("drawPlain") : t("draw", { name: me.name }))
+      );
     case "place":
       if (!myTurn) return waiting;
       if (view.drawnFrom === "discard") return t("swapIn");

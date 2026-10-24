@@ -182,6 +182,26 @@ test("online screenshots", async ({ browser }, info) => {
   await shot(watcher, "06-spectator");
 });
 
+test("bad input doesn't take the server down", async ({ page, request, baseURL }) => {
+  const code = await createRoom(page);
+  // An oversized frame: the server rejects it (error reply or closed socket), never crashes.
+  await page.evaluate(
+    (url) =>
+      new Promise<void>((done) => {
+        const ws = new WebSocket(url);
+        ws.onopen = () => ws.send("x".repeat(10_000));
+        ws.onmessage = (e) => String(e.data).includes('"t":"error"') && done();
+        ws.onclose = () => done();
+      }),
+    `${baseURL?.replace(/^http/, "ws")}/api/rooms/${code}/ws`,
+  );
+  // A path that `new URL()` rejects (it used to crash the Node server). Any status is fine.
+  await request.get(`${baseURL}//`);
+  // Still serving, and the room still exists.
+  await page.goto(`/r/${code}`);
+  await expect(page.getByTestId("room-code")).toHaveText(code);
+});
+
 test("an unknown room code says so, including codes that can't exist", async ({ page }) => {
   await page.goto("/r/ZZZZZ");
   await expect(page.getByText("There's no room ZZZZZ.")).toBeVisible();

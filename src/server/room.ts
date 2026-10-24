@@ -12,7 +12,14 @@ import {
 } from "../engine/game";
 import type { Rng } from "../engine/rng";
 import { toView } from "../engine/view";
-import { type ClientMsg, type ErrorCode, NAME_MAX, type RoomView } from "../protocol";
+import {
+  type ClientMsg,
+  CODE_ALPHABET,
+  CODE_LENGTH,
+  type ErrorCode,
+  NAME_MAX,
+  type RoomView,
+} from "../protocol";
 
 export interface Seat {
   /** Secret held by the seat's browser; never sent to anyone. */
@@ -64,9 +71,23 @@ export const STALE_MS = 45_000;
 export const STALL_MS = 60_000;
 /** No client message for this long and the room is deleted. */
 export const IDLE_MS = 24 * 60 * 60_000;
+/** A room nobody ever joined goes much sooner (abandoned "Create a room" taps, creation bursts). */
+export const EMPTY_IDLE_MS = 10 * 60_000;
 /** Per-socket flood limit: far above any human pace (a test bot taps ~7/s), far below a script loop. */
 const WINDOW_MS = 10_000;
 const WINDOW_MAX = 120;
+
+/** Real clock and CSPRNG; both runtimes (Workers, Node 22) have a global `crypto`. */
+export const systemDeps: Deps = {
+  now: () => Date.now(),
+  seed: () => Array.from(crypto.getRandomValues(new Int32Array(4))) as Rng,
+};
+
+/** 32-letter alphabet, so `byte % 32` is unbiased. */
+export const randomCode = () =>
+  [...crypto.getRandomValues(new Uint8Array(CODE_LENGTH))]
+    .map((b) => CODE_ALPHABET[b % CODE_ALPHABET.length])
+    .join("");
 
 export const newRoom = (code: string, now: number): RoomData => ({
   code,
@@ -94,8 +115,9 @@ export function allowMessage(conn: Conn, now: number): boolean {
   return ++conn.windowCount <= WINDOW_MAX;
 }
 
-/** Strips control/format characters (zero-width, bidi overrides), trims, caps length. */
-const cleanName = (name: string) => name.replace(/\p{C}/gu, "").trim().slice(0, NAME_MAX).trim();
+/** Strips control/format characters (zero-width, bidi overrides), trims, caps length in code points (never splits an emoji). */
+const cleanName = (name: string) =>
+  [...name.replace(/\p{C}/gu, "").trim()].slice(0, NAME_MAX).join("").trim();
 
 export class Room {
   constructor(
@@ -223,7 +245,7 @@ export class Room {
   /** When the adapter should call tick() and re-broadcast next (ms). Always in the future. */
   nextAlarm(live: Conn[]): number {
     const now = this.deps.now();
-    const due = [this.data.updatedAt + IDLE_MS];
+    const due = [this.data.updatedAt + this.idleAfter()];
     for (const s of this.awaited()) if (this.canStall(s, live)) due.push(this.deadline(s, live));
     // If the host goes quiet while the table needs a lead, others must learn they may step in.
     if (this.needsLead() && this.connected(this.data.host, live)) {
@@ -234,7 +256,11 @@ export class Room {
   }
 
   isIdle(): boolean {
-    return this.deps.now() - this.data.updatedAt >= IDLE_MS;
+    return this.deps.now() - this.data.updatedAt >= this.idleAfter();
+  }
+
+  private idleAfter(): number {
+    return this.data.seats.length === 0 ? EMPTY_IDLE_MS : IDLE_MS;
   }
 
   private connected(seat: number, live: Conn[]): boolean {

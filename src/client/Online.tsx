@@ -121,7 +121,9 @@ function Lobby({ room, send }: { room: RoomView; send: (msg: ClientMsg) => void 
       <p className="tagline link">{link}</p>
 
       <section className="panel">
-        <h2>{t("playersCount", { n: room.seats.length })}</h2>
+        <h2>
+          {room.seats.length === 1 ? t("playersOne") : t("playersCount", { n: room.seats.length })}
+        </h2>
         <ul className="seats" data-testid="seats">
           {room.seats.map((s, i) => (
             <li key={s.name} className={s.connected ? undefined : "away"}>
