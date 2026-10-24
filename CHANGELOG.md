@@ -4,6 +4,13 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.0.2] - 2026-10-24
+
+### Security
+
+- Messages that change nothing no longer write to storage. Before, every repeated "hello" from a connected phone cost one row written, so one script could use up the free plan's 100,000 rows a day in about 2.3 hours and stop every game until 00:00 UTC. Now repeated hellos, rejected moves and spectators leaving write nothing and reach no other phone. Nothing changes in play.
+- For operators: a real move now writes about 1.1 rows instead of 2.05, so the free plan holds roughly twice as many games a day. The room saves its state once per move and sets its alarm only when the next check moves earlier. An alarm that comes early just checks again.
+
 ## [2.0.1] - 2026-10-24
 
 ### Fixed
