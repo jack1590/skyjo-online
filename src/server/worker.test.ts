@@ -1,7 +1,14 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { type Action, legalActions } from "../engine/game";
 import type { ClientMsg, RoomView, ServerMsg } from "../protocol";
-import { type Conn, EMPTY_IDLE_MS, IDLE_MS, type Room, STALL_MS } from "./room";
+import {
+  type Conn,
+  EMPTY_IDLE_MS,
+  IDLE_MS,
+  IP_MESSAGES_PER_MINUTE,
+  type Room,
+  STALL_MS,
+} from "./room";
 import { RoomDO } from "./worker";
 
 vi.mock("cloudflare:workers", () => ({
@@ -23,10 +30,14 @@ class FakeSocket {
   deserializeAttachment() {
     return structuredClone(this.attachment);
   }
+  /** The close code the object sent, if it closed this socket. */
+  closed: number | null = null;
   send(text: string) {
     this.sent.push(JSON.parse(text));
   }
-  close() {}
+  close(code: number) {
+    this.closed = code;
+  }
 }
 
 vi.stubGlobal("WebSocketRequestResponsePair", class {});
@@ -46,12 +57,27 @@ beforeEach(() => {
 
 const PING_MS = 20_000;
 const token = (i: number) => `token-${i}-abcdef`;
+/** One home router: every phone in these tests shares it unless a test says otherwise. */
+const HOME = "203.0.113.7";
+
+/** The MESSAGES ratelimit binding: fixed windows on the wall clock, like Cloudflare's and miniflare's. */
+function messageLimiter() {
+  const counts = new Map<string, number>();
+  return {
+    limit: async ({ key }: { key: string }) => {
+      const window = `${key}@${Math.floor(Date.now() / 60_000)}`;
+      const n = (counts.get(window) ?? 0) + 1;
+      counts.set(window, n);
+      return { success: n <= IP_MESSAGES_PER_MINUTE };
+    },
+  };
+}
 
 /**
  * A RoomDO on a fake runtime that counts rows written (each `put` and each `setAlarm`), runs
  * alarms when the clock passes them, and answers pings without waking the object.
  */
-async function harness() {
+async function harness(env = { MESSAGES: messageLimiter() }) {
   const sockets: FakeSocket[] = [];
   const pings = new Map<FakeSocket, number>();
   const data = new Map<string, unknown>();
@@ -84,7 +110,9 @@ async function harness() {
       return at === undefined ? null : new Date(at);
     },
   };
-  let durable = new RoomDO(ctx as never, {} as never);
+  let durable = new RoomDO(ctx as never, env as never);
+  /** Every client message, by when it was sent (ms). */
+  const log: number[] = [];
   await durable.create("ABCDE");
   /** The object's in-memory room and sockets, private to it. */
   const inside = () => durable as unknown as { room: Room | null; live(): Map<unknown, Conn> };
@@ -95,14 +123,21 @@ async function harness() {
     exists: () => data.has("room"),
     /** The object is evicted (hibernation) and a fresh instance handles the next event. */
     wake: () => {
-      durable = new RoomDO(ctx as never, {} as never);
+      durable = new RoomDO(ctx as never, env as never);
     },
-    connect: async () => {
-      await durable.fetch();
+    log,
+    connect: async (ip = HOME) => {
+      const url = "https://skyjo-online.example.workers.dev/api/rooms/ABCDE/ws";
+      await durable.fetch(new Request(url, { headers: { "cf-connecting-ip": ip } }));
       return sockets[sockets.length - 1];
     },
-    send: (ws: FakeSocket, msg: ClientMsg | string) =>
-      durable.webSocketMessage(ws as never, typeof msg === "string" ? msg : JSON.stringify(msg)),
+    send: (ws: FakeSocket, msg: ClientMsg | string) => {
+      log.push(Date.now());
+      return durable.webSocketMessage(
+        ws as never,
+        typeof msg === "string" ? msg : JSON.stringify(msg),
+      );
+    },
     close: async (ws: FakeSocket) => {
       await durable.webSocketClose(ws as never);
       sockets.splice(sockets.indexOf(ws), 1);
@@ -274,5 +309,114 @@ describe("RoomDO alarms", () => {
     await t.advance(1, conns);
     expect(t.exists()).toBe(false);
     expect(conns[1].sent.at(-1)).toEqual({ t: "missing" });
+  });
+});
+
+/** Moves the clock to the start of a minute, so a test's messages share one limiter window. */
+const nextMinute = () => vi.setSystemTime(Math.ceil((Date.now() + 1) / 60_000) * 60_000);
+/** 10 messages a second: fast, but under the per-socket flood limit (120 per 10 s). */
+const soon = () => vi.setSystemTime(Date.now() + 100);
+
+describe("RoomDO per-IP message budget", () => {
+  it("SEC-10: a join/leave loop is closed at its IP's budget, and the message past it writes nothing", async () => {
+    const t = await harness();
+    nextMinute();
+    const bot = await t.connect();
+    await t.send(bot, { t: "hello", token: token(0) });
+    for (let i = 1; i < IP_MESSAGES_PER_MINUTE; i++) {
+      soon();
+      await t.send(bot, i % 2 ? { t: "join", name: "Bot" } : { t: "leave" });
+    }
+    expect(bot.closed).toBeNull();
+    const rows = t.rows();
+    soon();
+    await t.send(bot, { t: "leave" });
+    expect(bot.closed).toBe(1008);
+    expect(t.rows()).toBe(rows);
+  });
+
+  it("SEC-10: the budget is shared by all of an IP's sockets, in every room; another IP has its own", async () => {
+    const limiter = messageLimiter();
+    const [a, b] = [await harness({ MESSAGES: limiter }), await harness({ MESSAGES: limiter })];
+    nextMinute();
+    const [inA, inB] = [await a.connect(), await b.connect()];
+    for (let i = 0; i < IP_MESSAGES_PER_MINUTE; i++) {
+      soon();
+      if (i % 2) await b.send(inB, { t: "hello", token: token(1) });
+      else await a.send(inA, { t: "hello", token: token(0) });
+    }
+    const neighbour = await a.connect("198.51.100.1");
+    await a.send(neighbour, { t: "hello", token: token(2) });
+    await b.send(inB, { t: "hello", token: token(1) });
+    expect(inB.closed).toBe(1008);
+    expect(neighbour.closed).toBeNull();
+  });
+
+  it("SEC-10: budget use survives hibernation", async () => {
+    const t = await harness();
+    nextMinute();
+    const ws = await t.connect();
+    for (let i = 0; i < IP_MESSAGES_PER_MINUTE; i++) {
+      soon();
+      await t.send(ws, { t: "hello", token: token(0) });
+    }
+    t.wake(); // a fresh instance knows the socket's IP only from its attachment
+    await t.send(ws, { t: "hello", token: token(0) });
+    expect(ws.closed).toBe(1008);
+  });
+
+  it("SEC-10: 8 friends behind one IP play two fast games, with reconnects and a rematch, and never trip it", async () => {
+    const t = await harness();
+    /** One tap a second, every turn, on every phone: faster than any real table plays. */
+    const TAP = 1_000;
+    const phones: FakeSocket[] = [];
+    const everyone: FakeSocket[] = [];
+    const connect = async (seat: number) => {
+      const ws = await t.connect();
+      everyone.push(ws);
+      await t.send(ws, { t: "hello", token: token(seat) });
+      return ws;
+    };
+    for (let seat = 0; seat < 8; seat++) {
+      phones.push(await connect(seat));
+      await t.advance(TAP, phones);
+      await t.send(phones[seat], { t: "join", name: `P${seat}` });
+      await t.advance(TAP, phones);
+    }
+    const act = (seat: number, action: Action) => t.send(phones[seat], { t: "act", action });
+    for (let games = 0; games < 2; games++) {
+      await t.send(phones[0], { t: "start" });
+      await t.advance(TAP, phones);
+      for (let game = t.game(); game && game.phase !== "gameOver"; game = t.game()) {
+        const legal = legalActions(game);
+        if (game.phase === "flip") {
+          // Everyone flips at once.
+          for (let seat = 0; seat < 8; seat++) {
+            const flip = legal.find((a) => a.type === "flip" && a.seat === seat);
+            if (flip) await act(seat, flip);
+          }
+        } else if (game.phase === "roundOver") {
+          // Every phone locked during the summary: all 8 reconnect at once, then the host deals.
+          for (let seat = 0; seat < 8; seat++) {
+            await t.close(phones[seat]);
+            phones[seat] = await connect(seat);
+          }
+          await t.advance(TAP, phones);
+          await act(0, { type: "nextRound" });
+        } else {
+          await act(game.current, legal[game.phase === "place" ? legal.length - 1 : 0] as Action);
+        }
+        await t.advance(TAP, phones);
+      }
+      await t.send(phones[0], { t: "rematch" });
+      await t.advance(TAP, phones);
+    }
+    expect(everyone.filter((ws) => ws.closed !== null)).toEqual([]);
+    // The busiest sliding minute is 74, or 81 when a round ends, 8 phones reconnect and 16 cards
+    // flip in it (the deal is random); the budget keeps at least a third more on top.
+    const peak = Math.max(
+      ...t.log.map((at, i) => t.log.slice(i).filter((m) => m < at + 60_000).length),
+    );
+    expect(peak).toBeLessThanOrEqual(0.75 * IP_MESSAGES_PER_MINUTE);
   });
 });

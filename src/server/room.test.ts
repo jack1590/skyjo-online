@@ -1,12 +1,16 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { type Action, legalActions } from "../engine/game";
 import type { Rng } from "../engine/rng";
 import { type ClientMsg, parseClientMsg } from "../protocol";
 import {
+  allowIp,
   allowMessage,
   type Conn,
   EMPTY_IDLE_MS,
   IDLE_MS,
+  IP_MESSAGES_PER_MINUTE,
+  ipKey,
   newConn,
   newRoom,
   Room,
@@ -23,7 +27,7 @@ function setup() {
   const live: Conn[] = [];
   const send = (c: Conn, msg: ClientMsg) => room.receive(c, msg, live);
   const connect = (token: string) => {
-    const c = newConn(now);
+    const c = newConn(now, null);
     live.push(c);
     send(c, { t: "hello", token });
     return c;
@@ -155,7 +159,7 @@ describe("lobby", () => {
 
   it("messages before hello are rejected", () => {
     const t = setup();
-    expect(t.errorOf(() => t.send(newConn(0), { t: "join", name: "X" }))).toBe("bad-message");
+    expect(t.errorOf(() => t.send(newConn(0, null), { t: "join", name: "X" }))).toBe("bad-message");
   });
 
   it("acks the highest seq handled, failed messages included", () => {
@@ -190,7 +194,7 @@ describe("lobby", () => {
     const watcher = t.connect("token-w-abcdef");
     t.live.splice(t.live.indexOf(watcher), 1);
     expect(t.room.closed(watcher)).toBe(false);
-    expect(t.room.closed(newConn(t.now()))).toBe(false); // never said hello
+    expect(t.room.closed(newConn(t.now(), null))).toBe(false); // never said hello
     t.live.splice(t.live.indexOf(a), 1);
     expect(t.room.closed(a)).toBe(true);
   });
@@ -467,9 +471,56 @@ describe("protocol", () => {
   });
 
   it("a socket flooding more than 120 messages in 10 s is cut off", () => {
-    const c = newConn(0);
+    const c = newConn(0, null);
     for (let i = 0; i < 120; i++) expect(allowMessage(c, 1_000)).toBe(true);
     expect(allowMessage(c, 2_000)).toBe(false);
     expect(allowMessage(c, 11_000)).toBe(true);
+  });
+});
+
+describe("per-IP limits", () => {
+  it("SEC-1: keys IPv4 by address and IPv6 by its /64", () => {
+    expect(ipKey("203.0.113.7")).toBe("203.0.113.7");
+    expect(ipKey("::ffff:203.0.113.7")).toBe("203.0.113.7"); // Node's dual-stack form
+    const home = [
+      "2001:db8:1:2::a",
+      "2001:0DB8:0001:0002:ffff:ffff:ffff:ffff",
+      "2001:db8:1:2:3:4:5:6",
+    ];
+    expect(new Set(home.map(ipKey))).toEqual(new Set(["2001:db8:1:2::/64"]));
+    expect(ipKey("2001:db8::1")).toBe("2001:db8:0:0::/64");
+    expect(ipKey("1::5:6:7:8:9")).toBe("1:0:0:5::/64");
+    expect(ipKey("2001:db8:1:3::a")).not.toBe(ipKey("2001:db8:1:2::a"));
+    expect(ipKey("unknown")).toBe("unknown");
+    expect(ipKey("not:an:ip")).toBe("not:an:ip");
+  });
+
+  it("SEC-10: one IP gets IP_MESSAGES_PER_MINUTE messages a minute across all its sockets", () => {
+    const windows = new Map();
+    for (let i = 0; i < IP_MESSAGES_PER_MINUTE; i++) {
+      expect(allowIp(windows, "203.0.113.7", 1_000 + i)).toBe(true);
+    }
+    expect(allowIp(windows, "203.0.113.7", 30_000)).toBe(false);
+    expect(allowIp(windows, "198.51.100.1", 30_000)).toBe(true);
+    expect(allowIp(windows, "203.0.113.7", 61_000)).toBe(true);
+  });
+
+  it("SEC-10: forgets idle addresses once it tracks 10,000", () => {
+    const windows = new Map();
+    for (let i = 0; i < 10_000; i++) allowIp(windows, `ip-${i}`, 0);
+    allowIp(windows, "fresh", 60_000);
+    expect([...windows.keys()]).toEqual(["fresh"]);
+  });
+
+  it("SEC-1: wrangler.jsonc limits each IP to 60 /api requests, 10 rooms and IP_MESSAGES_PER_MINUTE messages a minute", () => {
+    const config = JSON.parse(readFileSync("wrangler.jsonc", "utf8").replace(/^\s*\/\/.*$/gm, ""));
+    const limits = Object.fromEntries(
+      config.ratelimits.map((r: { name: string; simple: object }) => [r.name, r.simple]),
+    );
+    expect(limits).toEqual({
+      API_REQUESTS: { limit: 60, period: 60 },
+      ROOM_CREATION: { limit: 10, period: 60 },
+      MESSAGES: { limit: IP_MESSAGES_PER_MINUTE, period: 60 },
+    });
   });
 });

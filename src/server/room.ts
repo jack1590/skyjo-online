@@ -51,6 +51,8 @@ export interface Conn {
   ack: number;
   windowStart: number;
   windowCount: number;
+  /** The client's `ipKey`, which its messages count against; null = a local run, not limited. */
+  ip: string | null;
 }
 
 export interface Deps {
@@ -83,6 +85,13 @@ export const EMPTY_IDLE_MS = 10 * 60_000;
 /** Per-socket flood limit: far above any human pace (a test bot taps ~7/s), far below a script loop. */
 const WINDOW_MS = 10_000;
 const WINDOW_MAX = 120;
+/**
+ * Per-IP budget (SEC-10): messages a minute from one IP or IPv6 /64, across all its sockets and
+ * rooms; pings don't count. 8 friends on one router tapping once a second, faster than real play,
+ * peak at 74–81 (worker.test.ts); at a tap every 2 s, 44. One IP at the cap writes at most 2 rows
+ * a second. The Worker enforces it with its MESSAGES binding, which must match (room.test.ts).
+ */
+export const IP_MESSAGES_PER_MINUTE = 120;
 
 /** Real clock and CSPRNG; both runtimes (Workers, Node 22) have a global `crypto`. */
 export const systemDeps: Deps = {
@@ -105,21 +114,61 @@ export const newRoom = (code: string, now: number): RoomData => ({
   waitSince: now,
 });
 
-export const newConn = (now: number): Conn => ({
+export const newConn = (now: number, ip: string | null): Conn => ({
   token: null,
   seenAt: now,
   ack: 0,
   windowStart: now,
   windowCount: 0,
+  ip,
 });
 
-/** Counts one message against the socket's budget; false = the adapter should close it (1008). */
-export function allowMessage(conn: Conn, now: number): boolean {
-  if (now - conn.windowStart >= WINDOW_MS) {
-    conn.windowStart = now;
-    conn.windowCount = 0;
+interface Window {
+  windowStart: number;
+  windowCount: number;
+}
+
+/** Counts one message in a fixed window; false = over `max`, and the adapter closes the socket (1008). */
+function count(w: Window, now: number, ms: number, max: number): boolean {
+  if (now - w.windowStart >= ms) {
+    w.windowStart = now;
+    w.windowCount = 0;
   }
-  return ++conn.windowCount <= WINDOW_MAX;
+  return ++w.windowCount <= max;
+}
+
+/** The per-socket flood limit. */
+export const allowMessage = (conn: Conn, now: number) => count(conn, now, WINDOW_MS, WINDOW_MAX);
+
+/** The per-IP budget, for a server without the Worker's MESSAGES binding (node.ts). */
+export function allowIp(windows: Map<string, Window>, key: string, now: number): boolean {
+  // ponytail: an O(n) sweep once 10,000 addresses are tracked; a timer if that ever shows up.
+  if (windows.size >= 10_000) {
+    for (const [k, w] of windows) if (now - w.windowStart >= 60_000) windows.delete(k);
+  }
+  const w = windows.get(key) ?? { windowStart: now, windowCount: 0 };
+  windows.set(key, w);
+  return count(w, now, 60_000, IP_MESSAGES_PER_MINUTE);
+}
+
+/**
+ * The rate-limit key for a client address: IPv4 as is, IPv6 by its /64, since one home or phone
+ * gets a whole /64 and could rotate through it. Anything unparsable is its own key.
+ */
+export function ipKey(ip: string): string {
+  const v4 = ip.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i)?.[1];
+  if (v4 || !ip.includes(":")) return v4 ?? ip;
+  let host: string;
+  try {
+    host = new URL(`http://[${ip}]`).hostname.slice(1, -1); // canonical: lower case, no leading zeros
+  } catch {
+    return ip;
+  }
+  const [head, tail] = host.split("::");
+  const left = head ? head.split(":") : [];
+  const right = tail ? tail.split(":") : [];
+  const zeros = tail === undefined ? [] : Array(8 - left.length - right.length).fill("0");
+  return `${[...left, ...zeros, ...right].slice(0, 4).join(":")}::/64`;
 }
 
 /** Strips control/format characters (zero-width, bidi overrides), trims, caps length in code points (never splits an emoji). */

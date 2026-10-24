@@ -13,6 +13,7 @@ import {
   type Change,
   type Conn,
   systemDeps as deps,
+  ipKey,
   newConn,
   newRoom,
   Room,
@@ -29,14 +30,27 @@ const send = (ws: WebSocket, msg: ServerMsg) => {
   }
 };
 
+/**
+ * Who a request counts against: its IPv4 address or IPv6 /64. null = a local run at
+ * http://localhost (dev, E2E), which isn't limited; Cloudflare only routes our own hostname here.
+ */
+const clientKey = (request: Request) =>
+  new URL(request.url).hostname === "localhost"
+    ? null
+    : ipKey(request.headers.get("cf-connecting-ip") ?? "unknown");
+
+const tooMany = (what: string) =>
+  new Response(`Too many ${what}, try again in a minute`, { status: 429 });
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    // Only /api/* reaches the Worker (run_worker_first). A 429 costs this Worker request and no
+    // Durable Object request; it still counts toward the Worker quota, which only a WAF rule saves.
+    const key = clientKey(request);
+    if (key && !(await env.API_REQUESTS.limit({ key })).success) return tooMany("requests");
     if (url.pathname === "/api/rooms" && request.method === "POST") {
-      const ip = request.headers.get("cf-connecting-ip") ?? "unknown";
-      if (!(await env.ROOM_CREATION.limit({ key: ip })).success) {
-        return new Response("Too many rooms, try again in a minute", { status: 429 });
-      }
+      if (key && !(await env.ROOM_CREATION.limit({ key })).success) return tooMany("rooms");
       for (let attempt = 0; attempt < 5; attempt++) {
         const code = randomCode();
         if (await env.ROOMS.get(env.ROOMS.idFromName(code)).create(code)) {
@@ -72,11 +86,12 @@ export class RoomDO extends DurableObject<Env> {
     return true;
   }
 
-  async fetch(): Promise<Response> {
+  async fetch(request: Request): Promise<Response> {
     const [client, server] = Object.values(new WebSocketPair());
     this.ctx.acceptWebSocket(server);
     if (await this.load()) {
-      server.serializeAttachment(newConn(Date.now()));
+      // The attachment keeps the client's key through hibernation.
+      server.serializeAttachment(newConn(Date.now(), clientKey(request)));
     } else {
       // A failed upgrade looks like a network error to browsers, so say "no such room" in-band.
       send(server, { t: "missing" });
@@ -85,7 +100,25 @@ export class RoomDO extends DurableObject<Env> {
     return new Response(null, { status: 101, webSocket: client });
   }
 
-  async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer) {
+  /**
+   * One message at a time, in arrival order: awaiting the MESSAGES binding, unlike storage, lets the
+   * next event in, and a socket's hello must still land before its first move.
+   */
+  private inbox: Promise<unknown> = Promise.resolve();
+
+  webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer) {
+    const handled = this.inbox.then(() => this.handle(ws, raw));
+    this.inbox = handled.catch(() => {});
+    return handled;
+  }
+
+  private async handle(ws: WebSocket, raw: string | ArrayBuffer) {
+    // Per IP across every socket and room (SEC-10). Pings are answered by the runtime, never here.
+    const ip = (ws.deserializeAttachment() as Conn | null)?.ip;
+    if (ip && !(await this.env.MESSAGES.limit({ key: ip })).success) {
+      ws.close(1008, "Too many messages");
+      return;
+    }
     const room = await this.load();
     const live = this.live();
     const conn = live.get(ws);
