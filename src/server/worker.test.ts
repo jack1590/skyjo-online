@@ -168,6 +168,16 @@ describe("RoomDO storage writes", () => {
     expect(a.sent.length).toBe(toA + 100); // the sender still gets its own view
   });
 
+  it("SEC-3: a reconnecting phone's hello still tells the others it is back", async () => {
+    const t = await harness();
+    const [a, b] = await t.seat(2);
+    await t.close(b);
+    expect(lastView(a).seats[1].connected).toBe(false);
+    const back = await t.connect();
+    await t.send(back, { t: "hello", token: token(1) });
+    expect(lastView(a).seats[1].connected).toBe(true);
+  });
+
   it("SEC-3: a repeated hello writes nothing right after the object wakes from hibernation", async () => {
     const t = await harness();
     const [a] = await t.seat(2);
@@ -234,6 +244,7 @@ describe("RoomDO alarms", () => {
     const [a, b] = await t.seat(2);
     await t.send(a, { t: "start" });
     await t.close(b); // b's phone dies during the opening flip
+    t.wake(); // and the object hibernates while the table waits
     await t.advance(STALL_MS - 1, [a]);
     expect(faceUp(lastView(a), 1)).toBe(0);
     await t.advance(1, [a]);

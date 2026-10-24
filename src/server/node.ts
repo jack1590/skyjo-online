@@ -164,8 +164,8 @@ function onConnection(ws: WebSocket, code: string) {
   ws.on("error", () => {});
   ws.on("message", (data) => {
     const raw = data.toString();
-    conn.seenAt = Date.now();
     if (raw === PING) {
+      conn.seenAt = Date.now(); // receive() does this for every other message
       ws.send(PONG);
       return;
     }

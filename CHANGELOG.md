@@ -8,8 +8,8 @@ Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When
 
 ### Security
 
-- Messages that change nothing no longer write to storage. Before, every repeated "hello" from a connected phone cost one row written, so one script could use up the free plan's 100,000 rows a day in about 2.3 hours and stop every game until 00:00 UTC. Now repeated hellos, rejected moves and spectators leaving write nothing and reach no other phone. Nothing changes in play.
-- For operators: a real move now writes about 1.1 rows instead of 2.05, so the free plan holds roughly twice as many games a day. The room saves its state once per move and sets its alarm only when the next check moves earlier. An alarm that comes early just checks again.
+- Messages that change nothing no longer write to storage. Before, every repeated "hello" from a connected phone cost one row written, so one script could use up the free plan's 100,000 rows a day in about 2.3 hours and stop every game until 00:00 UTC. Now repeated hellos and spectators leaving write nothing and reach no other phone, as rejected moves already did. Nothing changes in play.
+- For operators: a real move now writes about 1.1 rows instead of 2.05, so rows written, the free plan's tightest quota, hold roughly twice as many games a day. The room saves its state once per move and sets its alarm only when the next check moves earlier. An alarm that comes early just checks again, which costs one Durable Object request: about 25–60 more per game, out of 100,000 a day.
 
 ## [2.0.1] - 2026-10-24
 
