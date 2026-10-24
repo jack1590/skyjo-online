@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sound check</title>
+<!--
+  Hidden diagnostic page (not linked from the app). Open /sound-check.html on the phone, tap the
+  buttons, and read the log. ?session=auto|ambient|playback sets navigator.audioSession.type
+  before the AudioContext exists (default: leave it alone, like the game does).
+-->
+<style>
+  body { margin: 0; padding: 16px; font: 16px/1.4 system-ui, sans-serif; background: #0d1b2a; color: #f5f1e6; }
+  button { display: block; width: 100%; min-height: 48px; margin: 8px 0; border: 0; border-radius: 12px; background: #f2c14e; color: #000; font: inherit; font-weight: 700; }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 12px 0; font-size: 14px; }
+  dt { opacity: 0.7; } dd { margin: 0; word-break: break-all; }
+  pre { white-space: pre-wrap; word-break: break-all; font-size: 12px; background: #000; padding: 8px; border-radius: 8px; min-height: 6em; }
+  a { color: #f2c14e; }
+</style>
+<h1 style="font-size:20px;margin:0">Sound check</h1>
+<dl>
+  <dt>Context</dt><dd id="state">(none yet, tap a button)</dd>
+  <dt>Session</dt><dd id="session"></dd>
+  <dt>Standalone</dt><dd id="standalone"></dd>
+  <dt>Agent</dt><dd id="ua"></dd>
+</dl>
+<button type="button" id="game">A · Game sound (flip.mp3, game's unlock flow)</button>
+<button type="button" id="beep">B · Oscillator beep</button>
+<button type="button" id="tag">C · Plain &lt;audio&gt; element</button>
+<button type="button" id="kick">D · Kick: suspend() then resume()</button>
+<p style="font-size:14px;opacity:.8">
+  Session: <a href="?session=auto">auto</a> · <a href="?session=ambient">ambient</a> · <a href="?session=playback">playback</a>
+</p>
+<pre id="log"></pre>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const log = (...parts) => {
+    const line = `${new Date().toISOString().slice(11, 23)} ${parts.join(" ")}`;
+    $("log").textContent += `${line}\n`;
+    console.log(line);
+  };
+  const session = () => navigator.audioSession?.type ?? "(no audioSession API)";
+  const show = () => {
+    $("state").textContent = ctx ? `${ctx.state} · ${ctx.sampleRate} Hz · t=${ctx.currentTime.toFixed(2)}` : "(none yet, tap a button)";
+    $("session").textContent = session();
+  };
+  $("ua").textContent = navigator.userAgent;
+  $("standalone").textContent = `${navigator.standalone ?? "n/a"} · display-mode standalone: ${matchMedia("(display-mode: standalone)").matches}`;
+  setInterval(show, 500);
+  window.onerror = (m) => log("ERROR", m);
+  window.onunhandledrejection = (e) => log("REJECTED", e.reason?.message ?? e.reason);
+
+  const wanted = new URLSearchParams(location.search).get("session");
+  if (wanted && navigator.audioSession) {
+    try { navigator.audioSession.type = wanted; log("audioSession.type =", wanted, "→ now", session()); }
+    catch (e) { log("audioSession.type failed:", e.message); }
+  } else log("audioSession:", session(), wanted ? "(API missing, can't set)" : "(left alone)");
+
+  let ctx, master, flip;
+  const file = fetch("/sfx/flip.mp3").then((r) => { log("flip.mp3:", r.status, r.headers.get("content-type")); return r.arrayBuffer(); });
+
+  // The game's unlockAudio(), inlined: create once, then silent buffer + resume() while not running.
+  function unlock(why) {
+    if (!ctx) {
+      ctx = new AudioContext();
+      log("created context:", ctx.state, ctx.sampleRate, "Hz");
+      ctx.onstatechange = () => log("statechange →", ctx.state);
+      master = ctx.createGain(); master.gain.value = 0.6; master.connect(ctx.destination);
+      file.then((data) => ctx.decodeAudioData(data)).then((b) => { flip = b; log("decoded flip.mp3:", b.duration.toFixed(2), "s"); }, (e) => log("decode FAILED:", e.message));
+    }
+    if (ctx.state === "running") return;
+    const s = ctx.createBufferSource(); s.buffer = ctx.createBuffer(1, 1, ctx.sampleRate); s.connect(ctx.destination); s.start();
+    ctx.resume().then(() => log("resume() ok on", why, "→", ctx.state), (e) => log("resume() FAILED on", why, e.message));
+    log("unlock on", why, `(was ${ctx.state})`);
+  }
+  for (const ev of ["pointerdown", "touchend", "click", "keydown"]) document.addEventListener(ev, () => unlock(ev), true);
+  document.addEventListener("visibilitychange", () => log("visibility:", document.visibilityState, "context:", ctx?.state));
+
+  $("game").onclick = () => {
+    if (!flip) return log("A: flip.mp3 not decoded yet");
+    const s = ctx.createBufferSource(); s.buffer = flip; s.connect(master);
+    s.onended = () => log("A: ended (did you hear it?)");
+    s.start(); log("A: started flip.mp3, context", ctx.state);
+  };
+  $("beep").onclick = () => {
+    const o = ctx.createOscillator(); o.frequency.value = 660; o.connect(master);
+    o.onended = () => log("B: ended (did you hear it?)");
+    o.start(); o.stop(ctx.currentTime + 0.3); log("B: started oscillator, context", ctx.state);
+  };
+  $("tag").onclick = () => {
+    const a = new Audio("/sfx/flip.mp3");
+    a.onended = () => log("C: ended (did you hear it?)");
+    a.play().then(() => log("C: <audio>.play() ok"), (e) => log("C: <audio>.play() FAILED", e.name, e.message));
+  };
+  $("kick").onclick = () => {
+    if (!ctx) return;
+    ctx.suspend().then(() => ctx.resume()).then(() => log("D: suspend+resume →", ctx.state), (e) => log("D: FAILED", e.message));
+  };
+</script>
+</html>

@@ -2,7 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { I18nProvider } from "./i18n";
-import { preloadSounds, unlockAudio } from "./sound";
+import { preloadSounds, recoverAudio, unlockAudio } from "./sound";
 import "./styles.css";
 
 // Installable app + offline shell. Production only: in dev it would cache stale modules.
@@ -12,11 +12,16 @@ if (import.meta.env.PROD && "serviceWorker" in navigator) {
   });
 }
 
-// Browsers allow audio only inside a user gesture. iOS Safari is strict about which events count,
-// so listen to all of the reliable ones; unlockAudio is cheap after the first call.
-for (const gesture of ["pointerdown", "pointerup", "click", "keydown"]) {
+// Browsers allow audio only inside a user gesture. pointerdown creates the context early so the
+// first sound is decoded in time; it is not an activation on iOS (a touch's pointerdown never is),
+// so the unlock itself happens on the events that are: touchend, click and keydown, the same list
+// Howler uses. unlockAudio is cheap once the context runs.
+for (const gesture of ["pointerdown", "touchend", "click", "keydown"]) {
   document.addEventListener(gesture, unlockAudio, true);
 }
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") recoverAudio();
+});
 preloadSounds();
 
 const root = document.getElementById("root");

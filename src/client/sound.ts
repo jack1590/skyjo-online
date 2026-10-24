@@ -39,34 +39,58 @@ export function preloadSounds() {
 
 /**
  * Browsers only start audio inside a user gesture, so main.tsx calls this on every tap and key
- * press. The first call creates the context and decodes the sounds; later calls resume it when the
- * OS has suspended or interrupted it (iOS reports "interrupted" after an app switch).
+ * press. The first call creates the context and decodes the sounds. Every call while the context
+ * isn't running unlocks it the way Howler and unmute-ios-audio do: start a silent buffer *and*
+ * resume(), inside the gesture. resume() is what the spec asks for; the buffer is what older iOS
+ * needs. Both cover "suspended" and iOS's non-standard "interrupted" (after an app switch).
+ * (No `navigator.audioSession.type`: WebKit already picks "ambient" for a page that only uses
+ * Web Audio, so sounds follow the ring/silent switch like other casual games.)
  */
 export function unlockAudio() {
-  if (ctx) {
-    if (ctx.state !== "running") void ctx.resume();
-    return;
+  if (!ctx) {
+    if (typeof AudioContext === "undefined") return; // very old browsers: silently no sound
+    const audio = new AudioContext();
+    ctx = audio;
+    master = audio.createGain();
+    master.gain.value = VOLUME;
+    master.connect(audio.destination);
+    preloadSounds();
+    void files?.then((loaded) => {
+      for (const [name, data] of loaded) {
+        audio
+          .decodeAudioData(data.slice(0))
+          .then((buffer) => buffers.set(name, buffer))
+          .catch(() => {
+            // A file that won't decode just stays silent.
+          });
+      }
+    });
   }
-  if (typeof AudioContext === "undefined") return; // very old browsers: silently no sound
-  // iOS 17+: like other casual games, stay quiet when the ring/silent switch is on silent.
-  const session = (navigator as Navigator & { audioSession?: { type: string } }).audioSession;
-  if (session) session.type = "ambient";
-  const audio = new AudioContext();
-  ctx = audio;
-  master = audio.createGain();
-  master.gain.value = VOLUME;
-  master.connect(audio.destination);
-  preloadSounds();
-  void files?.then((loaded) => {
-    for (const [name, data] of loaded) {
-      audio
-        .decodeAudioData(data.slice(0))
-        .then((buffer) => buffers.set(name, buffer))
-        .catch(() => {
-          // A file that won't decode just stays silent.
-        });
-    }
+  if (ctx.state === "running") return;
+  const silence = ctx.createBufferSource();
+  silence.buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
+  silence.connect(ctx.destination);
+  silence.start();
+  void ctx.resume().catch(() => {
+    // Not in a gesture yet (or iOS refused): the next tap tries again.
   });
+}
+
+/**
+ * After an app switch, the lock screen or another app's sound, iOS can leave the context silent
+ * while it still reports "running", or stuck in "interrupted" where resume() alone does nothing
+ * (WebKit bugs 276016, 283419, 291892). Suspending and resuming once the page is visible again is
+ * the documented way out; main.tsx calls this on visibilitychange.
+ */
+export function recoverAudio() {
+  const audio = ctx;
+  if (!audio || audio.state === "closed") return;
+  void audio
+    .suspend()
+    .then(() => audio.resume())
+    .catch(() => {
+      // Still locked: the next tap runs unlockAudio.
+    });
 }
 
 function play(name: Sound) {
