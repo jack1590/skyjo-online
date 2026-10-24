@@ -15,7 +15,7 @@ describe("i18n", () => {
   });
 
   it("fills placeholders", () => {
-    expect(translator("es")("passTo", { name: "Ana" })).toBe("Pasar a Ana →");
+    expect(translator("es")("showCards", { name: "Ana" })).toBe("Ver las cartas de Ana");
     expect(translator("pt")("round", { n: 3 })).toBe("Rodada 3");
   });
 });

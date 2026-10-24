@@ -1,6 +1,6 @@
 // Service worker TEMPLATE. The build (precacheServiceWorker in vite.config.ts) replaces the two
 // placeholders and emits it as /sw.js. Rooms need the network; with the whole build precached,
-// the app shell and hot-seat play work offline after a single visit.
+// the app shell loads offline after a single visit (and says it needs a connection to play).
 const CACHE = "skyjo-__VERSION__";
 const PRECACHE = self.__PRECACHE__;
 // Responses can carry `Vary` (e.g. Accept-Encoding, Origin); precache requests never match a

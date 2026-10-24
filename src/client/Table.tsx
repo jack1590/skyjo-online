@@ -1,27 +1,24 @@
-import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Action } from "../engine/game";
 import type { GameView, ViewSlot } from "../engine/view";
 import { Card } from "./Card";
 import { type T, useI18n } from "./i18n";
 import { slotKey, useCountUp, useFlights, useReducedMotion } from "./motion";
+import { useMuted, useSounds } from "./sound";
 
 interface TableProps {
   view: GameView;
   /** Seat shown at the bottom; its taps become actions. Null = watching. */
   seat: number | null;
-  /** May advance rounds and rematch (always in hot-seat; host or stand-in online). */
-  lead?: boolean;
-  /** Online: per seat, whether that player is connected. */
+  /** May advance rounds and rematch: the host, or a stand-in while the host is away. */
+  lead: boolean;
+  /** Per seat, whether that player is connected. */
   connected?: boolean[];
-  /** Online play: "Your turn" pill and a buzz when your turn starts. */
-  online?: boolean;
-  /** Online: the offline seat the table waits on, and ms until the server moves for it. */
+  /** The offline seat the table waits on, and ms until the server moves for it. */
   wait?: { seat: number; inMs: number } | null;
   onAction: (action: Action) => void;
   onPlayAgain: () => void;
   onExit: () => void;
-  /** Replaces the prompt line, e.g. a hot-seat "Pass to …" button. */
-  banner?: ReactNode;
 }
 
 const where = (t: T, pos: number) =>
@@ -29,18 +26,7 @@ const where = (t: T, pos: number) =>
 const upCount = (grid: ViewSlot[]) => grid.filter((slot) => typeof slot === "number").length;
 
 export function Table(props: TableProps) {
-  const {
-    view,
-    seat,
-    onAction,
-    onPlayAgain,
-    onExit,
-    banner,
-    lead = true,
-    connected,
-    online,
-    wait,
-  } = props;
+  const { view, seat, onAction, onPlayAgain, onExit, lead, connected, wait } = props;
   const { t } = useI18n();
   const { phase, players } = view;
   const summary = phase === "roundOver" || phase === "gameOver";
@@ -60,11 +46,18 @@ export function Table(props: TableProps) {
     me !== null && (phase === "flip" ? upCount(me.grid) < 2 : playing && view.current === seat);
   useEffect(() => {
     // Browsers block vibrate before the first tap on the page (e.g. right after a reload).
-    if (online && myTurn && navigator.userActivation?.hasBeenActive) navigator.vibrate?.(40);
-  }, [online, myTurn]);
+    if (myTurn && navigator.userActivation?.hasBeenActive) navigator.vibrate?.(40);
+  }, [myTurn]);
   const discardMode = discarding && myTurn && phase === "place" && view.drawnFrom === "deck";
 
   const reg = useFlights(view);
+  useSounds(view, seat);
+  const [muted, toggleMuted] = useMuted();
+  // Tapping an opponent opens their grid full size; your own turn closes it.
+  const [zoom, setZoom] = useState<number | null>(null);
+  useEffect(() => {
+    if (myTurn) setZoom(null);
+  }, [myTurn]);
 
   // On short screens the grid can be below the fold: bring it into view when your turn starts.
   const gridRef = useRef<HTMLDivElement>(null);
@@ -85,6 +78,17 @@ export function Table(props: TableProps) {
   }, [myTurn, reduced]);
 
   const waitSeconds = useCountdown(wait);
+
+  // Keep whoever is playing in view in the opponent strip, so their move is visible.
+  const oppRefs = useRef(new Map<number, HTMLElement>());
+  useEffect(() => {
+    if (!playing || view.current === seat) return;
+    oppRefs.current.get(view.current)?.scrollIntoView({
+      inline: "center",
+      block: "nearest",
+      behavior: reduced ? "auto" : "smooth",
+    });
+  }, [view.current, playing, seat, reduced]);
 
   const act = (action: Action) => {
     setDiscarding(false);
@@ -118,13 +122,13 @@ export function Table(props: TableProps) {
     seat === null
       ? players.map((_, i) => i)
       : Array.from({ length: n - 1 }, (_, i) => (seat + 1 + i) % n);
-  const compact = others.length >= 4;
   const lastTurns = view.ender !== null && playing;
 
   let pill = "";
   if (playing) {
-    const name = online && view.current === seat ? t("yourTurn") : players[view.current].name;
-    pill = lastTurns ? t("lastTurnPill", { name }) : name;
+    const name = players[view.current].name;
+    if (view.current === seat) pill = lastTurns ? t("yourLastTurn") : t("yourTurn");
+    else pill = lastTurns ? t("lastTurnPill", { name }) : name;
   } else if (phase === "flip") {
     pill = t("flipTwo");
   }
@@ -151,6 +155,15 @@ export function Table(props: TableProps) {
         <button
           type="button"
           className="btn icon"
+          aria-label={t("sound")}
+          aria-pressed={!muted}
+          onClick={toggleMuted}
+        >
+          {muted ? "🔇" : "🔊"}
+        </button>
+        <button
+          type="button"
+          className="btn icon"
           aria-label={t("quit")}
           onClick={() => window.confirm(t("confirmLeave")) && onExit()}
         >
@@ -159,27 +172,31 @@ export function Table(props: TableProps) {
       </header>
 
       <section
-        className={`opponents${compact ? " compact" : ""}`}
-        style={{ "--cols": compact ? 4 : others.length } as CSSProperties}
+        className={`opponents${seat === null ? " watch" : others.length > 3 ? " many" : ""}`}
+        data-testid="opponents"
       >
         {others.map((i) => {
           const p = players[i];
           const active = phase === "flip" ? upCount(p.grid) < 2 : playing && view.current === i;
           const away = connected?.[i] === false;
           return (
-            <div
+            <button
+              type="button"
               key={i}
+              ref={(el) => {
+                if (el) oppRefs.current.set(i, el);
+                else oppRefs.current.delete(i);
+              }}
               className={`opp${active ? " active" : ""}${away ? " away" : ""}`}
               data-testid="opponent"
+              aria-label={`${away ? `${t("offline")}: ` : ""}${t("showCards", { name: p.name })}, ${t("pts", { n: p.total })}`}
+              onClick={() => setZoom(i)}
             >
-              <div className="opp-head">
-                <span className="opp-name">
-                  {away && <span className="sr-only">{t("offline")} </span>}
-                  {p.name}
-                </span>
+              <span className="opp-head">
+                <span className="opp-name">{p.name}</span>
                 <span className="opp-total">{p.total}</span>
-              </div>
-              <div className="mini">
+              </span>
+              <span className="mini">
                 {p.grid.map((slot, pos) => (
                   <Card
                     // biome-ignore lint/suspicious/noArrayIndexKey: grid position is the identity
@@ -190,8 +207,8 @@ export function Table(props: TableProps) {
                     cardRef={reg(slotKey(i, pos))}
                   />
                 ))}
-              </div>
-            </div>
+              </span>
+            </button>
           );
         })}
       </section>
@@ -245,11 +262,9 @@ export function Table(props: TableProps) {
         </p>
       )}
 
-      {banner ?? (
-        <p className="prompt" aria-live="polite">
-          {seat === null ? t("watching") : prompt(t, view, seat, myTurn, discardMode, online)}
-        </p>
-      )}
+      <p className="prompt" aria-live="polite">
+        {seat === null ? t("watching") : prompt(t, view, seat, myTurn, discardMode)}
+      </p>
 
       {me && seat !== null && (
         <section className="mine">
@@ -280,6 +295,10 @@ export function Table(props: TableProps) {
         </section>
       )}
 
+      {zoom !== null && players[zoom] && (
+        <Zoom view={view} seat={zoom} onClose={() => setZoom(null)} />
+      )}
+
       {summary && !peek && (
         <Summary
           view={view}
@@ -294,30 +313,18 @@ export function Table(props: TableProps) {
   );
 }
 
-function prompt(
-  t: T,
-  view: GameView,
-  seat: number,
-  myTurn: boolean,
-  discardMode: boolean,
-  online?: boolean,
-) {
+function prompt(t: T, view: GameView, seat: number, myTurn: boolean, discardMode: boolean) {
   const me = view.players[seat];
   const waiting = t("waiting", { name: view.players[view.current].name });
   switch (view.phase) {
     case "flip": {
       const n = 2 - upCount(me.grid);
       if (!myTurn) return t("waitingFlip");
-      // Online the pill already says "Your turn"; hot-seat needs the name to know who holds the phone.
-      if (online) return n === 1 ? t("flipOnePlain") : t("flipManyPlain", { n });
-      return n === 1 ? t("flipOne", { name: me.name }) : t("flipMany", { name: me.name, n });
+      return n === 1 ? t("flipOnePlain") : t("flipManyPlain", { n });
     }
     case "draw":
       if (!myTurn) return waiting;
-      return (
-        (view.ender !== null ? t("lastTurn") : "") +
-        (online ? t("drawPlain") : t("draw", { name: me.name }))
-      );
+      return (view.ender !== null ? t("lastTurn") : "") + t("drawPlain");
     case "place":
       if (!myTurn) return waiting;
       if (view.drawnFrom === "discard") return t("swapIn");
@@ -325,6 +332,52 @@ function prompt(
     default:
       return "";
   }
+}
+
+/**
+ * One opponent's grid at full size, opened by tapping their panel; follows the live view. A native
+ * modal <dialog> gives focus handling, Escape and an inert background; tapping outside closes it.
+ */
+function Zoom({ view, seat, onClose }: { view: GameView; seat: number; onClose: () => void }) {
+  const { t } = useI18n();
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    ref.current?.showModal();
+  }, []);
+  const p = view.players[seat];
+  return (
+    // biome-ignore lint/a11y/useKeyWithClickEvents: Escape closes the dialog natively; this only adds tap-outside
+    <dialog
+      ref={ref}
+      className="zoom"
+      aria-labelledby="zoom-title"
+      data-testid="zoom"
+      onClose={onClose}
+      onClick={(e) => e.target === ref.current && onClose()}
+    >
+      <div className="sheet">
+        <div className="sheet-head">
+          <h2 id="zoom-title">
+            {p.name} · {t("pts", { n: p.total })}
+          </h2>
+          <button type="button" className="btn" onClick={onClose}>
+            {t("close")}
+          </button>
+        </div>
+        <div className="zoom-grid">
+          {p.grid.map((slot, pos) => (
+            <Card
+              // biome-ignore lint/suspicious/noArrayIndexKey: grid position is the identity
+              key={pos}
+              slot={slot}
+              size="md"
+              label={`${p.name}, ${where(t, pos)}`}
+            />
+          ))}
+        </div>
+      </div>
+    </dialog>
+  );
 }
 
 interface SummaryProps {

@@ -37,7 +37,10 @@ function precacheServiceWorker(): Plugin {
   };
 }
 
+const { version } = JSON.parse(readFileSync("package.json", "utf8")) as { version: string };
+
 export default defineConfig(({ mode }) => ({
+  define: { __APP_VERSION__: JSON.stringify(version) },
   // The Cloudflare plugin runs the Worker and Durable Object inside dev/preview. Unit tests and the
   // Node self-host build (`--mode node`) don't want it.
   plugins: [

@@ -1,94 +1,5 @@
-import { type Browser, expect, type Page, type TestInfo, test } from "@playwright/test";
-
-/** Separate browser contexts = separate phones (own storage, own token). */
-async function phones(browser: Browser, info: TestInfo, n: number): Promise<Page[]> {
-  const { viewport, userAgent, deviceScaleFactor, isMobile, hasTouch, locale, baseURL } =
-    info.project.use;
-  return Promise.all(
-    Array.from({ length: n }, async () => {
-      const context = await browser.newContext({
-        viewport,
-        userAgent,
-        deviceScaleFactor,
-        isMobile,
-        hasTouch,
-        locale,
-        baseURL,
-      });
-      return context.newPage();
-    }),
-  );
-}
-
-async function createRoom(page: Page): Promise<string> {
-  await page.goto("/");
-  await page.getByRole("button", { name: "Create a room" }).click();
-  await page.waitForURL(/\/r\/[A-Z0-9]{5}$/);
-  return new URL(page.url()).pathname.slice(3);
-}
-
-async function join(page: Page, code: string, name: string) {
-  if (!page.url().endsWith(`/r/${code}`)) await page.goto(`/r/${code}`);
-  await page.getByRole("textbox", { name: "Your name" }).fill(name);
-  await page.getByRole("button", { name: "Join", exact: true }).click();
-  await expect(page.getByTestId("seats")).toContainText(name);
-}
-
-/** A room with `names.length` seated phones; the first created it and hosts. */
-async function seatedRoom(browser: Browser, info: TestInfo, names: string[]) {
-  const pages = await phones(browser, info, names.length);
-  const code = await createRoom(pages[0]);
-  for (const [i, page] of pages.entries()) await join(page, code, names[i]);
-  return { pages, code };
-}
-
-/**
- * Makes one move on `page` if it's that phone's turn (flip, draw from deck, discard then flip),
- * or advances the round as host. Waits for the server's answer before returning true.
- */
-async function botStep(page: Page): Promise<boolean> {
-  const table = page.getByTestId("table");
-  const phase = await table.getAttribute("data-phase");
-  const next = page.getByRole("button", { name: "Next round" });
-  if (phase === "roundOver") {
-    if (!(await next.count())) return false;
-    await next.click();
-    await expect(table).not.toHaveAttribute("data-phase", "roundOver");
-    return true;
-  }
-  if ((await table.getAttribute("data-myturn")) !== "true") return false;
-  const grid = page.getByTestId("my-grid");
-  const faceDown = grid.locator('button[data-face="down"]');
-  if (phase === "flip") {
-    const before = await grid.locator('[data-face="down"]').count();
-    await faceDown.first().click();
-    await expect(grid.locator('[data-face="down"]')).toHaveCount(before - 1);
-  } else if (phase === "draw") {
-    await page.getByTestId("deck").click();
-    await expect(page.getByTestId("drawn")).toBeVisible();
-  } else if (phase === "place") {
-    await page.getByTestId("discard").click();
-    await expect(page.getByText("Tap a face-down card to flip it")).toBeVisible();
-    await faceDown.first().click();
-    await expect(table).not.toHaveAttribute("data-phase", "place");
-  }
-  return true;
-}
-
-async function playToEnd(pages: Page[]) {
-  const over = pages[0].getByTestId("game-over");
-  for (let idle = 0; !(await over.count()); ) {
-    let moved = false;
-    for (const page of pages) moved = (await botStep(page)) || moved;
-    idle = moved ? 0 : idle + 1;
-    if (idle > 200) throw new Error("table stalled");
-  }
-}
-
-const startGame = async (host: Page) => {
-  await host.getByRole("button", { name: "Start game" }).click();
-  await expect(host.getByTestId("table")).toHaveAttribute("data-phase", "flip");
-};
+import { expect, type Page, test } from "@playwright/test";
+import { botStep, createRoom, phones, playToEnd, seatedRoom, startGame } from "./helpers";
 
 test("two phones create, join, and play a full game to 100", async ({ browser }, info) => {
   test.skip(info.project.name !== "pixel", "long play-throughs run on Pixel only");
@@ -229,6 +140,54 @@ test("m5 screenshots", async ({ browser }, info) => {
   await pages[2].context().close();
   await expect(pages[0].getByText(/Cris is offline/)).toBeVisible();
   await shot(pages[0], "02-offline-countdown");
+});
+
+test("a round runs to its summary, then the next round (or the game ends)", async ({
+  browser,
+}, info) => {
+  const { pages } = await seatedRoom(browser, info, ["Ana", "Ben"]);
+  await startGame(pages[0]);
+  const phase = () => pages[0].getByTestId("table").getAttribute("data-phase");
+  for (let idle = 0; !["roundOver", "gameOver"].includes((await phase()) ?? ""); ) {
+    let moved = false;
+    for (const page of pages) moved = (await botStep(page)) || moved;
+    idle = moved ? 0 : idle + 1;
+    if (idle > 100) throw new Error("table stalled");
+  }
+  if ((await phase()) === "gameOver") {
+    // Doubling can end a game in round 1; then the summary must offer a rematch instead.
+    await expect(pages[0].getByRole("button", { name: "Play again" })).toBeVisible();
+    return;
+  }
+  await expect(pages[1].getByTestId("round-summary")).toBeVisible();
+  await expect(pages[1].getByText("Waiting for the host…")).toBeVisible();
+  await pages[0].getByRole("button", { name: "Next round" }).click();
+  for (const page of pages) {
+    await expect(page.getByTestId("table")).toHaveAttribute("data-phase", "flip");
+    await expect(page.getByText("Round 2")).toBeVisible();
+  }
+});
+
+test("discard mode can be cancelled and the drawn card swapped in", async ({ browser }, info) => {
+  const { pages } = await seatedRoom(browser, info, ["Ana", "Ben"]);
+  await startGame(pages[0]);
+  while ((await pages[0].getByTestId("table").getAttribute("data-phase")) === "flip") {
+    for (const page of pages) await botStep(page);
+  }
+  const mover =
+    (await pages[0].getByTestId("table").getAttribute("data-myturn")) === "true"
+      ? pages[0]
+      : pages[1];
+  await mover.getByTestId("deck").click();
+  const drawn = (await mover.getByTestId("drawn").getAttribute("aria-label"))?.split(": ")[1];
+  await mover.getByTestId("discard").click();
+  await expect(mover.getByText("Tap a face-down card to flip it")).toBeVisible();
+  await mover.getByTestId("drawn").click();
+  await expect(mover.getByText("Tap a grid card to swap")).toBeVisible();
+  const target = mover.getByTestId("my-grid").locator('button[data-face="up"]').first();
+  const position = (await target.getAttribute("aria-label"))?.split(":")[0];
+  await target.click();
+  await expect(mover.getByLabel(`${position}: ${drawn}`, { exact: true })).toBeVisible();
 });
 
 test("an unknown room code says so, including codes that can't exist", async ({ page }) => {

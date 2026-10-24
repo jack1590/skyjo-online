@@ -2,12 +2,24 @@
 
 A free, phone-first multiplayer card game based on Skyjo's mechanics. Open a link, pick a name, and play with 2–8 friends in real time. No accounts. Available in English, Spanish (Latin America), and Portuguese (Brazil).
 
-See [`docs/PLAN.md`](docs/PLAN.md) for the roadmap and how it was built.
+**Play now: https://skyjo-online.jcarl-30.workers.dev** · [What's new](CHANGELOG.md) · [Releases](https://github.com/jack1590/skyjo-online/releases)
+
+<p align="center">
+  <img src="docs/readme/card-flights.gif" width="260" alt="A two-player game: cards are flipped, drawn from the deck, swapped into the grid and thrown onto the discard pile">
+</p>
+
+|                                            Start or join a room                                             |                                                  Invite friends                                                   |                                                                  4 players                                                                   |
+| :---------------------------------------------------------------------------------------------------------: | :---------------------------------------------------------------------------------------------------------------: | :------------------------------------------------------------------------------------------------------------------------------------------: |
+|     <img src="docs/readme/home.jpg" width="220" alt="Home screen with Create a room and Join by code">      | <img src="docs/readme/lobby.jpg" width="220" alt="Lobby with the room code, invite link and four seated players"> | <img src="docs/readme/table-4.jpg" width="220" alt="A four-player table: three opponents across the top, deck and discard, your grid below"> |
+|                                                **8 players**                                                |                                                **Tap an opponent**                                                |                                                              **Round summary**                                                               |
+| <img src="docs/readme/table-8.jpg" width="220" alt="An eight-player table: a swipeable strip of opponents"> |              <img src="docs/readme/zoom.jpg" width="220" alt="One opponent's grid shown full size">               |          <img src="docs/readme/summary.jpg" width="220" alt="Round scores with the ender's doubled score shown as base ×2 = total">          |
+
+The images come from the real app (`npm run shots:readme`) and are refreshed whenever the UI changes. See [`docs/PLAN.md`](docs/PLAN.md) for the roadmap and how it was built.
 
 ## Play
 
 - **Online with friends:** tap **Create a room**, then **Invite friends** to share the link (or read out the 5-letter code). Everyone enters a name and joins. The host taps **Start game**. If you reload or lose signal, you get your seat back automatically. A ninth person, or anyone arriving mid-game, watches until the game ends.
-- **On one phone:** pick 2–8 players and pass the phone around. This works offline too, once the app has loaded.
+- **At the table:** swipe the strip of opponents to see every grid; tap one to see it full size. Whoever is playing scrolls into view. 🔊 in the header mutes sounds (remembered; an iPhone on silent stays silent).
 - **Install it:** on Android, Chrome offers _Install app_. On iPhone, tap **Share → Add to Home Screen**. It then opens full-screen like an app.
 - **If a phone drops:** everyone sees "Cris is offline · auto-move in 42 s". After 60 s the server plays a safe move for them: draw, discard, flip their first face-down card. They get their seat back as soon as they reconnect.
 
@@ -34,6 +46,7 @@ npm run dev        # http://localhost:5173 — app + Worker + Durable Objects, a
 npm test           # unit tests
 npm run e2e        # Playwright (first time: npx playwright install chromium webkit)
 SERVER=node npx playwright test e2e/online.spec.ts --project=pixel   # same suite on the Node server
+npm run shots:readme   # regenerate the images above (needs ffmpeg)
 ```
 
 ## Deploy (Cloudflare, free plan)
@@ -66,7 +79,11 @@ The server only listens on `127.0.0.1`, so nothing but the tunnel can reach it. 
 
 ## Contributing
 
-Read [`AGENTS.md`](AGENTS.md) for architecture, commands, conventions, and the PR workflow.
+Read [`AGENTS.md`](AGENTS.md) for architecture, commands, conventions, and the PR workflow. Every PR bumps the version in `package.json` and adds a section for it to [`CHANGELOG.md`](CHANGELOG.md). When that version reaches `main` and the live smoke test passes, CI tags it and publishes a [GitHub Release](https://github.com/jack1590/skyjo-online/releases) with those notes.
+
+## Credits
+
+Sound effects: [Kenney](https://kenney.nl) "Casino Audio" and "Interface Sounds" (CC0). Card art and app icon are original, generated for this project.
 
 ## License
 
