@@ -70,12 +70,18 @@ export function Table(props: TableProps) {
   const gridRef = useRef<HTMLDivElement>(null);
   const reduced = useReducedMotion();
   useEffect(() => {
-    const grid = gridRef.current;
-    if (!myTurn || !grid) return;
-    const r = grid.getBoundingClientRect();
-    if (r.top < 0 || r.bottom > window.innerHeight) {
-      grid.scrollIntoView({ block: "end", behavior: reduced ? "auto" : "smooth" });
-    }
+    if (!myTurn) return;
+    // Wait for layout to settle (fonts, the first paint) before deciding whether to scroll.
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => {
+        const grid = gridRef.current;
+        const r = grid?.getBoundingClientRect();
+        if (grid && r && (r.top < 0 || r.bottom > window.innerHeight)) {
+          grid.scrollIntoView({ block: "end", behavior: reduced ? "auto" : "smooth" });
+        }
+      });
+    });
+    return () => cancelAnimationFrame(frame);
   }, [myTurn, reduced]);
 
   const waitSeconds = useCountdown(wait);

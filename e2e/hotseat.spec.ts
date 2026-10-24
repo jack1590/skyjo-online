@@ -63,12 +63,12 @@ function lastTurnGame(players: number, seed: number) {
 }
 
 async function loadGame(page: Page, game: ReturnType<typeof lastTurnGame>) {
-  await page.goto("/");
-  await page.evaluate(
+  // Seed the save before any app code runs: no write-then-reload race (it flaked on CI WebKit).
+  await page.addInitScript(
     (saved) => localStorage.setItem("skyjo:hotseat:v2", JSON.stringify(saved)),
     game,
   );
-  await page.reload();
+  await page.goto("/");
   await expect(page.getByText(/^Last turn · /)).toBeVisible();
 }
 
