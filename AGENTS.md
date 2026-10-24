@@ -27,7 +27,7 @@ Data flow: client sends an `Action` → server calls `apply(state, action)` → 
 
 The engine's turn check compares `action.seat` with `state.current`; it is not an identity check. The server must set `action.seat` from the authenticated connection, never from the client payload.
 
-Online flow: the browser opens `/api/rooms/CODE/ws` and sends `hello` with its per-room token from `localStorage` (`src/client/useRoom.ts`). One Durable Object per room code (`RoomDO`) persists `RoomData` on every change and sends each socket its own `RoomView`. Pings (`"ping"` → `"pong"`) are answered by the runtime without waking the object. Their timestamps tell `room.ts` who is still connected, which drives the presence dots, the host stand-in, and the 60 s stall guard.
+Online flow: the browser opens `/api/rooms/CODE/ws` and sends `hello` with its per-room token from `localStorage` (`src/client/useRoom.ts`). One Durable Object per room code (`RoomDO`) persists `RoomData` on every change and sends each socket its own `RoomView`. Each `put` and each `setAlarm` is a row written, the free plan's tightest quota, so `Room.receive` returns a `Change`: `"data"` writes and tells everyone, `"view"` only tells everyone, `"none"` answers only the sender. The alarm only ever moves earlier, since an early one just checks again; any new `setAlarm` call must keep `alarmAt` in step. Pings (`"ping"` → `"pong"`) are answered by the runtime without waking the object. Their timestamps tell `room.ts` who is still connected, which drives the presence dots, the host stand-in, and the 60 s stall guard.
 
 The Worker has its own tsconfig (`tsconfig.worker.json`, runtime types from `wrangler types`, gitignored). `npm run typecheck` checks both.
 

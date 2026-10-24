@@ -4,6 +4,6 @@
     "lib": ["ES2022"],
     "types": []
   },
-  "include": ["worker-configuration.d.ts", "src/server/worker.ts"],
+  "include": ["worker-configuration.d.ts", "src/server/worker.ts", "src/server/worker.test.ts"],
   "exclude": []
 }

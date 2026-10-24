@@ -170,8 +170,29 @@ describe("lobby", () => {
   it("only joins, leaves, starts, and moves need persisting", () => {
     const t = setup();
     const [a] = t.seated(2);
-    expect(t.send(a, { t: "hello", token: "token-0-abcdef" })).toBe(false);
-    expect(t.send(a, { t: "start" })).toBe(true);
+    expect(t.send(a, { t: "hello", token: "token-0-abcdef" })).not.toBe("data");
+    expect(t.send(a, { t: "start" })).toBe("data");
+  });
+
+  it("SEC-3: a hello changes other views only when it changes who is online", () => {
+    const t = setup();
+    const [a, b] = t.seated(2);
+    expect(t.send(a, { t: "hello", token: "token-0-abcdef" })).toBe("none");
+    const secondTab = t.connect("token-1-abcdef"); // b was already online
+    expect(t.send(secondTab, { t: "hello", token: "token-1-abcdef" })).toBe("none");
+    t.advance(STALE_MS, [b, secondTab]); // a's phone went quiet
+    expect(t.send(a, { t: "hello", token: "token-0-abcdef" })).toBe("view");
+  });
+
+  it("SEC-3: only a seated socket's close needs persisting", () => {
+    const t = setup();
+    const [a] = t.seated(2);
+    const watcher = t.connect("token-w-abcdef");
+    t.live.splice(t.live.indexOf(watcher), 1);
+    expect(t.room.closed(watcher)).toBe(false);
+    expect(t.room.closed(newConn(t.now()))).toBe(false); // never said hello
+    t.live.splice(t.live.indexOf(a), 1);
+    expect(t.room.closed(a)).toBe(true);
   });
 });
 
