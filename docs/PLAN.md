@@ -49,12 +49,12 @@ The canonical rule list (R1–R15), including every default chosen where the bri
 - **Create:** server issues a 5-character code from an unambiguous alphabet (no 0/O/1/I). Share link `/r/CODE` uses the Web Share API with a copy fallback.
 - **Join:** display name, 1–16 characters. The lobby shows seats. The host (first seat) starts once 2–8 players have joined. If the host leaves the lobby, the next seat becomes host.
 - **Identity:** a random token in `localStorage`, per room. Reconnecting with the same token reclaims the seat. Tokens are never broadcast.
-- **Spectators:** anyone joining a full room (8) or a game in progress sees the public view. Between games they can take a free seat.
+- **Spectators:** anyone joining a full room (8) or a game in progress sees the public view. They can take a free seat in the lobby. Joining, leaving, and removing seats happen only in the lobby, so seat order always matches the game.
 - **Reconnection:** the client auto-reconnects with backoff and shows a "Reconnecting…" banner. The server sends a full snapshot on reconnect. Seats are held for the whole game.
 - **Stall guard:** if the current player has been disconnected for 60 s, the server plays a default move: draw from deck, discard, flip the first face-down card in reading order. During the initial flip (R3) there is no current player and everyone must flip, so any seat disconnected for 60 s with fewer than 2 cards up gets its first face-down cards flipped in reading order.
 - **Next round:** the engine's `nextRound` carries no seat, so the room decides who may send it: the host advances from the round summary; if the host is disconnected, any seated player can.
 - **Persistence:** room state is written to Durable Object storage on every change, so eviction loses nothing. Idle rooms are deleted after 24 h via an alarm.
-- **Rematch:** after game over, the host can start a new game with the same seats.
+- **Rematch:** after game over, the host's **Play again** returns everyone to the lobby with the same seats. Late arrivals join there, and the host can remove offline (ghost) seats. Then the host starts. Each deal (every start and every new round) gets fresh CSPRNG entropy.
 
 ## Milestones
 
@@ -105,7 +105,10 @@ Moved ahead of polish (the brief listed it last) so hosting risk is retired earl
 - Self-host fallback: `src/server/node.ts` (Node + `ws`, serves `dist/`, rooms in memory). The README documents running it behind `cloudflared tunnel`. It is never exposed without asking the user first.
 - CI's `concurrency` group cancels in-progress runs. A deploy on `main` must never be cancelled halfway, so `cancel-in-progress` applies to PRs only.
 
-**Acceptance:** the public URL works on a real phone. The smoke test passes against it. The Node fallback passes the same E2E locally.
+- Rate-limit `POST /api/rooms` per client IP with the Workers Rate Limiting binding (or a WAF rule). Room creation is otherwise unthrottled: each call writes storage and sets an alarm (M3 review).
+- A flaky test fails CI: set `failOnFlakyTests` when `CI` in `playwright.config.ts`, so `retries: 1` can no longer turn a flake green. In M3 the 2-phone game failed about 1 run in 4 (the bot tripped the 40-message flood limit), and the retry hid it until the M4 review (PO, M3 review).
+
+**Acceptance:** the public URL works on a real phone. The smoke test passes against it. The Node fallback passes the same E2E locally. A test that passes only on retry fails its CI job.
 
 ### M5 — Polish, animations, PWA
 
@@ -113,8 +116,9 @@ Moved ahead of polish (the brief listed it last) so hosting risk is retired earl
 - PWA: manifest, generated icons, service worker for the app shell, an offline page explaining the game needs a connection, and an "Add to Home Screen" hint on iOS.
 - Art v2 pass. README completed: how to play, run locally, deploy, self-host.
 - Small phones: at 375×548 the acting player's whole grid is on screen when their turn starts, either because it fits or because it is scrolled into view, and cards stay ≥ 44 px. In M2 the bottom row ended at 592 px with 2 players and at 615 px with 8, so it had to be scrolled to every turn.
+- Waiting on an offline player: when the seat the table waits on is offline, everyone sees that it is offline and when the stall guard will move for it (for example "Cris is offline · auto-move in 42 s"). In M3 the table showed only "Waiting for Cris…" and a dimmed tile for the whole 60 s, on every one of that player's turns (PO, M3 review).
 
-**Acceptance:** Playwright verifies the manifest and service worker are installable. Reduced motion disables animations. The README covers every section listed in the brief. At 375×548, Playwright asserts the acting player's grid is fully in view at the start of a turn for 2 and 8 players. The PO scores visual polish ≥ 4.
+**Acceptance:** Playwright verifies the manifest and service worker are installable. Reduced motion disables animations. The README covers every section listed in the brief. At 375×548, Playwright asserts the acting player's grid is fully in view at the start of a turn for 2 and 8 players. Playwright asserts the offline notice and countdown appear when the current player's phone closes. The PO scores visual polish ≥ 4.
 
 ## Process
 
