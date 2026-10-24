@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  CLOSE_ROOM_FULL,
   CLOSE_TOO_MANY,
   CLOSE_UNKNOWN_ROOM,
   type ClientMsg,
@@ -11,7 +12,8 @@ import {
   type ServerMsg,
 } from "../protocol";
 
-export type Status = "connecting" | "open" | "reconnecting" | "missing";
+/** "missing" and "full" (too many sockets in the room, SEC-2) are final: no retry. */
+export type Status = "connecting" | "open" | "reconnecting" | "missing" | "full";
 
 const PING_MS = 20_000;
 /** No message (not even a pong) for this long means the socket is dead even if it looks open. */
@@ -56,9 +58,10 @@ export function useRoom(code: string) {
     let lastHeard = Date.now();
     let retry: ReturnType<typeof setTimeout> | undefined;
     let stopped = false;
-    const stop = () => {
+    const stop = (why: "missing" | "full") => {
       stopped = true;
-      setStatus("missing");
+      awaiting.current = null; // a pending tap's ack timeout must not reconnect
+      setStatus(why);
     };
 
     const connect = () => {
@@ -77,18 +80,18 @@ export function useRoom(code: string) {
         lastHeard = Date.now();
         if (e.data === PONG) return;
         const msg = JSON.parse(e.data) as ServerMsg;
-        if (msg.t !== "missing" && awaiting.current !== null && msg.ack >= awaiting.current) {
+        if ("ack" in msg && awaiting.current !== null && msg.ack >= awaiting.current) {
           awaiting.current = null;
         }
         if (msg.t === "state") setRoom(msg.room);
-        else if (msg.t === "missing") stop();
+        else if (msg.t === "missing" || msg.t === "full") stop(msg.t);
         else setError(msg.code);
       };
       ws.onclose = (e) => {
         if (socket.current !== ws || stopped) return;
         awaiting.current = null;
-        if (e.code === CLOSE_UNKNOWN_ROOM) {
-          stop();
+        if (e.code === CLOSE_UNKNOWN_ROOM || e.code === CLOSE_ROOM_FULL) {
+          stop(e.code === CLOSE_ROOM_FULL ? "full" : "missing");
           return;
         }
         setStatus("reconnecting");
@@ -108,7 +111,7 @@ export function useRoom(code: string) {
       }
     };
     const wake = () => {
-      if (document.visibilityState !== "visible") return;
+      if (stopped || document.visibilityState !== "visible") return;
       const state = socket.current?.readyState;
       if (state === WebSocket.CLOSED || state === WebSocket.CLOSING) connect();
       else check();

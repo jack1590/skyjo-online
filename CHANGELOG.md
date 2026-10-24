@@ -4,6 +4,21 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.0.5] - 2026-10-24
+
+### Changed
+
+- A room now holds up to 20 connected phones or tabs, players included: 8 players and a dozen people watching. Players always get back in, even into a room that is at 20. In a room at 20, a connection the server hasn't heard from for 90 seconds (a phone that dropped without closing) makes room first; if that phone was only asleep, it reconnects when it wakes. Then a phone that reconnects, player or spectator, takes the place of the connection it left behind, and a player who was away takes the place of the spectator the server heard from least recently.
+- Anyone else who opens a room at 20 sees "Room ABCDE is full: too many people are connected. Try again later." and a Home button, in English, Spanish or Portuguese. The app doesn't keep retrying behind "Reconnecting…"; reload to try again. A tab opened before this update doesn't know that message: in a room at 20 it keeps retrying, about twice a second, until it is reloaded, and other phones on the same network may then see their reconnects refused for the rest of each minute.
+
+### Security
+
+- No more unlimited connections to one room (SEC-2). Before, a script could hold any number of sockets open in a room (60 measured), and every change in the room went to each of them. Now a room takes 20 sockets that said hello, the game's first message, and a socket keeps the identity of its first hello: saying hello again as someone else is refused, so it can't slip past the limit. The 21st, unless it belongs to a player, is told the room is full and closed. A room only goes past 20 when a player with no connection left comes back to a room full of players' connections, and then by one connection per such player. A turned-away attempt costs what it did to open: 1 Worker request, about 1.1 Durable Object requests (its connection, its hello and its close) and no storage write. Unlike before, it then gets nothing. A change in a crowded room reaches 20 sockets, not 60.
+- Sockets that never say hello are closed (SEC-6). The app says hello the moment it connects. A socket that hasn't after 10 seconds gets no updates and doesn't count toward the 20. The server drops it at the next thing that happens in the room: a new connection, a message, a phone leaving or a presence check. No timer or alarm was added for it, so it costs no write and no request. In a room where nothing happens it stays open, idle, until then. Measured on a local Cloudflare runtime, a socket that never sent anything at all is only told it's closed 10 to 30 seconds after it is dropped; one that sent anything, even a keep-alive, is told at once.
+- Nobody can push a room past 20 with extra tabs: in a full room, a new tab replaces the same browser's oldest one, which then says the room is full.
+- Nothing changes for a normal table. 8 friends on one home Wi-Fi stay within every limit as before, and a phone on a slow connection whose hello takes over 10 seconds just reconnects.
+- Self-hosting: the Node server applies the same cap of 20, and closes silent sockets whenever a new one connects.
+
 ## [2.0.4] - 2026-10-24
 
 ### Security

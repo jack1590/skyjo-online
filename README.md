@@ -18,7 +18,7 @@ The images come from the real app (`npm run shots:readme`) and are refreshed whe
 
 ## Play
 
-- **Online with friends:** tap **Create a room**, then **Invite friends** to share the link (or read out the 5-letter code). Everyone enters a name and joins. The host taps **Start game**. If you reload or lose signal, you get your seat back automatically. A ninth person, or anyone arriving mid-game, watches until the game ends.
+- **Online with friends:** tap **Create a room**, then **Invite friends** to share the link (or read out the 5-letter code). Everyone enters a name and joins. The host taps **Start game**. If you reload or lose signal, you get your seat back automatically. A ninth person, or anyone arriving mid-game, watches until the game ends. A room holds 20 connected phones, players included, and players always get back in.
 - **At the table:** swipe the strip of opponents to see every grid; tap one to see it full size. Whoever is playing scrolls into view. 🔊 in the header mutes sounds (remembered; an iPhone on silent stays silent).
 - **Install it:** on Android, Chrome offers _Install app_. On iPhone, tap **Share → Add to Home Screen**. It then opens full-screen like an app.
 - **If a phone drops:** everyone sees "Cris is offline · auto-move in 42 s". After 60 s the server plays a safe move for them: draw, discard, flip their first face-down card. They get their seat back as soon as they reconnect.

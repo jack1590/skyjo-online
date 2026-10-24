@@ -6,6 +6,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { extname, join, resolve, sep } from "node:path";
 import { type WebSocket, WebSocketServer } from "ws";
 import {
+  CLOSE_ROOM_FULL,
   CLOSE_TOO_MANY,
   CLOSE_UNKNOWN_ROOM,
   isRoomCode,
@@ -18,6 +19,7 @@ import {
   allowIp,
   allowMessage,
   type Conn,
+  dead,
   systemDeps as deps,
   newConn,
   newRoom,
@@ -25,7 +27,7 @@ import {
   Room,
   RoomError,
   randomCode,
-  STALE_MS,
+  silent,
 } from "./room";
 
 const PORT = Number(process.env.PORT ?? 8787);
@@ -63,7 +65,8 @@ function commit(code: string, only?: WebSocket) {
   if (!live) return;
   const conns = [...live.sockets.values()];
   for (const [ws, conn] of live.sockets) {
-    if (only && ws !== only) continue;
+    // A socket that hasn't said hello gets nothing until it does (SEC-6).
+    if (conn.token === null || (only && ws !== only)) continue;
     send(ws, { t: "state", room: live.room.view(conn, conns), ack: conn.ack });
   }
   clearTimeout(live.timer);
@@ -83,7 +86,7 @@ function alarm(code: string) {
   }
   // Phones that vanished without closing would otherwise get every broadcast until TCP gives up.
   for (const [ws, conn] of live.sockets) {
-    if (Date.now() - conn.seenAt > 2 * STALE_MS) ws.terminate();
+    if (dead(conn, Date.now())) ws.terminate();
   }
   live.room.tick([...live.sockets.values()]);
   commit(code);
@@ -167,12 +170,19 @@ function onConnection(ws: WebSocket, code: string, ip: string | null) {
     ws.close(CLOSE_UNKNOWN_ROOM, "Unknown room");
     return;
   }
+  // A new socket's arrival closes the ones that never said hello in time (SEC-6).
+  for (const [other, c] of live.sockets) {
+    if (!silent(c, Date.now())) continue;
+    live.sockets.delete(other);
+    other.close(1000, "No hello");
+  }
   const conn = newConn(Date.now(), ip);
   live.sockets.set(ws, conn);
   // Oversized or malformed frames emit 'error'; without a listener that kills the process.
   // ws closes the socket itself afterwards.
   ws.on("error", () => {});
   ws.on("message", (data) => {
+    if (!live.sockets.has(ws)) return; // dropped (SEC-2, SEC-6) and closing
     const raw = data.toString();
     if (raw === PING) {
       conn.seenAt = Date.now(); // receive() does this for every other message
@@ -183,9 +193,24 @@ function onConnection(ws: WebSocket, code: string, ip: string | null) {
       ws.close(CLOSE_TOO_MANY, "Too many messages");
       return;
     }
+    const msg = parseClientMsg(raw);
+    if (msg?.t === "hello" && conn.token === null) {
+      // SEC-2: turned away, or another socket makes room (a dead one just reconnects if it wakes).
+      const out = live.room.admit(conn, msg.token, [...live.sockets.values()]);
+      for (const [other, c] of live.sockets) {
+        if (c !== out) continue;
+        live.sockets.delete(other);
+        if (dead(c, Date.now())) {
+          other.close(1001, "Gone quiet");
+          continue;
+        }
+        send(other, { t: "full" });
+        other.close(CLOSE_ROOM_FULL, "Room full");
+      }
+      if (out === conn) return;
+    }
     const conns = [...live.sockets.values()];
     try {
-      const msg = parseClientMsg(raw);
       if (!msg) throw new RoomError("bad-message");
       let change = live.room.receive(conn, msg, conns);
       if (live.room.tick(conns)) change = "data";

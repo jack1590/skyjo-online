@@ -28,10 +28,10 @@ export function Online({ code }: { code: string }) {
     return () => clearTimeout(id);
   }, [error, clearError]);
 
-  if (status === "missing") {
+  if (status === "missing" || status === "full") {
     return (
       <main className="home">
-        <p>{t("roomNotFound", { code })}</p>
+        <p>{t(status === "full" ? "roomCrowded" : "roomNotFound", { code })}</p>
         <button type="button" className="btn primary" onClick={goHome}>
           {t("home")}
         </button>

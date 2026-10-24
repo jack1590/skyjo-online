@@ -41,6 +41,16 @@ Per-IP limits (SEC-1, SEC-4, SEC-10, SEC-11). Each client address, IPv4 as is an
 
 One address at every limit then needs at least 14 h to use up the rows and 18 h for the DO requests, whether it holds rooms, spams, or connects and leaves (`holdRooms` in `worker.test.ts`). Any new event that writes a row must charge whoever caused it, when it's written: an alarm that runs after everyone left charges nobody.
 
+Socket cap (SEC-2, SEC-6). A room takes `MAX_SOCKETS` (20) sockets that said hello, and a socket keeps the token of its first hello: `receive` rejects a hello with another token (`bad-message`), or a socket could be admitted as one seat and move to another. `Room.admit`, run by both adapters at a socket's first hello, decides in a full room:
+- a `dead` socket (unseen for 2 × `STALE_MS`) goes first, closed with 1001 so a frozen phone just reconnects;
+- then any token takes the place of its own least recently seen socket;
+- without one, a spectator gets `{ t: "full" }` and is closed with 4029 (`CLOSE_ROOM_FULL`). The client treats that as final (`status: "full"`), like a missing room;
+- a seated token always gets in, in place of the least recently seen spectator, or over the cap when there's none: one extra socket at most per seat with no socket left.
+
+Whoever is displaced, unless dead, gets the same `full` and 4029.
+
+A socket that hasn't said hello within `HELLO_MS` (10 s from `Conn.openedAt`) gets no broadcast, doesn't count, and is shut (1000) at the room's next event: the Worker's `live()` sweeps on every event, Node on each new connection. There is no timer, since a pending one keeps the object from hibernating and an alarm per socket would be a row. On local workerd, a socket that never sent a frame only receives that close 10 s later (when the object goes idle) or 30 s later (while it stays awake); one that sent any frame gets it at once (`e2e/online.spec.ts`). Dropped sockets are marked `shut` (Worker) or removed from the room's map (Node) before their close, so they stop counting at once and their close writes nothing.
+
 The `MESSAGES` check awaits a binding, which, unlike storage, lets other events in, so `RoomDO` runs every event (message, close, alarm, upgrade, create) one at a time through `serial`. The counts are per Cloudflare location and approximate. Our own 429 still costs a Worker request; only a WAF rule saves those. A local run (dev, E2E) is not limited: that takes both the hostname `localhost` and a loopback `cf-connecting-ip`, which miniflare sets to `127.0.0.1`. On Cloudflare neither holds, since it only routes our own hostname to the Worker and sets the real client address. Open `http://[::1]:<port>` to try the limits locally. Node applies `MESSAGES` itself (`allowIp`). There, a direct loopback client isn't limited, and behind a local proxy such as `cloudflared` the forwarded `cf-connecting-ip` counts. Any E2E bot on the live site must stay under 120 messages a minute from its runner.
 
 The Worker has its own tsconfig (`tsconfig.worker.json`, runtime types from `wrangler types`, gitignored). `npm run typecheck` checks both.
