@@ -38,7 +38,9 @@ jobs:
           # A new room runs the Worker (1 request), its Durable Object (1 request now, 1 when the
           # empty room expires after 10 min) and storage (3 rows), so it fails when any of their
           # daily quotas is spent. It also spends 1 of the runner IP's 30 /api requests a minute.
-          status=$(curl -sS -o body -w '%{http_code}' --max-time 30 -X POST "$API") ||
+          # One retry 1 s after a blip (a timeout, a 5xx), so a blip sends no email; a 429 whose
+          # Retry-After is past --retry-max-time (ours says 60) isn't retried.
+          status=$(curl -sS -o body -w '%{http_code}' --max-time 30 --retry 1 --retry-all-errors --retry-max-time 40 -X POST "$API") ||
             fail "API down" "no answer from $API, though the page loads"
           if [ "$status" = 200 ] && grep -qE '^\{"code":"[A-Z0-9]{5}"\}$' body; then
             echo "Healthy: the page loads, and room $(cut -d'"' -f4 body) was created (it expires in 10 min)."
