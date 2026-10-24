@@ -156,9 +156,9 @@ async function harness(
     rows: () => storage.puts + storage.alarmSets + storage.deletes,
     /** Durable Object requests billed: each create, upgrade and alarm run, 1/20 per message or close. */
     requests: 0,
-    create: () => {
+    create: (ip: string | null = null) => {
       t.requests++;
-      return durable.create(code);
+      return durable.create(code, ip);
     },
     fetch: (request: Request) => {
       t.requests++;
@@ -424,8 +424,8 @@ describe("RoomDO per-IP message budget", () => {
     const t = await harness(env);
     const everyone = await eightFriends(t, { slow: false });
     expect(everyone.filter((ws) => ws.closed !== null)).toEqual([]);
-    // The busiest sliding minute of the IP's budget, messages and presence checks together, is 78,
-    // or 85 when a round ends, 8 phones reconnect and 16 cards flip in it (the deal is random).
+    // The busiest sliding minute of the IP's budget, messages and presence checks together, is 78–80,
+    // or 85–87 when a round ends, 8 phones reconnect and 16 cards flip in it (the deal is random).
     expect(peakMinute(env.MESSAGES.calls, HOME)).toBeLessThanOrEqual(0.75 * IP_MESSAGES_PER_MINUTE);
   });
 
@@ -560,27 +560,60 @@ describe("RoomDO alarm charges (SEC-11)", () => {
     expect(t.rows()).toBe(rows);
   });
 
+  it("SEC-11: a new room spends 3 of its creator's budget in the room, and isn't made without them", async () => {
+    const env = { MESSAGES: messageLimiter() };
+    const broke = await harness(env, "BCDEF", false);
+    for (let i = 0; i < IP_MESSAGES_PER_MINUTE - 2; i++) await env.MESSAGES.limit({ key: HOME });
+    expect(await broke.create(HOME)).toBe("limited");
+    expect(broke.exists()).toBe(false);
+    const made = await harness(env, "CDEFG", false);
+    expect(await made.create(AWAY)).toBe("created");
+    expect(env.MESSAGES.calls.filter(([k]) => k === AWAY).length).toBe(3);
+  });
+
+  it("SEC-11: a hello that brings the presence check forward pays for it, and a close writes nothing", async () => {
+    const env = { MESSAGES: messageLimiter() };
+    const t = await harness(env);
+    const [host, guest] = await t.seat(2);
+    await t.close(host);
+    await t.close(guest);
+    await t.advance(60_000); // nobody's there: the room's next check is a day away
+    const charged = () => env.MESSAGES.calls.filter(([k]) => k === HOME).length;
+    const [rows, units] = [t.rows(), charged()];
+    const back = await t.connect();
+    await t.send(back, { t: "hello", token: token(0) }); // the host is back: a check in ≤ 45 s
+    expect(t.rows()).toBe(rows + 1);
+    expect(charged()).toBe(units + 2);
+    await t.close(back);
+    expect(t.rows()).toBe(rows + 1);
+  });
+
   it("SEC-11: one IP at every limit, holding 2-seat lobbies open and spending the rest of its budget, needs over 12 h to use up rows or DO requests", async () => {
-    // Holding first: before this fix, rows ran out in 1.8 h and DO requests in 2.0 h; now 16.1 and 15.7.
-    const holding = await holdRooms(24);
-    expect(holding.hoursToRows).toBeGreaterThanOrEqual(12);
-    expect(holding.hoursToRequests).toBeGreaterThanOrEqual(12);
-    // Spamming first: before, rows ran out in 10.2 h; now 14.0, and DO requests in about 200.
-    const spamming = await holdRooms(24, true);
-    expect(spamming.hoursToRows).toBeGreaterThanOrEqual(12);
-    expect(spamming.hoursToRequests).toBeGreaterThanOrEqual(12);
+    // Before this fix rows ran out in 1.8–1.9 h holding, 10.2 h spamming first and 7.5 h hitting and
+    // running. Now every way needs at least 14.0 h for the rows and 18.2 h for the DO requests.
+    const ways = ["hold only", "hold, then spam", "spam, then hold", "hit and run"] as const;
+    for (const how of ways) {
+      const day = await holdRooms(24, how);
+      expect(day.hoursToRows).toBeGreaterThanOrEqual(12);
+      expect(day.hoursToRequests).toBeGreaterThanOrEqual(12);
+    }
   });
 });
 
 /**
  * SEC-11's attacker: one IP at every production limit (wrangler.jsonc, checked in room.test.ts),
  * through the real Worker and RoomDO on the fake runtime. At the start of each minute's limit
- * window it re-opens the host socket of every lobby the server closed, creates rooms and seats 2
- * sockets in each, and spends what's left of its budget on a join/leave loop (a row a message);
- * `spamFirst` runs the loop first. All its sockets stay open and ping. Stops at a day's quota or
- * after `hours`, and says how long one IP needs to use up the 100,000 rows and DO requests a day.
+ * window it re-opens the host socket of every lobby the server closed, and creates rooms and seats
+ * 2 sockets in each; its sockets stay open and ping. Except when holding only, it keeps an upgrade
+ * for a join/leave loop (a row a message) that spends the rest of its budget, last or first. "hit
+ * and run" closes each socket right after its hello or join, before the room's presence check.
+ * Stops at a day's quota or after `hours`; says how long one IP needs to use up the 100,000 rows
+ * and the 100,000 DO requests a day.
  */
-async function holdRooms(hours: number, spamFirst = false) {
+async function holdRooms(
+  hours: number,
+  how: "hold only" | "hold, then spam" | "spam, then hold" | "hit and run",
+) {
   const BOT = "192.0.2.66";
   const QUOTA = 100_000;
   type Harness = Awaited<ReturnType<typeof harness>>;
@@ -592,7 +625,7 @@ async function holdRooms(hours: number, spamFirst = false) {
     ROOMS: {
       idFromName: (code: string) => code,
       get: (code: string) => ({
-        create: async () => (await room(code)).create(),
+        create: async (_: string, ip: string | null) => (await room(code)).create(ip),
         fetch: async (request: Request) => (await room(code)).fetch(request),
       }),
     },
@@ -624,6 +657,12 @@ async function holdRooms(hours: number, spamFirst = false) {
     if (h.storage.alarm !== null && h.storage.alarm < end) soon.add(h);
     else soon.delete(h);
   };
+  /** The bot closes its own socket. */
+  const leave = async (h: Harness, ws: FakeSocket) => {
+    await h.close(ws);
+    await settle(h);
+    return null;
+  };
   const tell = async (h: Harness, ws: FakeSocket, msg: ClientMsg) => {
     await h.send(ws, msg);
     await settle(h);
@@ -642,14 +681,17 @@ async function holdRooms(hours: number, spamFirst = false) {
     }
     return { rows, requests };
   };
-  /** The rest of the budget: a join/leave loop in the first room, a row a message. */
+  /** A socket in the first room for the join/leave loop, opened before anything else uses the upgrades. */
+  const ready = async () => {
+    if (!held.length || spam?.closed === null) return;
+    spam = await open(held[0].code);
+    const h = rooms.get(held[0].code) as Harness;
+    if (spam && !(await tell(h, spam, { t: "hello", token: "spammer-token" }))) spam = null;
+  };
+  /** The rest of the budget: the join/leave loop, a row a message. */
   const spend = async () => {
     if (!held.length) return;
     const h = rooms.get(held[0].code) as Harness;
-    if (spam?.closed !== null) {
-      spam = await open(held[0].code);
-      if (spam && !(await tell(h, spam, { t: "hello", token: "spammer-token" }))) spam = null;
-    }
     while (spam?.closed === null) {
       await tell(h, spam, lastView(spam).you === null ? { t: "join", name: "x" } : { t: "leave" });
     }
@@ -657,13 +699,15 @@ async function holdRooms(hours: number, spamFirst = false) {
   let minute = 0;
   for (; minute < hours * 60; minute++) {
     vi.setSystemTime(start + minute * 60_000);
-    if (spamFirst) await spend();
+    if (how !== "hold only") await ready();
+    if (how === "spam, then hold") await spend();
     for (const r of held) {
       if (r.host?.closed === null) continue;
       const ws = await open(r.code);
       const h = rooms.get(r.code) as Harness;
       r.host = ws && (await tell(h, ws, { t: "hello", token: `${r.code}-host` })) ? ws : null;
       if (!r.host) break;
+      if (how === "hit and run") r.host = await leave(h, r.host);
     }
     for (let res = await api("/api/rooms", { method: "POST" }); res.status === 200; ) {
       const { code } = JSON.parse(res.body ?? "{}") as { code: string };
@@ -675,10 +719,11 @@ async function holdRooms(hours: number, spamFirst = false) {
         if (!ws || !(await tell(h, ws, { t: "hello", token: `${code}-${who}` }))) break;
         if (!(await tell(h, ws, { t: "join", name: who }))) break;
         if (who === "host") r.host = ws;
+        if (how === "hit and run") r.host = await leave(h, ws);
       }
       res = await api("/api/rooms", { method: "POST" });
     }
-    if (!spamFirst) await spend();
+    if (how !== "spam, then hold") await spend();
     const until = start + (minute + 1) * 60_000;
     for (;;) {
       let next: Harness | null = null;

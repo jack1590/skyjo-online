@@ -44,23 +44,25 @@ const clientKey = (request: Request) => {
 };
 
 /**
- * Spends `units` of an IP's MESSAGES budget, the one budget for everything it makes us write. A
- * message is 1. A presence check the room re-arms is 2, a row and a Durable Object request, charged
- * to every IP holding the room open (SEC-11). A new room is 3: two rows now, one when it expires.
- * So one IP writes at most about 120 rows a minute, however it splits them.
+ * Spends `units` of an IP's MESSAGES budget, the one budget for every row it makes us write (SEC-11):
+ * - a message, 1, and 1 more if it moves the room's alarm earlier (a row), as does a close;
+ * - each alarm run, 2 (a row and a Durable Object request) to every IP with a live socket in the
+ *   room: a lobby whose sockets only ping re-checks presence every ≤ 45 s;
+ * - a new room, 3: two rows now, one when it expires.
+ * So one IP writes about a row per unit at most, however it splits them.
  */
 async function spend(env: Env, key: string, units: number): Promise<boolean> {
   for (let i = 0; i < units; i++) if (!(await env.MESSAGES.limit({ key })).success) return false;
   return true;
 }
 
-/**
- * Closes a socket over its IP's limit. Forgetting its token first means its seat shows offline at
- * once and its close event writes nothing.
- */
-function shut(ws: WebSocket, conn: Conn) {
-  ws.serializeAttachment({ ...conn, token: null });
-  ws.close(CLOSE_TOO_MANY, "Too many messages");
+/** Closes a socket over its IP's limit; it may be closing already. */
+function shut(ws: WebSocket) {
+  try {
+    ws.close(CLOSE_TOO_MANY, "Too many messages");
+  } catch {
+    // Its close event cleans up.
+  }
 }
 
 const tooMany = (what: string) =>
@@ -77,17 +79,12 @@ export default {
     const key = clientKey(request);
     if (key && !(await env.API_REQUESTS.limit({ key })).success) return tooMany("requests");
     if (url.pathname === "/api/rooms" && request.method === "POST") {
-      if (
-        key &&
-        !((await env.ROOM_CREATION.limit({ key })).success && (await spend(env, key, 3)))
-      ) {
-        return tooMany("rooms");
-      }
+      if (key && !(await env.ROOM_CREATION.limit({ key })).success) return tooMany("rooms");
       for (let attempt = 0; attempt < 5; attempt++) {
         const code = randomCode();
-        if (await env.ROOMS.get(env.ROOMS.idFromName(code)).create(code)) {
-          return Response.json({ code });
-        }
+        const made = await env.ROOMS.get(env.ROOMS.idFromName(code)).create(code, key);
+        if (made === "limited") return tooMany("rooms");
+        if (made === "created") return Response.json({ code });
       }
       return new Response("Try again", { status: 503 });
     }
@@ -123,12 +120,17 @@ export class RoomDO extends DurableObject<Env> {
     return done;
   }
 
-  create(code: string): Promise<boolean> {
+  /**
+   * Makes the room unless the code is taken. Its creator's IP pays 3 here rather than in the Worker:
+   * ratelimit counts are per Cloudflare location, and this is where the room's other charges count.
+   */
+  create(code: string, ip: string | null): Promise<"created" | "taken" | "limited"> {
     return this.serial(async () => {
-      if (await this.load()) return false;
+      if (await this.load()) return "taken";
+      if (ip && !(await spend(this.env, ip, 3))) return "limited";
       this.room = new Room(newRoom(code, Date.now()), deps);
       await this.commit(new Map(), "data");
-      return true;
+      return "created";
     });
   }
 
@@ -156,7 +158,7 @@ export class RoomDO extends DurableObject<Env> {
     // Per IP across every socket and room (SEC-10). Pings are answered by the runtime, never here.
     const attached = ws.deserializeAttachment() as Conn | null;
     if (attached?.ip && !(await spend(this.env, attached.ip, 1))) {
-      shut(ws, attached);
+      shut(ws);
       return;
     }
     const room = await this.load();
@@ -164,7 +166,7 @@ export class RoomDO extends DurableObject<Env> {
     const conn = live.get(ws);
     if (!room || !conn) return;
     if (!allowMessage(conn, Date.now())) {
-      shut(ws, conn);
+      shut(ws);
       return;
     }
     let change: Change;
@@ -181,7 +183,9 @@ export class RoomDO extends DurableObject<Env> {
     ws.serializeAttachment(conn);
     // A returning player may unblock a stall that was waiting for someone to be present.
     if (room.tick([...live.values()])) change = "data";
-    await this.commit(live, change, ws);
+    if ((await this.commit(live, change, ws)) && conn.ip && !(await spend(this.env, conn.ip, 1))) {
+      shut(ws);
+    }
   }
 
   webSocketClose(ws: WebSocket) {
@@ -191,7 +195,11 @@ export class RoomDO extends DurableObject<Env> {
       const conn = live.get(ws);
       live.delete(ws);
       if (!room || !conn) return;
-      await this.commit(live, room.closed(conn) ? "data" : "none");
+      // The seat's last sign of life is kept in memory only: a close writes no row unless it moves
+      // the alarm earlier, and then its IP pays for it.
+      if ((await this.commit(live, room.closed(conn) ? "view" : "none")) && conn.ip) {
+        await spend(this.env, conn.ip, 1);
+      }
     });
   }
 
@@ -219,7 +227,8 @@ export class RoomDO extends DurableObject<Env> {
         if (!ip || (await spend(this.env, ip, 2))) continue;
         for (const [ws, conn] of live) {
           if (conn.ip !== ip) continue;
-          shut(ws, conn);
+          room.closed(conn); // its seat keeps the ping-fresh time, so the stall guard waits its turn
+          shut(ws);
           live.delete(ws);
         }
       }
@@ -251,11 +260,12 @@ export class RoomDO extends DurableObject<Env> {
 
   /**
    * Persists and broadcasts only what changed (to `from` alone for "none"), and makes sure an
-   * alarm comes by the room's next check. Each put and each setAlarm is a row written.
+   * alarm comes by the room's next check. Each put and each setAlarm is a row written. Returns
+   * whether it moved the alarm earlier.
    */
   private async commit(live: Map<WebSocket, Conn>, change: Change, from?: WebSocket) {
     const room = this.room;
-    if (!room) return;
+    if (!room) return false;
     const conns = [...live.values()];
     if (change === "data") await this.ctx.storage.put("room", room.data);
     for (const [ws, conn] of live) {
@@ -264,9 +274,9 @@ export class RoomDO extends DurableObject<Env> {
     }
     // An alarm that comes early just re-checks and re-arms, so only an earlier time needs a write.
     const next = room.nextAlarm(conns);
-    if (this.alarmAt === null || next < this.alarmAt) {
-      this.alarmAt = next;
-      await this.ctx.storage.setAlarm(next);
-    }
+    if (this.alarmAt !== null && next >= this.alarmAt) return false;
+    this.alarmAt = next;
+    await this.ctx.storage.setAlarm(next);
+    return true;
   }
 }
