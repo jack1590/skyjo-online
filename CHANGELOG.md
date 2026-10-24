@@ -16,7 +16,6 @@ Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When
 - 🔊 button to mute sounds. It's remembered, and an iPhone on silent stays silent.
 - Opponents in a swipeable strip, readable with any number of players. Whoever is playing slides into view, and you can tap an opponent to see their grid full size.
 - Spectators see every grid in two columns.
-- A shuffle sound when a new game is dealt.
 - "What's new" link to these release notes on the home screen.
 
 ### Changed

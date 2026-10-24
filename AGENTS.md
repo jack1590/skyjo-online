@@ -55,7 +55,7 @@ CI (`.github/workflows/ci.yml`) runs on every PR and on `main`, as parallel jobs
 - `ci`: lint, typecheck, unit tests, build (~1 min).
 - `e2e (iphone)`, `e2e (pixel)`, `e2e (desktop)`: Playwright, one device per job, inside the `mcr.microsoft.com/playwright` container (browsers preinstalled). Long full-game play-throughs run on Pixel only; layout, 44px, i18n, reload, and interaction tests run on all three.
 - `e2e (node)`: the online suite against the Node self-host server.
-- On `main` only: `deploy` (`wrangler deploy` with the repo secrets) then `smoke (live)`, which plays a 2-phone game on the live URL, then `release`: if the tag `v<package.json version>` doesn't exist yet, it creates it and a GitHub Release whose notes are that version's `CHANGELOG.md` section. Deploys are never cancelled mid-run.
+- On `main` only: `deploy` (`wrangler deploy` with the repo secrets) then `smoke (live)`, which plays a 2-phone game on the live URL, then `release`: if there is no GitHub Release `v<package.json version>` yet, it creates the tag and the Release whose notes are that version's `CHANGELOG.md` section. Deploys are never cancelled mid-run.
 - `ci` fails when `CHANGELOG.md` has no section for the `package.json` version.
 
 `@playwright/test` is pinned to an exact version. When bumping it, change the container tag in `ci.yml` to the same version.
@@ -68,7 +68,7 @@ CI (`.github/workflows/ci.yml`) runs on every PR and on `main`, as parallel jobs
 - All user-facing text goes through `t()` from `src/client/i18n.tsx`. Add every new key to `en`, `es` (Latin American Spanish) and `pt` (Brazilian Portuguese); the type checker rejects a missing one. Never hardcode UI strings.
 - Grid positions are `0–11`, index `row * 4 + col` (3 rows × 4 columns). A removed slot is `null`.
 - Prefer deleting code to adding it. No abstractions with one user, no speculative config.
-- E2E runs with `reducedMotion: "reduce"` so clicks never wait on animations; `e2e/motion.spec.ts` opts back in. Playwright never reuses a server it didn't start; set `E2E_PORT` if 4173 is taken. `e2e/table.spec.ts` checks layouts at exact game states through a test-only harness (`e2e/harness.ts` renders them via `window.__SKYJO_TABLE__`, see `App.tsx`).
+- E2E runs with `reducedMotion: "reduce"` so clicks never wait on animations; `e2e/motion.spec.ts` opts back in. E2E phones (`phones()` in `e2e/helpers.ts`) also hide Web Audio, because a running `AudioContext` makes headless WebKit slow enough to time out; `e2e/sound.spec.ts` opts back in with `audio: true`. Playwright never reuses a server it didn't start; set `E2E_PORT` if 4173 is taken. `e2e/table.spec.ts` checks layouts at exact game states through a test-only harness (`e2e/harness.ts` renders them via `window.__SKYJO_TABLE__`, see `App.tsx`).
 - Never commit `.env` or any secret. `GEMINI_API_KEY` in `.env` is for `scripts/` only.
 - Conventional commit messages (`feat:`, `fix:`, `chore:`, `docs:`, `test:`).
 

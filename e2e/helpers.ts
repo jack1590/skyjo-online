@@ -6,12 +6,19 @@ import {
   type TestInfo,
 } from "@playwright/test";
 
-/** Separate browser contexts = separate phones (own storage, own token). */
+/** Context options, plus `audio: true` to keep Web Audio (only e2e/sound.spec.ts needs it). */
+type PhoneOptions = BrowserContextOptions & { audio?: boolean };
+
+/**
+ * Separate browser contexts = separate phones (own storage, own token). Web Audio is hidden by
+ * default: headless WebKit has no audio device, and a running AudioContext slowed every click
+ * enough to time out a 2-phone round (PR #7).
+ */
 export async function phones(
   browser: Browser,
   info: TestInfo,
   n: number,
-  extra: BrowserContextOptions = {},
+  { audio = false, ...extra }: PhoneOptions = {},
 ): Promise<Page[]> {
   const {
     viewport,
@@ -36,6 +43,11 @@ export async function phones(
         reducedMotion,
         ...extra,
       });
+      if (!audio) {
+        await context.addInitScript(() => {
+          delete (window as { AudioContext?: unknown }).AudioContext; // the app then stays silent
+        });
+      }
       return context.newPage();
     }),
   );
@@ -60,7 +72,7 @@ export async function seatedRoom(
   browser: Browser,
   info: TestInfo,
   names: string[],
-  extra: BrowserContextOptions = {},
+  extra: PhoneOptions = {},
 ) {
   const pages = await phones(browser, info, names.length, extra);
   const code = await createRoom(pages[0]);
@@ -69,8 +81,9 @@ export async function seatedRoom(
 }
 
 /**
- * Makes one move on `page` if it's that phone's turn (flip, draw from deck, discard then flip),
- * or advances the round as host. Waits for the server's answer before returning true.
+ * Makes one move on `page` if it's that phone's turn (flip, draw from deck, swap the drawn card
+ * into a face-down slot), or advances the round as host. Waits for the server's answer before
+ * returning true.
  */
 export async function botStep(page: Page): Promise<boolean> {
   const table = page.getByTestId("table");
@@ -93,8 +106,6 @@ export async function botStep(page: Page): Promise<boolean> {
     await page.getByTestId("deck").click();
     await expect(page.getByTestId("drawn")).toBeVisible();
   } else if (phase === "place") {
-    await page.getByTestId("discard").click();
-    await expect(page.getByText("Tap a face-down card to flip it")).toBeVisible();
     await faceDown.first().click();
     await expect(table).not.toHaveAttribute("data-phase", "place");
   }

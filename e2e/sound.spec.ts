@@ -18,7 +18,7 @@ test("moves make sounds; the mute switch silences them and is remembered", async
   browser,
 }, info) => {
   test.skip(info.project.name !== "pixel", "one engine is enough for audio wiring");
-  const { pages } = await seatedRoom(browser, info, ["Ana", "Ben"]);
+  const { pages } = await seatedRoom(browser, info, ["Ana", "Ben"], { audio: true });
   const [ana, ben] = pages;
   await countSounds(ben);
   await ben.reload();
