@@ -20,6 +20,7 @@ permissions: {}
 
 jobs:
   live:
+    name: health (live)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
