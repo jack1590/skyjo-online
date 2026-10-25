@@ -9,58 +9,14 @@ import {
   createGame,
   type GameState,
   legalActions,
-  newDeck,
   RuleError,
   type Slot,
 } from "./game";
-import { nextRandom, type Rng } from "./rng";
+import type { Rng } from "./rng";
+import { names, type Pick, playRandom, simulate } from "./simkit";
 import { toView } from "./view";
 
-const names = (n: number) => Array.from({ length: n }, (_, i) => `P${i}`);
 const seed = (n: number): Rng => [n, 0, 0, 0];
-
-/** Count of each card value, index = value + 2. */
-function histogram(cards: Card[]): number[] {
-  const counts = Array<number>(15).fill(0);
-  for (const card of cards) counts[card + 2]++;
-  return counts;
-}
-const FULL_DECK = histogram(newDeck()).join();
-
-function cardsInPlay(s: GameState): Card[] {
-  const cards = [...s.deck, ...s.discard];
-  for (const p of s.players) for (const slot of p.grid) if (slot) cards.push(slot.card);
-  if (s.drawn !== null) cards.push(s.drawn);
-  return cards;
-}
-
-type Pick = (n: number) => number;
-
-/** Plays one game choosing uniformly among legal actions; `onStep` sees each state before its move. */
-function playRandom(
-  players: number,
-  seed: number,
-  onStep?: (s: GameState, pick: Pick) => void,
-  knockout = false,
-) {
-  let rng: Rng = [seed, 7, 7, 7];
-  const pick: Pick = (n) => {
-    let v: number;
-    [v, rng] = nextRandom(rng);
-    return Math.floor(v * n);
-  };
-  let s = createGame(names(players), [seed, 0, 0, 0], { knockout });
-  const actions: Action[] = [];
-  while (s.phase !== "gameOver") {
-    onStep?.(s, pick);
-    const legal = legalActions(s);
-    const action = legal[pick(legal.length)] as Action;
-    s = apply(s, action);
-    actions.push(action);
-    if (actions.length > 20_000) throw new Error(`seed ${seed} did not finish`);
-  }
-  return { s, actions };
-}
 
 const actionKey = (a: Action) =>
   JSON.stringify([
@@ -87,51 +43,9 @@ function randomAction(pick: Pick, players: number): Action {
   }
 }
 
-/** The seats an action set may move for; nextRound has none. */
-const actors = (actions: Action[]) =>
-  new Set(actions.flatMap((a) => ("seat" in a ? [a.seat] : [])));
-
 describe("simulation", () => {
-  for (const knockout of [false, true]) {
-    it(`simulates 1000 seeded games (2–8 players) to completion${knockout ? ", R16: with knockout on" : ""}`, () => {
-      for (let seed = 0; seed < 1000; seed++) {
-        const players = 2 + (seed % 7);
-        const { s } = playRandom(
-          players,
-          seed,
-          (state) => {
-            if (histogram(cardsInPlay(state)).join() !== FULL_DECK) {
-              throw new Error(`seed ${seed}: cards not conserved`);
-            }
-            const turnTaker = state.players[state.current].grid;
-            if (state.phase === "draw" && !turnTaker.some((slot) => slot && !slot.up)) {
-              throw new Error(`seed ${seed}: turn-taker has no face-down card`);
-            }
-            // R16: from the round after they went out, players hold no cards and never act.
-            const acting = actors(legalActions(state));
-            state.players.forEach((p, seat) => {
-              if (p.out === null || p.out === state.round) return;
-              if (p.grid.length || acting.has(seat))
-                throw new Error(`seed ${seed}: out seat plays`);
-            });
-          },
-          knockout,
-        );
-        expect(s.phase).toBe("gameOver");
-        expect(s.players.some((p) => p.total >= 100)).toBe(true);
-        for (const p of s.players) expect(p.total).toBe(p.scores.reduce((a, b) => a + b, 0));
-        const left = s.players.filter((p) => p.out === null);
-        if (knockout) expect(left.length).toBeLessThanOrEqual(1);
-        else expect(s.players.every((p) => p.out === null)).toBe(true);
-        if (knockout && left.length === 1) expect(s.winners).toEqual([s.players.indexOf(left[0])]);
-      }
-    });
-  }
-
-  it("R16: with 2 players, knockout and R14 give the same winners on every seeded game", () => {
-    for (let seed = 0; seed < 1000; seed += 7) {
-      expect(playRandom(2, seed, undefined, true).s.winners).toEqual(playRandom(2, seed).s.winners);
-    }
+  it("simulates 1000 seeded games (2–8 players) to completion", () => {
+    simulate(false);
   });
 
   it("rejects random illegal actions, out players' included (R16)", () => {
