@@ -381,9 +381,9 @@ describe("RoomDO alarms", () => {
 });
 
 /** Rows written and DO requests over the rest of the day, up to the room's 24 h expiry, while `tabs` only ping. */
-async function dayLeftOpen(t: Harness, tabs: FakeSocket[]) {
+async function dayLeftOpen(t: Harness, tabs: FakeSocket[], ms = IDLE_MS - 1) {
   const [rows, requests] = [t.rows(), t.requests];
-  await t.advance(IDLE_MS - 1, tabs);
+  await t.advance(ms, tabs);
   expect(t.exists()).toBe(true);
   return { rows: t.rows() - rows, requests: Math.round(t.requests - requests) };
 }
@@ -408,16 +408,19 @@ describe("RoomDO quiet rooms (SEC-9)", () => {
     const flip = await harness();
     const dealt = await flip.seat(2);
     await flip.send(dealt[0], { t: "start" });
-    const auto = await dayLeftOpen(flip, dealt);
-    expect(flip.game()?.phase).toMatch(/roundOver|gameOver/);
+    const dealtAt = Date.now();
+    const [rows, requests] = [flip.rows(), flip.requests];
+    while (!/roundOver|gameOver/.test(flip.game()?.phase ?? "")) await flip.advance(1_000, dealt);
+    const steps = Math.round(flip.requests - requests); // an alarm run each, saving the room
+    expect(flip.rows() - rows).toBe(2 * steps);
+    const after = await dayLeftOpen(flip, dealt, dealtAt + IDLE_MS - 1 - Date.now());
 
-    // Before SEC-9: 2,159, 2,160, and 2,308 rows (2,232 requests): a check every ≤ 45 s all day.
-    for (const cost of [left, read]) {
+    // v2.1.1: 2,159, 2,160, and 2,308 rows (2,232 requests), with a check every ≤ 45 s all day.
+    // Now 157, 158, and 267–329 (211–241): the round Auto-play plays, 2 rows a step, then 158.
+    for (const cost of [left, read, after]) {
       expect(cost.rows).toBeLessThanOrEqual(170);
       expect(cost.requests).toBeLessThanOrEqual(170);
     }
-    // The round Auto-play plays out (about 160 rows, with the deal), then the summary's 158.
-    expect(auto.rows).toBeLessThanOrEqual(600);
   });
 
   it("SEC-9: after 10 quiet minutes presence is checked every 10 min, so a dropped phone shows offline within about 10 min; any message brings back the 45 s checks, across hibernation", async () => {
@@ -427,9 +430,10 @@ describe("RoomDO quiet rooms (SEC-9)", () => {
     let runs = t.requests;
     await t.advance(60 * 60_000, tabs);
     expect(Math.round(t.requests - runs)).toBe(6);
-    await t.advance(QUIET_MS + STALE_MS, [tabs[0]]); // seat 1's phone drops without closing
+    await t.advance(QUIET_MS + STALE_MS, [tabs[0]]); // seat 1's network stalls, its socket open
     expect(lastView(tabs[0]).seats[1].connected).toBe(false);
-    await t.send(tabs[1], { t: "hello", token: token(1) }); // back: everyone sees it at once
+    t.ping(tabs[1]); // its buffered pings land first, then its hello: everyone sees it back at once
+    await t.send(tabs[1], { t: "hello", token: token(1) });
     expect(lastView(tabs[0]).seats[1].connected).toBe(true);
     t.wake(); // the hello wrote no row, but its time survives in the socket's attachment
     runs = t.requests;

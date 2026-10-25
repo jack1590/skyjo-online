@@ -269,6 +269,8 @@ export class Room {
     }
     if (conn.token === null) throw new RoomError("bad-message");
     const seat = this.seatOf(conn);
+    // No message from this seat for STALE_MS: the table may have been shown it offline.
+    const quiet = seat !== null && now - this.data.seats[seat].seenAt >= STALE_MS;
     if (seat !== null) this.data.seats[seat].seenAt = now;
     this.data.updatedAt = now;
     conn.heardAt = now;
@@ -277,8 +279,10 @@ export class Room {
     const lobby = game === null;
     switch (msg.t) {
       case "hello":
-        // A repeated hello, or a second tab, only refreshes signs of life: nobody else sees it.
-        return this.online(live) === online ? "none" : "view";
+        // A repeated hello, or a second tab, only refreshes signs of life: nobody else sees it. A
+        // quiet seat's hello is told to everyone (no row): pings that land before it would hide
+        // from `online` that the table saw it offline (SEC-9).
+        return this.online(live) === online && !quiet ? "none" : "view";
       case "join": {
         if (seat !== null || !lobby) throw new RoomError("not-allowed");
         if (seats.length >= MAX_PLAYERS) throw new RoomError("room-full");

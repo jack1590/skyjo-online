@@ -186,7 +186,7 @@ describe("lobby", () => {
     expect(t.send(a, { t: "start" })).toBe("data");
   });
 
-  it("SEC-3: a hello changes other views only when it changes who is online", () => {
+  it("SEC-3, SEC-9: a hello changes other views only when it changes who is online, or its seat may have been shown offline", () => {
     const t = setup();
     const [a, b] = t.seated(2);
     expect(t.send(a, { t: "hello", token: "token-0-abcdef" })).toBe("none");
@@ -194,6 +194,10 @@ describe("lobby", () => {
     expect(t.send(secondTab, { t: "hello", token: "token-1-abcdef" })).toBe("none");
     t.advance(STALE_MS, [b, secondTab]); // a's phone went quiet
     expect(t.send(a, { t: "hello", token: "token-0-abcdef" })).toBe("view");
+    // b sent nothing for 45 s, and its pings came back just before its hello.
+    t.advance(STALE_MS);
+    expect(t.send(b, { t: "hello", token: "token-1-abcdef" })).toBe("view");
+    expect(t.send(b, { t: "hello", token: "token-1-abcdef" })).toBe("none");
   });
 
   it("SEC-3: only a seated socket's close needs persisting", () => {

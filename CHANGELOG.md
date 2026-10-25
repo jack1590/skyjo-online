@@ -9,11 +9,11 @@ Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When
 ### Changed
 
 - A room where nobody has tapped anything for 10 minutes checks who is still there every 10 minutes instead of every 45 seconds. In such a room, a player's dot can stay green, or the **Start**, **Next round** and **Play again** buttons can stay with the host, for up to 10 minutes after that phone has gone. Anything anyone sends, including a phone coming back to the app, brings the room up to date at once and back to the 45-second checks for 10 minutes. Turn clocks and Auto-play keep their exact timing.
-- Looking at a room (coming back to the tab or the app) now keeps it alive, like any tap. A room is still deleted 24 hours after the last time anyone did either.
+- Coming back to a room (to its tab or the app) now keeps it alive like a tap, for as long as that tab stays open. Once it's closed, the room is deleted 24 hours after the last tap, as before.
 
 ### Fixed
 
-- A player thinking alone is no longer auto-played the moment the other player comes back. When the other phone lost its network for 45 seconds or more but kept its connection, it came back unseen, and the next message from anyone played the thinking player's turn. Now that player gets a fresh 30 seconds when the other comes back. A phone that the room shows as offline while it is open on screen also tells the room it is back, so everyone sees it at once.
+- A player thinking alone is no longer auto-played the moment the other player comes back. When the other phone lost its network for 45 seconds or more but kept its connection, it came back unseen, and the next message from anyone played the thinking player's turn. Now that player gets a fresh 30 seconds when the other comes back. A phone that the room shows as offline while it is open on screen also tells the room it is back, so everyone sees it at once, in a game, the lobby or a summary.
 
 ### Security
 
