@@ -4,6 +4,17 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.1.3] - 2026-10-25
+
+### Fixed
+
+- After you throw away a card you drew, it's now clear which card to tap. Your face-down cards get a glowing gold outline, and your face-up cards fade back. Before, the only gold outline was on the discard pile, and tapping it only took you back. With reduced motion on, the outline holds still.
+- The prompt says what to do: "Now flip one of your face-down cards, or keep the drawn card" (in Spanish, "Ahora voltea una de tus cartas boca abajo…"; in Portuguese, "Agora vire uma das suas cartas viradas para baixo…"). It fits in two lines on small phones.
+
+### Changed
+
+- The card you drew no longer has a gold outline, since tapping it there does nothing. It sits a little higher, with a shadow, as if held in your hand. Gold now marks only the cards you can tap.
+
 ## [2.1.2] - 2026-10-25
 
 ### Changed
