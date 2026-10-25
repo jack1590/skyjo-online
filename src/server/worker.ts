@@ -234,12 +234,22 @@ export class RoomDO extends DurableObject<Env> {
     return this.webSocketClose(ws);
   }
 
+  private lastAlarm = 0;
+  private fastAlarms = 0;
   alarm() {
     return this.serial(async () => {
       const room = await this.load();
       this.alarmAt = null; // this one just fired
       if (!room) return;
       const live = this.live();
+      // PROBE: log rooms whose alarm keeps firing almost at once.
+      const gap = Date.now() - this.lastAlarm;
+      this.lastAlarm = Date.now();
+      if (gap < 50 && ++this.fastAlarms % 200 === 1) {
+        const d = room.data;
+        const g = d.game;
+        console.log(`PROBE fast alarm #${this.fastAlarms} room ${d.code} gap ${gap} now ${Date.now()} next ${room.nextAlarm([...live.values()])} phase ${g?.phase} cur ${g?.current} drawn ${g?.drawn} turnSince ${d.turnSince} waitSince ${d.waitSince} updatedAt ${d.updatedAt} seats ${JSON.stringify(d.seats.map((x) => [x.auto, x.seenAt]))} live ${JSON.stringify([...live.values()].map((c) => [c.token?.slice(0, 6), c.seenAt]))} view ${JSON.stringify(room.view([...live.values()][0] ?? { token: null } as never, [...live.values()]).clocks)}`);
+      }
       if (room.isIdle([...live.values()])) {
         for (const ws of live.keys()) {
           send(ws, { t: "missing" });

@@ -15,7 +15,13 @@ jobs:
         with:
           fetch-depth: 0
       - run: npm ci
-      - name: Whole iPhone project x3 on head, with the instrumented round
+      - name: Whole iPhone project x2 on head, logging fast alarms
         run: |
           npm run build > /dev/null 2>&1
-          for i in 1 2 3; do npx playwright test --project=iphone --workers=2 --reporter=list 2>&1 | grep -vE "^\s+✓" ; done
+          for i in 1 2; do npx playwright test --project=iphone --workers=2 --reporter=list 2>&1 | grep -E "ROUNDLOG total|PROBE fast alarm|passed|failed" | head -60 ; done
+      - name: Same with the old nextAlarm filter (no clamp)
+        run: |
+          sed -i 's|    return Math.max(Math.min(...due), now + 1);|    const future = due.filter((t) => t > now);\n    return future.length ? Math.min(...future) : now + STALE_MS;|' src/server/room.ts
+          grep -n "future" src/server/room.ts
+          npm run build > /dev/null 2>&1
+          for i in 1 2; do npx playwright test --project=iphone --workers=2 --reporter=list 2>&1 | grep -E "ROUNDLOG total|PROBE fast alarm|passed|failed" | head -60 ; done
