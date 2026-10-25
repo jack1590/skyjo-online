@@ -11,8 +11,10 @@ export interface Player {
   name: string;
   grid: Grid;
   total: number;
-  /** Round scores after doubling, one per finished round. */
+  /** Round scores after doubling, one per finished round the player was in. */
   scores: number[];
+  /** R16: the round this player went out, after which they get no cards; null while still in. */
+  out: number | null;
 }
 export type Phase = "flip" | "draw" | "place" | "roundOver" | "gameOver";
 export interface GameState {
@@ -31,6 +33,11 @@ export interface GameState {
   /** Whether the ender's score was doubled; set at round end, cleared by the next deal. */
   doubled: boolean;
   winners: number[];
+  /** R16, an option: play until one is left. Off, R14 ends the game. */
+  knockout: boolean;
+}
+export interface GameOptions {
+  knockout?: boolean;
 }
 export type Action =
   | { type: "flip"; seat: number; pos: number }
@@ -62,7 +69,7 @@ export function newDeck(): Card[] {
 }
 
 /** `seed` must come from a CSPRNG (e.g. crypto.getRandomValues) in real games. */
-export function createGame(names: string[], seed: Rng): GameState {
+export function createGame(names: string[], seed: Rng, options: GameOptions = {}): GameState {
   if (names.length < MIN_PLAYERS || names.length > MAX_PLAYERS) {
     throw new RuleError(`A game needs ${MIN_PLAYERS}–${MAX_PLAYERS} players`);
   }
@@ -72,7 +79,7 @@ export function createGame(names: string[], seed: Rng): GameState {
     round: 0,
     phase: "flip",
     current: 0,
-    players: names.map((name) => ({ name, grid: [], total: 0, scores: [] })),
+    players: names.map((name) => ({ name, grid: [], total: 0, scores: [], out: null })),
     deck: [],
     discard: [],
     drawn: null,
@@ -80,21 +87,23 @@ export function createGame(names: string[], seed: Rng): GameState {
     ender: null,
     doubled: false,
     winners: [],
+    knockout: options.knockout === true,
   };
   deal(state);
   return state;
 }
 
-/** R2/R15: fresh shuffle of all 150 cards, new grids, one card starts the discard. */
+/** R2/R15: fresh shuffle of all 150 cards, new grids (none for players who are out), one card starts the discard. */
 function deal(s: GameState): void {
   [s.deck, s.rng] = shuffle(newDeck(), s.rng);
   for (const p of s.players) {
-    p.grid = s.deck.splice(0, ROWS * COLS).map((card) => ({ card, up: false }));
+    p.grid =
+      p.out === null ? s.deck.splice(0, ROWS * COLS).map((card) => ({ card, up: false })) : [];
   }
   s.discard = s.deck.splice(-1);
   s.round++;
   s.phase = "flip";
-  s.current = 0;
+  s.current = s.players.findIndex((p) => p.out === null);
   s.drawn = null;
   s.drawnFrom = null;
   s.ender = null;
@@ -192,16 +201,20 @@ function requireTurn(s: GameState, seat: number, phase: Phase): void {
   check(seat === s.current, "Not your turn");
 }
 
-/** R3/R4: each seat flips 2; when all have, the highest visible sum starts (lowest seat on ties). */
+/**
+ * R3/R4: each seat still in (R16) flips 2; when all have, the highest visible sum among them
+ * starts (lowest seat on ties).
+ */
 function flipInitial(s: GameState, seat: number, pos: number): void {
   check(s.phase === "flip", `Not allowed now (${s.phase})`);
   check(Number.isInteger(seat) && seat >= 0 && seat < s.players.length, "Invalid seat");
+  check(s.players[seat].out === null, "You are out");
   check(upCount(s.players[seat].grid) < 2, "Already flipped two cards");
   const slot = slotAt(s, seat, pos);
   check(!slot.up, "That card is already face up");
   slot.up = true;
-  if (s.players.some((p) => upCount(p.grid) < 2)) return;
-  const sums = s.players.map((p) => visibleSum(p.grid));
+  if (s.players.some((p) => p.out === null && upCount(p.grid) < 2)) return;
+  const sums = s.players.map((p) => (p.out === null ? visibleSum(p.grid) : -Infinity));
   s.current = sums.indexOf(Math.max(...sums));
   s.phase = "draw";
 }
@@ -247,37 +260,78 @@ function removeColumns(s: GameState, seat: number): void {
   }
 }
 
-/** R10: the first player with nothing face down becomes the ender; play stops when it is their turn again. */
+/**
+ * R10: the first player with nothing face down becomes the ender; play stops when it is their turn
+ * again. R5: the turn passes to the next seat, skipping players who are out (R16).
+ */
 function endTurn(s: GameState, seat: number): void {
   s.drawn = null;
   s.drawnFrom = null;
   removeColumns(s, seat);
   if (s.ender === null && !s.players[seat].grid.some((slot) => slot && !slot.up)) s.ender = seat;
-  s.current = (seat + 1) % s.players.length;
+  s.current = seat;
+  do s.current = (s.current + 1) % s.players.length;
+  while (s.players[s.current].out !== null);
   if (s.current === s.ender) endRound(s, s.ender);
   else s.phase = "draw";
 }
 
-/** R11 reveal, R12 scoring and doubling, R14 game end. */
+const seatsWhere = (s: GameState, test: (p: Player) => boolean) =>
+  s.players.flatMap((p, seat) => (test(p) ? [seat] : []));
+
+/** R11 reveal, R12 scoring and doubling, among the players still in (R16); R14 or R16 game end. */
 function endRound(s: GameState, ender: number): void {
-  s.players.forEach((p, seat) => {
-    for (const slot of p.grid) if (slot) slot.up = true;
+  const inRound = seatsWhere(s, (p) => p.out === null);
+  for (const seat of inRound) {
+    for (const slot of s.players[seat].grid) if (slot) slot.up = true;
     removeColumns(s, seat);
-  });
+  }
   const scores = s.players.map((p) => visibleSum(p.grid));
   const enderScore = scores[ender];
-  s.doubled = enderScore > 0 && scores.some((score, seat) => seat !== ender && score <= enderScore);
+  s.doubled =
+    enderScore > 0 && inRound.some((seat) => seat !== ender && scores[seat] <= enderScore);
   if (s.doubled) scores[ender] = enderScore * 2;
-  s.players.forEach((p, seat) => {
-    p.scores.push(scores[seat]);
-    p.total += scores[seat];
-  });
-  const totals = s.players.map((p) => p.total);
-  if (totals.some((total) => total >= TARGET)) {
-    const best = Math.min(...totals);
-    s.winners = totals.flatMap((total, seat) => (total === best ? [seat] : []));
-    s.phase = "gameOver";
-  } else {
-    s.phase = "roundOver";
+  for (const seat of inRound) {
+    s.players[seat].scores.push(scores[seat]);
+    s.players[seat].total += scores[seat];
   }
+  // Who the game is decided among, once it is over: R14 at the first total of 100. R16: everyone
+  // at 100 is out, and once at most one player is left, the one left, or else the lowest total of
+  // those who just went out.
+  let among: number[] | null;
+  if (s.knockout) {
+    for (const seat of inRound) if (s.players[seat].total >= TARGET) s.players[seat].out = s.round;
+    const left = seatsWhere(s, (p) => p.out === null);
+    among = left.length > 1 ? null : left.length ? left : seatsWhere(s, (p) => p.out === s.round);
+  } else {
+    among = s.players.some((p) => p.total >= TARGET) ? seatsWhere(s, () => true) : null;
+  }
+  if (among === null) {
+    s.phase = "roundOver";
+    return;
+  }
+  const best = Math.min(...among.map((seat) => s.players[seat].total));
+  s.winners = among.filter((seat) => s.players[seat].total === best);
+  s.phase = "gameOver";
+}
+
+/** What a finished game's standings need; a GameState or a GameView. */
+interface Standings {
+  players: { total: number; out: number | null }[];
+  winners: number[];
+}
+
+/**
+ * Each seat's final place, 1 = first; equal places tie. The winners share 1st. Then whoever went
+ * out later ranks higher (R16), and then the lower total.
+ */
+export function places({ players, winners }: Standings): number[] {
+  const keys = players.map(({ total, out }, seat) =>
+    winners.includes(seat) ? [0, 0, 0] : [1, -(out ?? Infinity), total],
+  );
+  const ahead = (a: number[], b: number[]) => {
+    const i = a.findIndex((v, j) => v !== b[j]);
+    return i !== -1 && a[i] < b[i];
+  };
+  return keys.map((key) => 1 + keys.filter((other) => ahead(other, key)).length);
 }

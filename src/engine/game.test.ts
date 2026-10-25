@@ -8,6 +8,7 @@ import {
   type Grid,
   legalActions,
   newDeck,
+  places,
   RuleError,
 } from "./game";
 import type { Rng } from "./rng";
@@ -415,6 +416,14 @@ describe("game end and next round", () => {
     expect(flipped.current).toBe(1);
   });
 
+  it("R14: with knockout off, 3+ players: one player crossing 100 ends the game", () => {
+    const s = endWith(inRound([95, 40, 60], [null, null, null], false), 1, [10, 3, 5]);
+    expect(s.players.map((p) => p.total)).toEqual([105, 43, 65]);
+    expect(s.phase).toBe("gameOver");
+    expect(s.winners).toEqual([1]);
+    expect(s.players.map((p) => p.out)).toEqual([null, null, null]);
+  });
+
   it("rejects every action after game over, and nextRound outside roundOver", () => {
     const over = finishRound(A20, B10, [90, 0]);
     expect(legalActions(over)).toEqual([]);
@@ -423,5 +432,235 @@ describe("game end and next round", () => {
       RuleError,
     );
     expect(() => apply(inPlay(2), { type: "nextRound" })).toThrow(RuleError);
+  });
+});
+
+/** Z0 with points at positions 8 and 9: it sums to `score` (−2 to 24), and no column ever matches. */
+const scoring = (score: number) => {
+  const a = Math.min(score, 12);
+  return Z0.map((card, i) => (i === 8 ? a : i === 9 ? score - a : card));
+};
+
+/** Round `round` of a game in play: `totals` so far, and the round each player went out (or null). */
+function inRound(totals: number[], out: (number | null)[], knockout = true, round = 4): GameState {
+  const s = createGame(names(totals.length), seed(1), { knockout });
+  s.round = round;
+  s.phase = "draw";
+  s.players.forEach((p, seat) => {
+    p.total = totals[seat];
+    p.out = out[seat];
+    if (p.out !== null) p.grid = [];
+  });
+  return s;
+}
+
+/**
+ * Plays the round out: `ender` reveals its last card, then everyone still in takes a last turn by
+ * flipping a card. Each grid then adds `scores[seat]` (out players' entries are ignored).
+ */
+function endWith(s0: GameState, ender: number, scores: number[]): GameState {
+  const s = structuredClone(s0);
+  s.current = ender;
+  s.players.forEach((p, seat) => {
+    if (p.out === null) p.grid = grid(scoring(scores[seat]), seat === ender ? upExcept(11) : [0]);
+  });
+  let next = run(
+    s,
+    { type: "draw", seat: ender, source: "deck" },
+    { type: "discardAndFlip", seat: ender, pos: 11 },
+  );
+  while (next.phase === "draw") {
+    const seat = next.current;
+    next = run(
+      next,
+      { type: "draw", seat, source: "deck" },
+      { type: "discardAndFlip", seat, pos: 1 },
+    );
+  }
+  return next;
+}
+
+const totals = (s: GameState) => s.players.map((p) => p.total);
+const outs = (s: GameState) => s.players.map((p) => p.out);
+
+describe("R16: play until one is left (knockout)", () => {
+  // Seats: Ana 0, Ben 1, Cris 2, Dani 3.
+  it("R16: off by default; createGame keeps the option, and everyone starts in", () => {
+    expect(createGame(names(3), seed(1)).knockout).toBe(false);
+    const s = createGame(names(3), seed(1), { knockout: true });
+    expect(s.knockout).toBe(true);
+    expect(outs(s)).toEqual([null, null, null]);
+  });
+
+  it("R16 A: after round 3 at Ana 104, Ben 88, Cris 61, Dani 95, Ana is out and round 4 deals only to the others", () => {
+    const s = endWith(
+      inRound([94, 80, 55, 90], [null, null, null, null], true, 3),
+      3,
+      [10, 8, 6, 5],
+    );
+    expect(totals(s)).toEqual([104, 88, 61, 95]);
+    expect(outs(s)).toEqual([3, null, null, null]);
+    expect(s.phase).toBe("roundOver");
+    const next = apply(s, { type: "nextRound" });
+    expect(next.round).toBe(4);
+    expect(next.players[0].grid).toEqual([]);
+    for (const p of next.players.slice(1)) {
+      expect(p.grid.every((slot) => slot && !slot.up)).toBe(true);
+      expect(p.grid).toHaveLength(12);
+    }
+    const cards = [
+      ...next.deck,
+      ...next.discard,
+      ...next.players.flatMap((p) => p.grid.map((slot) => slot?.card)),
+    ];
+    expect(cards.sort((a, b) => (a as number) - (b as number))).toEqual(
+      newDeck().sort((a, b) => a - b),
+    );
+    expect(next.players[0].total).toBe(104);
+  });
+
+  it("R16 B: after round 4 at Ben 102, Dani 110 and Cris 79, Ben and Dani are out and Cris wins", () => {
+    const s = endWith(inRound([104, 90, 75, 98], [3, null, null, null]), 2, [0, 12, 4, 12]);
+    expect(totals(s)).toEqual([104, 102, 79, 110]);
+    expect(outs(s)).toEqual([3, 4, null, 4]);
+    expect(s.phase).toBe("gameOver");
+    expect(s.winners).toEqual([2]);
+  });
+
+  it("R16 C: the last two, Cris 85 and Ben 92, end at Cris 97 and Ben 106: Cris wins", () => {
+    const s = endWith(inRound([104, 92, 85, 110], [3, null, null, 4], true, 5), 2, [0, 14, 12, 0]);
+    expect(totals(s)).toEqual([104, 106, 97, 110]);
+    expect(s.phase).toBe("gameOver");
+    expect(s.winners).toEqual([2]);
+    expect(outs(s)).toEqual([3, 5, null, 4]);
+  });
+
+  it("R16 D: the last two, Cris 95 and Ben 98, end at Cris 103 and Ben 115: both crossed, Cris wins on the lower total", () => {
+    const s = endWith(inRound([104, 98, 95, 110], [3, null, null, 4], true, 5), 2, [0, 17, 8, 0]);
+    expect(totals(s)).toEqual([104, 115, 103, 110]);
+    expect(outs(s)).toEqual([3, 5, 5, 4]);
+    expect(s.phase).toBe("gameOver");
+    expect(s.winners).toEqual([2]);
+  });
+
+  it("R16 E: both end at 108: a shared win", () => {
+    const s = endWith(inRound([104, 98, 96, 110], [3, null, null, 4], true, 5), 1, [0, 10, 12, 0]);
+    expect(totals(s)).toEqual([104, 108, 108, 110]);
+    expect(s.winners).toEqual([1, 2]);
+  });
+
+  it("R16 F: three left all cross, at Ben 101, Cris 120 and Dani 104: Ben wins", () => {
+    const s = endWith(inRound([104, 95, 99, 97], [3, null, null, null]), 1, [0, 6, 21, 7]);
+    expect(totals(s)).toEqual([104, 101, 120, 104]);
+    expect(outs(s)).toEqual([3, 4, 4, 4]);
+    expect(s.winners).toEqual([1]);
+  });
+
+  it("R16 with R3/R4: only players still in flip; the start player is chosen among them, the lowest seat in on a tie", () => {
+    const over = inRound([104, 50, 50, 50], [3, null, null, null], true, 3);
+    over.phase = "roundOver";
+    let s = apply(over, { type: "nextRound" });
+    expect(s.players[0].grid).toEqual([]);
+    expect(legalActions(s).every((a) => "seat" in a && a.seat !== 0)).toBe(true);
+    expect(() => apply(s, { type: "flip", seat: 0, pos: 0 })).toThrow(RuleError);
+    // Every sum is below the out seat's 0 cards: a tie at −3 between seats 1 and 3.
+    s.players[1].grid = grid([-2, -1, ...ZEROS.slice(2)]);
+    s.players[2].grid = grid([-2, -2, ...ZEROS.slice(2)]);
+    s.players[3].grid = grid([-1, -2, ...ZEROS.slice(2)]);
+    s = run(
+      s,
+      ...[1, 2, 3].flatMap((seat): Action[] => [
+        { type: "flip", seat, pos: 0 },
+        { type: "flip", seat, pos: 1 },
+      ]),
+    );
+    expect(s.phase).toBe("draw");
+    expect(s.current).toBe(1);
+  });
+
+  it("R16 with R5: turn order skips players who are out, including past the last seat", () => {
+    const s = inRound([104, 50, 50, 105], [3, null, null, 4]);
+    s.current = 2;
+    const after = run(
+      s,
+      { type: "draw", seat: 2, source: "deck" },
+      { type: "discardAndFlip", seat: 2, pos: 0 },
+    );
+    expect(after.current).toBe(1);
+  });
+
+  it("R16 with R10: only players still in get the final turns", () => {
+    const s0 = inRound([0, 104, 0, 0], [null, 3, null, null]);
+    s0.current = 2;
+    s0.players[2].grid = grid(A20, upExcept(0));
+    let s = run(
+      s0,
+      { type: "draw", seat: 2, source: "deck" },
+      { type: "discardAndFlip", seat: 2, pos: 0 },
+    );
+    const turns: number[] = [];
+    while (s.phase === "draw") {
+      const seat = s.current;
+      turns.push(seat);
+      s = run(s, { type: "draw", seat, source: "deck" }, { type: "discardAndFlip", seat, pos: 5 });
+    }
+    expect(turns).toEqual([3, 0]);
+    expect(s.phase).toBe("roundOver");
+  });
+
+  it("R16 with R12: doubling compares only that round's players", () => {
+    // Ana is out with no cards (0 points this round); Cris ends on 5, strictly below Ben's 10.
+    const s = endWith(inRound([104, 20, 20], [3, null, null]), 2, [0, 10, 5]);
+    expect(s.doubled).toBe(false);
+    expect(s.players.map((p) => p.scores.at(-1))).toEqual([undefined, 10, 5]);
+    expect(totals(s)).toEqual([104, 30, 25]);
+  });
+
+  it("R16: apply rejects any action from a player who is out", () => {
+    const s = inRound([104, 50, 50], [3, null, null]);
+    s.current = 1;
+    for (const action of [
+      { type: "draw", seat: 0, source: "deck" },
+      { type: "draw", seat: 0, source: "discard" },
+    ] as Action[]) {
+      expect(() => apply(s, action)).toThrow(RuleError);
+    }
+    const placing = apply(s, { type: "draw", seat: 1, source: "deck" });
+    for (const type of ["swap", "discardAndFlip"] as const) {
+      expect(() => apply(placing, { type, seat: 0, pos: 0 })).toThrow(RuleError);
+    }
+    const flipping = { ...s, phase: "flip" as const };
+    expect(() => apply(flipping, { type: "flip", seat: 0, pos: 0 })).toThrow(RuleError);
+  });
+
+  it("R16 ranking: winners share 1st; then a later out ranks higher; the same round, the lower total", () => {
+    // Cris wins; Ben and Dani went out in round 5, Ana and Eli in round 3.
+    const players = [
+      { total: 104, out: 3 },
+      { total: 115, out: 5 },
+      { total: 97, out: null },
+      { total: 106, out: 5 },
+      { total: 101, out: 3 },
+      { total: 101, out: 3 },
+    ];
+    expect(places({ players, winners: [2] })).toEqual([6, 3, 1, 2, 4, 4]);
+    const tied = [
+      { total: 108, out: 5 },
+      { total: 108, out: 5 },
+      { total: 110, out: 4 },
+    ];
+    expect(places({ players: tied, winners: [0, 1] })).toEqual([1, 1, 3]);
+    // With knockout off, by total.
+    const r14 = [
+      { total: 105, out: null },
+      { total: 43, out: null },
+      { total: 65, out: null },
+    ];
+    expect(places({ players: r14, winners: [1] })).toEqual([3, 1, 2]);
+  });
+
+  it("R16 ranking of a played game: B ends with Cris 1st, Ben 2nd, Dani 3rd, Ana last", () => {
+    const s = endWith(inRound([104, 90, 75, 98], [3, null, null, null]), 2, [0, 12, 4, 12]);
+    expect(places(s)).toEqual([4, 2, 1, 3]);
   });
 });

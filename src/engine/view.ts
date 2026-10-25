@@ -8,6 +8,8 @@ export interface PlayerView {
   grid: ViewSlot[];
   total: number;
   scores: number[];
+  /** R16: the round this player went out; their grid is empty from the next round on. */
+  out: number | null;
 }
 
 export interface GameView {
@@ -22,6 +24,8 @@ export interface GameView {
   discardTop: Card | null;
   drawn: Card | null;
   drawnFrom: GameState["drawnFrom"];
+  /** R16: play until one is left. */
+  knockout: boolean;
 }
 
 /** Public projection. Face-down values, deck order, and RNG state never leave the engine. */
@@ -38,10 +42,12 @@ export function toView(s: GameState): GameView {
       grid: p.grid.map((slot) => (slot === null ? null : slot.up ? slot.card : "down")),
       total: p.total,
       scores: [...p.scores],
+      out: p.out,
     })),
     deckCount: s.deck.length,
     discardTop: s.discard.at(-1) ?? null,
     drawn: s.drawn,
     drawnFrom: s.drawnFrom,
+    knockout: s.knockout,
   };
 }
