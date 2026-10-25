@@ -385,6 +385,21 @@ test("M17: a player who is out watches: 'Out · watching' on their seat, the spe
   await expectMobileFriendly(page);
 });
 
+test("M17: when everyone still in reaches 100 in the same round, the winner went out too but isn't tagged out", async ({
+  page,
+}) => {
+  // Seed 2: Dani goes out after round 1; Ana, Ben and Cris all reach 100 in round 2, and Cris,
+  // on the lowest total, wins.
+  const over = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 2).at(-1);
+  if (!over) throw new Error("no game");
+  expect([over.players.map((p) => p.out), over.winners]).toEqual([[2, 2, 2, 1], [2]]);
+  await show(page, { view: toView(over), seat: 0 });
+  const rows = page.getByTestId("game-over").locator("tbody tr");
+  await expect(rows.first()).toHaveText(/^Cris/);
+  await expect(rows.first().getByTestId("out-tag")).toHaveCount(0);
+  await expect(page.getByTestId("game-over").getByTestId("out-tag")).toHaveCount(3);
+});
+
 test("M17: the final ranking: the winner first, then by the round they went out, then the lower total, in en, es and pt", async ({
   page,
 }) => {

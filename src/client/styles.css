@@ -1003,6 +1003,11 @@ button.card:active {
   cursor: default;
 }
 
+/* Only a leader can flip it: everyone else sees its state, plainly not a control. */
+.option:has(input:disabled) .switch {
+  opacity: 0.5;
+}
+
 .option .switch input {
   top: -10px;
 }

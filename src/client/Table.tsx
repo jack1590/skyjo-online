@@ -542,7 +542,8 @@ function Summary({ view, lead, auto, onPeek, onNext, onPlayAgain, onExit }: Summ
                     {auto?.[p.seat] && <Bot />}
                     {p.name}
                     {p.seat === view.ender && <span className="tag">{t("ended")}</span>}
-                    {p.out !== null && (
+                    {/* A winner may have reached 100 too, when nobody was left under it. */}
+                    {p.out !== null && !view.winners.includes(p.seat) && (
                       <span className="tag" data-testid="out-tag">
                         {t("outInRound", { n: p.out })}
                       </span>
