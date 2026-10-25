@@ -18,7 +18,10 @@ jobs:
       - name: Whole iPhone project x2 on head, logging fast alarms
         run: |
           npm run build > /dev/null 2>&1
-          npx playwright test --project=iphone --workers=2 --reporter=list > /tmp/run.log 2>&1 || true
-          grep -E "ROUNDLOG total|passed|failed" /tmp/run.log
-          grep -c "PROBE fast alarm" /tmp/run.log || true
-          grep -E "PROBE fast alarm" /tmp/run.log | cut -c1-900 | head -30 || true
+          for i in 1 2; do
+            npx playwright test --project=iphone --workers=2 --reporter=list > /tmp/run$i.log 2>&1 || true
+            grep -E "ROUNDLOG total|passed|failed" /tmp/run$i.log
+            echo "alarm lines: $(grep -c PROBEALARM /tmp/run$i.log)"
+            grep -oE "PROBEALARM [A-Z0-9]+" /tmp/run$i.log | sort | uniq -c | sort -rn | head -8
+            for r in $(grep -oE "PROBEALARM [A-Z0-9]+" /tmp/run$i.log | sort | uniq -c | sort -rn | head -2 | awk '{print $3}'); do grep "PROBEALARM $r" /tmp/run$i.log | head -4; grep "PROBEALARM $r" /tmp/run$i.log | tail -3; done
+          done

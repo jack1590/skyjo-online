@@ -242,13 +242,13 @@ export class RoomDO extends DurableObject<Env> {
       this.alarmAt = null; // this one just fired
       if (!room) return;
       const live = this.live();
-      // PROBE: log rooms whose alarm keeps firing almost at once.
-      const gap = Date.now() - this.lastAlarm;
-      this.lastAlarm = Date.now();
-      if (++this.fastAlarms % 25 === 0) {
-        const d = room.data;
-        const g = d.game;
-        console.error(`PROBE fast alarm #${this.fastAlarms} room ${d.code} gap ${gap} now ${Date.now()} next ${room.nextAlarm([...live.values()])} phase ${g?.phase} cur ${g?.current} drawn ${g?.drawn} turnSince ${d.turnSince} waitSince ${d.waitSince} updatedAt ${d.updatedAt} seats ${JSON.stringify(d.seats.map((x) => [x.auto, x.seenAt]))} live ${JSON.stringify([...live.values()].map((c) => [c.token?.slice(0, 6), c.seenAt]))} view ${JSON.stringify(room.view([...live.values()][0] ?? { token: null } as never, [...live.values()]).clocks)}`);
+      // PROBE: every alarm, compactly.
+      {
+        const gap = Date.now() - this.lastAlarm;
+        this.lastAlarm = Date.now();
+        const conns = [...live.values()];
+        const g = room.data.game;
+        console.error(`PROBEALARM ${room.data.code} n=${++this.fastAlarms} gap=${gap} phase=${g?.phase} cur=${g?.current} auto=${room.data.seats.map((x) => +(x.auto === true)).join("")} live=${conns.length} next-now=${room.nextAlarm(conns) - Date.now()} idleIn=${room.data.updatedAt + 86_400_000 - Date.now()}`);
       }
       if (room.isIdle([...live.values()])) {
         for (const ws of live.keys()) {
