@@ -6,6 +6,17 @@ import {
   type TestInfo,
 } from "@playwright/test";
 
+/**
+ * Hides the Wake Lock API unless the test stubbed its own (an own property on `navigator`). In CI's
+ * Linux WebKit a real request stalls the page: hiding it took a 2-phone round from 10.2 s to 7.5 s
+ * (median of 8) and the iPhone project from 84 s to 59 s (PR #17 probe). Real phones are unaffected.
+ */
+export function noWakeLock() {
+  if (!Object.getOwnPropertyDescriptor(navigator, "wakeLock")) {
+    Object.defineProperty(navigator, "wakeLock", { value: undefined, configurable: true });
+  }
+}
+
 /** Context options, plus `audio: true` to keep Web Audio (only e2e/sound.spec.ts needs it). */
 type PhoneOptions = BrowserContextOptions & { audio?: boolean };
 
@@ -43,6 +54,7 @@ export async function phones(
         reducedMotion,
         ...extra,
       });
+      await context.addInitScript(noWakeLock);
       if (!audio) {
         await context.addInitScript(() => {
           delete (window as { AudioContext?: unknown }).AudioContext; // the app then stays silent

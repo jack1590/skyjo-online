@@ -122,10 +122,11 @@ test("M8: a player who ticks Auto-play is played for, a step at a time, until th
     await b.screenshot({ path: "docs/screenshots/m8/10-others-see-auto-play.jpg", scale: "css" });
     await a.screenshot({ path: "docs/screenshots/m8/11-auto-play-on.jpg", scale: "css" });
   }
-  // A's taps on its cards point at the switch and send no move.
+  // A's taps on its cards and on the deck point at the switch and send no move.
   const moves = () => (sent.get(a) ?? []).filter((m) => m.msg.includes('"t":"act"')).length;
   const before = moves();
   await a.getByTestId("my-grid").locator("button").first().click({ force: true });
+  await a.getByTestId("deck").click({ force: true });
   await expect(a.getByTestId("mine-head")).toHaveText(/^Auto-play (is|was) on/);
   expect(moves()).toBe(before);
   // Unticked, A's next turn waits for A: its clock is a 30 s timer, not an auto-play step.
