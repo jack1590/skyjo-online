@@ -79,7 +79,7 @@ Engine API: `createGame(names, seed)` (`seed` is 4 int32s from `crypto.getRandom
 
 CI (`.github/workflows/ci.yml`) runs on every PR and on `main`, as parallel jobs; the first five are required checks:
 - `ci`: lint, typecheck, unit tests, build (~1 min).
-- `e2e (iphone)`, `e2e (pixel)`, `e2e (desktop)`: Playwright, one device per job (iPhone with 4 workers, since WebKit is the critical path), inside the `mcr.microsoft.com/playwright` container (browsers preinstalled). Long full-game play-throughs run on Pixel only; layout, 44px, i18n, reload, and interaction tests run on all three.
+- `e2e (iphone)`, `e2e (pixel)`, `e2e (desktop)`: Playwright, one device per job (iPhone with 4 workers: WebKit is the critical path, and CPU contention between its workers, not the app, is what makes it slow), inside the `mcr.microsoft.com/playwright` container (browsers preinstalled). Long full-game play-throughs run on Pixel only; layout, 44px, i18n, reload, and interaction tests run on all three.
 - `e2e (node)`: the online suite against the Node self-host server.
 - On `main` only: `deploy` (`wrangler deploy` with the repo secrets) then `smoke (live)`, which plays a 2-phone round on the live URL (a whole game at bot speed would trip the per-IP message limit), then `release`: if there is no GitHub Release `v<package.json version>` yet, it creates the tag and the Release whose notes are that version's `CHANGELOG.md` section. Deploys are never cancelled mid-run.
 - `ci` fails when `CHANGELOG.md` has no section for the `package.json` version.

@@ -46,8 +46,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # WebKit is the critical path: 4 workers on the 4-vCPU runner (2 is Playwright's default)
-          # ran the iPhone project in 40–42 s instead of 56–58 s on one machine (PR #17 probe).
+          # WebKit is the critical path: on one runner, the iPhone project took 80–82 s with 2
+          # workers (Playwright's default on 4 vCPUs) and 62 s with 4 (PR #17 probe).
           - { name: iphone, project: iphone, workers: 4 }
           - { name: pixel, project: pixel }
           - { name: desktop, project: desktop }

@@ -4,7 +4,6 @@ import { expect, type Page } from "@playwright/test";
 import { apply, createGame, type GameState, legalActions } from "../src/engine/game";
 import { type GameView, toView } from "../src/engine/view";
 import type { Wait } from "../src/protocol";
-import { noWakeLock } from "./helpers";
 
 /** A game one move into its last turns: someone revealed everything; the next player is to draw. */
 export function lastTurnGame(players: number, seed: number): GameState {
@@ -46,7 +45,6 @@ export interface Shown {
 }
 
 export async function show(page: Page, table: Shown) {
-  await page.addInitScript(noWakeLock);
   await page.addInitScript((t) => {
     (window as unknown as { __SKYJO_TABLE__: unknown }).__SKYJO_TABLE__ = t;
   }, table);

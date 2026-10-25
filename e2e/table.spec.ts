@@ -50,18 +50,17 @@ const smallestOpponentNumber = (page: Page) =>
     ),
   );
 
-// One page for all seven tables: a new page per table cost WebKit about a second each in CI.
-test("2–8 players, with your clock running: fits, every tap target ≥ 44px, opponents' numbers readable", async ({
-  page,
-}) => {
-  for (let players = 2; players <= 8; players++) {
+for (const players of [2, 3, 4, 5, 6, 7, 8]) {
+  test(`${players} players, with your clock running: fits, every tap target ≥ 44px, opponents' numbers readable`, async ({
+    page,
+  }) => {
     await show(page, clockAt9(players));
     await expect(page.getByTestId("clock")).toBeVisible();
     await expectMobileFriendly(page);
     await expect(page.getByTestId("opponent")).toHaveCount(players - 1);
     expect(await smallestOpponentNumber(page)).toBeGreaterThanOrEqual(12);
-  }
-});
+  });
+}
 
 test.describe("360×740 (common Android width)", () => {
   test.use({ viewport: { width: 360, height: 740 } });
