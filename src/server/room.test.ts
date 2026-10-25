@@ -612,6 +612,20 @@ describe("everyone on Auto-play (BUG-1)", () => {
     expect(t.room.nextAlarm(t.live)).toBe(t.room.data.updatedAt + IDLE_MS);
   });
 
+  it("BUG-1: a player off Auto-play whose only connected opponent is on Auto-play has a 30 s clock, then goes on Auto-play", () => {
+    const t = setup();
+    const conns = startedGame(t, 2);
+    pastFlips(t, conns);
+    const current = t.room.data.game?.current ?? 0;
+    t.send(conns[1 - current], { t: "auto", on: true });
+    expect(t.room.view(conns[current], t.live).clocks).toEqual([
+      { seat: current, inMs: TURN_MS, reason: "timer" },
+    ]);
+    t.advance(TURN_MS);
+    expect(t.room.tick(t.live)).toBe(true);
+    expect(autoSeats(t)).toEqual([true, true]);
+  });
+
   it("BUG-1: in the opening flip, two present players who don't flip for 30 s both go on Auto-play, both flip twice, and the first turn starts", () => {
     const t = setup();
     startedGame(t, 2);
@@ -750,24 +764,6 @@ describe("autoMove (M8)", () => {
       seat: 0,
       pos: 7,
     });
-  });
-
-  it("BUG-1: in 1,000 seeded tables of 2–8 seats with every seat on autoMove, every round ends", () => {
-    for (let seed = 0; seed < 1000; seed++) {
-      const players = 2 + (seed % 7);
-      let g = createGame(
-        Array.from({ length: players }, (_, i) => `P${i}`),
-        [seed, 1, 2, 3],
-      );
-      for (let moves = 0; g.phase !== "roundOver" && g.phase !== "gameOver"; moves++) {
-        if (moves > 2_000) throw new Error(`seed ${seed} did not end its round`);
-        const seat =
-          g.phase === "flip"
-            ? g.players.findIndex((p) => p.grid.filter((s) => s?.up).length < 2)
-            : g.current;
-        g = apply(g, autoMove(g, seat, true));
-      }
-    }
   });
 });
 

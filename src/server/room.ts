@@ -237,7 +237,7 @@ export class Room {
   receive(conn: Conn, msg: ClientMsg, live: Conn[]): Change {
     const stopped = this.awaited().filter((s) => !this.canStall(s, live));
     const change = this.handle(conn, msg, live);
-    // A clock that wasn't running, with nobody else there, starts afresh once someone is.
+    // A clock that wasn't running starts afresh once someone is there to pay for it (canStall).
     if (!stopped.some((s) => this.awaited().includes(s) && this.canStall(s, live))) return change;
     this.data.turnSince = this.deps.now();
     return "data";

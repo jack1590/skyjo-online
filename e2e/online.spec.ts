@@ -143,7 +143,9 @@ test("M8, BUG-1: a player who ticks Auto-play is played for, a step at a time, u
   // BUG-1: both tick Auto-play, B first, and A's turn still plays. Before 2.1.1, B's tick
   // stopped A's clock and the table froze, both phones saying Auto-play was playing for them.
   const both = Date.now();
-  await b.getByRole("checkbox", { name: "Auto-play" }).click({ force: true });
+  const bToggle = b.getByRole("checkbox", { name: "Auto-play" });
+  await bToggle.click({ force: true });
+  await expect(bToggle).toBeChecked();
   await toggle.click({ force: true });
   await expect.poll(() => seen(both, 8_000), { timeout: 8_000 }).toBe("placed");
 });
