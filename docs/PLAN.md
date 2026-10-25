@@ -285,7 +285,7 @@ This is a small, client-only patch (`Table.tsx`, `styles.css`, `i18n.tsx`) with 
 - With reduced motion there is no pulse.
 - Each new test fails on `main`. The release checklist is done.
 
-### M9 — Smooth animations, part 1: no jumps, and the discard reads right (user request, 2026-10-24) · v2.2.1
+### M9 — Smooth animations, part 1: no jumps, and the discard reads right (user request, 2026-10-24) · v2.2.1 · ✅ shipped (PR #25)
 
 **First commit of M9's PR, test only (delivery health, PO PR #24).** The iPhone job is now 2:15–2:45 against a 3-minute PR budget, and the M9–M11 animation work adds more iPhone checks.
 - **The change:** make `e2e/online.spec.ts` "a round runs to its summary, then the next round (or the game ends)" run on Pixel only, like the other long play-throughs (`AGENTS.md`). On iPhone it is about 45 bot moves, and took 25–51 s in PR #24's three runs, the biggest single source of the job's spread. Its iPhone-specific part, the summary's layout, stays covered on all three devices by the `table.spec.ts` round-summary harness test.
@@ -589,7 +589,7 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 8   | ✅ SEC-9                           | Slower presence checks in rooms where nobody has sent anything for 10 min; M8's ping-only return; the CI timeout        | 2.1.2         | medium, effort S; after M8, which rewrites the alarm schedule and ends stuck flips                               |
 | 9   | ✅ M18                             | Discard mode shows where to tap: UX-18, UX-20, UX-4 redefined                                                           | 2.1.3         | the user's complaint, hit on every first deck draw; client-only and S; after SEC-9, whose implementer is waiting |
 | 10  | ✅ M17                             | Play until one is left (knockout), a lobby option                                                                       | 2.2.0         | the user's request; right after SEC-9 and M18                                                                    |
-| 11  | M9                                 | UX-1, UX-2, UX-21, UX-25, UX-27 (final reveal)                                                                          | 2.2.1         | no jumps, and a card from the discard stays at the pile                                                          |
+| 11  | ✅ M9                              | UX-1, UX-2, UX-21, UX-25, UX-27 (final reveal)                                                                          | 2.2.1         | no jumps, and a card from the discard stays at the pile                                                          |
 | 12  | M11                                | UX-22, UX-23, UX-24 (+ UX-9), UX-7                                                                                      | 2.2.2         | the user asked for natural animations; it needs M9's correct start positions                                     |
 | 13  | M10                                | UX-3, UX-5, UX-19                                                                                                       | 2.2.3         | feedback before the server answers                                                                               |
 | 14  | M19                                | UX-8, UX-26                                                                                                             | 2.2.4         | column removal you can follow                                                                                    |

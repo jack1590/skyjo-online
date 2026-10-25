@@ -4,6 +4,21 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.2.1] - 2026-10-25
+
+### Fixed
+
+- Cards no longer jump. A card you swap into your grid now leaves from the card in your hand, not from about a card's width to the side, and a card taken from the discard right after another player's turn starts on the pile instead of flying out of that player's grid.
+- The deck and the discard pile stay where they are. Before, both slid sideways every time someone drew a card and every time a turn ended.
+- A card you take from the discard pile now looks taken from the discard. It is lifted up over the pile, which dims under it, instead of sliding to the middle like a card from the deck. It says "From the discard" ("Del descarte", "Do descarte"), and so does the prompt: "From the discard: tap a grid card to swap it in".
+
+### Changed
+
+- A card drawn from the deck leaves the top of the deck face down, lifts, and turns face up on its way to your hand.
+- Cards turn over all the way: you see the back, then the face.
+- At the end of a round the hidden cards turn over one by one, player by player, starting with the player after the one who ended the round. The scores appear just after the last card has turned, instead of covering the table while the cards were still turning. Each player's cards make a sound as they start turning, and the game-over sound plays when the scores appear.
+- With reduced motion on, nothing moves and the scores appear at once, as before.
+
 ## [2.2.0] - 2026-10-25
 
 ### Added
