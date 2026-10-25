@@ -571,21 +571,29 @@ describe("RoomDO auto-play (M8)", () => {
     }).toEqual({ rows: 4, requests: 2, home: 4, away: 4, views: 2 });
   });
 
-  it("M8: a room where every seat is on auto-play is idle: after the check already scheduled, nothing runs until someone unticks", async () => {
-    const t = await harness();
-    const phones = await t.seat(2);
+  it("BUG-1, SEC-11: a 2-seat table with both on Auto-play plays itself to the round summary, charging each connected IP ≤ 0.75 of its budget a minute, and waits there", async () => {
+    const env = { MESSAGES: messageLimiter() };
+    const t = await harness(env);
+    const phones = [await t.connect(HOME), await t.connect(AWAY)];
+    for (const [i, ws] of phones.entries()) {
+      await t.send(ws, { t: "hello", token: token(i) });
+      await t.send(ws, { t: "join", name: `P${i}` });
+    }
     await t.send(phones[0], { t: "start" });
     for (const ws of phones) await t.send(ws, { t: "auto", on: true });
-    await t.advance(10 * 60_000, phones); // the deal's 30 s check comes, finds nothing to do
-    const [rows, requests] = [t.rows(), t.requests];
-    await t.advance(60 * 60_000, phones);
-    expect([t.rows() - rows, t.requests - requests]).toEqual([0, 0]);
-    expect(faceUp(lastView(phones[0]), 0) + faceUp(lastView(phones[0]), 1)).toBe(0);
-    // Seat 1 is back: seat 0's flips are played for it again, and seat 1 gets a fresh 30 s.
-    await t.send(phones[1], { t: "auto", on: false });
-    await t.advance(AUTO_FIRST_MS + AUTO_NEXT_MS, phones);
-    expect(faceUp(lastView(phones[1]), 0)).toBe(2);
-    expect(faceUp(lastView(phones[1]), 1)).toBe(0);
+    const from = Date.now();
+    const over = () => ["roundOver", "gameOver"].includes(t.game()?.phase ?? "");
+    while (!over() && Date.now() < from + 60 * 60_000) await t.advance(1_000, phones);
+    expect(over()).toBe(true);
+    const played = env.MESSAGES.calls.filter(([, when]) => when > from);
+    const peaks = [HOME, AWAY].map((ip) => peakMinute(played, ip));
+    // 2 units per step to each IP, a step every 1.6 s on average: 76 in the busiest minute.
+    for (const peak of peaks) expect(peak).toBeLessThanOrEqual(0.75 * IP_MESSAGES_PER_MINUTE);
+    expect(phones.filter((ws) => ws.closed !== null)).toEqual([]);
+    // The summary waits for a tap: only its presence checks run.
+    const game = t.game();
+    await t.advance(10 * 60_000, phones);
+    expect(t.game()).toEqual(game);
   });
 
   /**
