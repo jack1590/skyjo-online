@@ -261,7 +261,7 @@ Probe branch `m8-ci-probe`:
 - it has no PR.
 - It is kept unmerged, as the user's rule on branches requires; don't push to it.
 
-### M18 — Discard mode shows where to tap (user report, 2026-10-25) · v2.1.3 · ✅ shipped
+### M18 — Discard mode shows where to tap (user report, 2026-10-25) · v2.1.3 · ✅ shipped (PR #23)
 
 The user found that flipping a grid card after throwing away a drawn card is unintuitive. The second UX audit (2026-10-25) confirmed it in all 6 configurations (WebKit 390 and Chromium 360, in es, en and pt).
 - In discard mode, the only gold `.hl` on screen is the discard pile, and tapping it just cancels.
