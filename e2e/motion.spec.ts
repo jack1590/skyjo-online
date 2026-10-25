@@ -1,7 +1,9 @@
+import { execFileSync } from "node:child_process";
+import { mkdirSync } from "node:fs";
 import { expect, type Page, test } from "@playwright/test";
 import { apply, type GameState } from "../src/engine/game";
 import { type GameView, toView } from "../src/engine/view";
-import { finalMove, firstTurn, show } from "./harness";
+import { firstTurn, show } from "./harness";
 import { seatedRoom, startGame } from "./helpers";
 
 /** Counts Element.animate calls (deterministic across engines, unlike sampling getAnimations()). */
@@ -107,17 +109,41 @@ function expectOver(box: Box | null | undefined, to: Box | null | undefined, wha
   expect(off, `${what}: ${JSON.stringify({ box, to })}`).toBeLessThanOrEqual(2);
 }
 
-/** A face-down slot to swap into that keeps the round going and removes no column. */
+/**
+ * A face-down slot to swap into that keeps the round going and removes no column. Not one hiding
+ * the held card's value: that swap's view is the same as a discard-and-flip, so no phone can tell.
+ */
 function swapTarget(state: GameState): number {
   const seat = state.current;
   const grid = state.players[seat].grid;
   const pos = grid.findIndex((slot, i) => {
-    if (!slot || slot.up) return false;
+    if (!slot || slot.up || slot.card === state.drawn) return false;
     const next = apply(state, { type: "swap", seat, pos: i });
     return next.phase === "draw" && next.players[seat].grid.every((s) => s !== null);
   });
   if (pos === -1) throw new Error("no safe swap left: pick another seed");
   return pos;
+}
+
+/**
+ * A round one player races to end, swapping into face-down slots, while the others swap into
+ * face-up ones: a big final reveal. The table just before its last move, and after.
+ */
+function race(players: number, seed: number) {
+  let after = firstTurn(players, seed);
+  const racer = after.current;
+  let before = after;
+  while (after.phase === "draw" || after.phase === "place") {
+    before = after;
+    const seat = after.current;
+    if (after.phase === "draw") {
+      after = apply(after, { type: "draw", seat, source: "deck" });
+    } else {
+      const pos = after.players[seat].grid.findIndex((s) => s && s.up !== (seat === racer));
+      after = apply(after, { type: "swap", seat, pos });
+    }
+  }
+  return { before, after };
 }
 
 test.describe("with motion allowed", () => {
@@ -193,22 +219,16 @@ test.describe("with motion allowed", () => {
     page,
   }) => {
     await recordFlights(page);
-    const { before, after } = finalMove(3, 3);
+    // The summary's wait is a timer: a paused clock runs it without waiting for real.
+    await page.clock.install({ time: Date.UTC(2026, 9, 25, 12) });
+    await page.clock.pauseAt(Date.UTC(2026, 9, 25, 12, 0, 1));
+    const { before, after } = race(3, 5);
     const n = after.players.length;
     const me = 0;
     await show(page, { view: toView(before), seat: me, lead: true });
-    const shown = await page.evaluate(async (view) => {
+    const shown = await page.evaluate((view) => {
       const w = window as unknown as { flights: { el: Element; a: Animation }[] };
       const start = w.flights.length;
-      const t0 = performance.now();
-      const sheet = new Promise<number>((done) => {
-        const watch = new MutationObserver(() => {
-          if (!document.querySelector(".overlay")) return;
-          watch.disconnect();
-          done(performance.now() - t0);
-        });
-        watch.observe(document.body, { childList: true, subtree: true });
-      });
       dispatchEvent(new CustomEvent("skyjo:table", { detail: { view } }));
       const panels = [...document.querySelectorAll('[data-testid="opponent"]')];
       const flips = w.flights
@@ -223,7 +243,7 @@ test.describe("with motion allowed", () => {
           delay: Number(a.effect?.getTiming().delay),
           end: Number(a.effect?.getComputedTiming().endTime),
         }));
-      return { atOnce: !!document.querySelector(".overlay"), flips, sheet: await sheet };
+      return { atOnce: !!document.querySelector(".overlay"), flips };
     }, toView(after));
 
     // Seats after the ender's, then row by row (grid positions are row-major).
@@ -239,16 +259,116 @@ test.describe("with motion allowed", () => {
       .map((f) => ({ ...f, order: order(seatOf(f.panel), f.pos) }))
       .sort((a, b) => a.order - b.order);
     expect(flips.map((f) => f.order)).toEqual(expected.sort((a, b) => a - b));
-    expect(flips.length).toBeGreaterThan(2);
+    expect(new Set(flips.map((f) => Math.floor(f.order / 12))).size).toBe(2); // 2 players' cards
     for (let i = 1; i < flips.length; i++) {
       expect(flips[i].delay, `flip ${i} starts after flip ${i - 1}`).toBeGreaterThan(
         flips[i - 1].delay,
       );
     }
     const lastFlip = Math.max(...flips.map((f) => f.end));
+    expect(lastFlip).toBeLessThanOrEqual(2500 + 300);
     expect(shown.atOnce).toBe(false);
-    expect(shown.sheet - lastFlip).toBeGreaterThanOrEqual(500);
-    expect(shown.sheet - lastFlip).toBeLessThan(1500);
+    await page.clock.runFor(lastFlip + 550);
+    await expect(page.locator(".overlay")).toHaveCount(0);
+    await page.clock.runFor(100);
+    await expect(page.locator(".overlay")).toBeVisible();
+  });
+});
+
+test.describe("with motion allowed", () => {
+  test.use({ reducedMotion: "no-preference" });
+
+  /** Moves on to `view` and saves its flights at each time (fractions, or ms with `ms`) as a strip. */
+  async function strip(page: Page, name: string, view: GameView, at: number[], ms = false) {
+    await page.evaluate((view) => {
+      const w = window as unknown as { flights: { a: Animation }[]; mark: number };
+      w.mark = w.flights.length;
+      dispatchEvent(new CustomEvent("skyjo:table", { detail: { view } }));
+      for (const { a } of w.flights.slice(w.mark)) a.pause();
+    }, view);
+    const frames: string[] = [];
+    for (const [i, t] of at.entries()) {
+      await page.evaluate(
+        ({ t, ms }) => {
+          const w = window as unknown as { flights: { a: Animation }[]; mark: number };
+          for (const { a } of w.flights.slice(w.mark)) {
+            a.currentTime = ms ? t : t * Number(a.effect?.getTiming().duration);
+          }
+        },
+        { t, ms },
+      );
+      frames.push(`test-results/m9/${name}-${i}.png`);
+      await page.screenshot({
+        path: frames[i],
+        clip: { x: 0, y: 0, width: 390, height: 480 },
+        scale: "css",
+      });
+    }
+    await page.evaluate(() => {
+      const w = window as unknown as { flights: { a: Animation }[]; mark: number };
+      for (const { a } of w.flights.slice(w.mark)) a.finish();
+    });
+    execFileSync("ffmpeg", [
+      ...["-loglevel", "error", "-y"],
+      ...frames.flatMap((f) => ["-i", f]),
+      ...["-filter_complex", `hstack=inputs=${frames.length}`, "-q:v", "4"],
+      `docs/screenshots/m9/strip-${name}.jpg`,
+    ]);
+  }
+
+  test("screenshots: M9 frame strips and stills", async ({ page }, info) => {
+    test.skip(!process.env.SHOTS || info.project.name !== "iphone", "run with SHOTS=1");
+    mkdirSync("test-results/m9", { recursive: true });
+    const quarters = [0, 0.25, 0.5, 0.75, 1];
+    const shot = (name: string) =>
+      page.screenshot({
+        path: `docs/screenshots/m9/${name}.jpg`,
+        type: "jpeg",
+        quality: 80,
+        scale: "css",
+      });
+    await recordFlights(page);
+    let state = firstTurn(2, 5);
+    const me = (state.current + 1) % 2; // the opponent moves first
+    const them = state.current;
+    await show(page, { view: toView(state), seat: me });
+    state = apply(state, { type: "draw", seat: them, source: "deck" });
+    await move(page, toView(state), PILES);
+    state = apply(state, { type: "swap", seat: them, pos: swapTarget(state) });
+    await move(page, toView(state), PILES);
+    // Right after the opponent's swap, take the discard; then swap it into the top row.
+    state = apply(state, { type: "draw", seat: me, source: "discard" });
+    await strip(page, "take-discard", toView(state), quarters);
+    await shot("place-from-discard-en");
+    const top = (s: GameState) => s.players[s.current].grid.findIndex((c, i) => i < 4 && c?.up);
+    state = apply(state, { type: "swap", seat: me, pos: top(state) });
+    await strip(page, "swap-from-discard", toView(state), quarters);
+    state = apply(state, { type: "draw", seat: them, source: "deck" });
+    await move(page, toView(state), PILES);
+    state = apply(state, { type: "swap", seat: them, pos: swapTarget(state) });
+    await move(page, toView(state), PILES);
+    // A deck draw, then a swap into the top row.
+    state = apply(state, { type: "draw", seat: me, source: "deck" });
+    await strip(page, "draw-deck", toView(state), quarters);
+    await shot("place-from-deck-en");
+    state = apply(state, { type: "swap", seat: me, pos: top(state) });
+    await strip(page, "swap", toView(state), quarters);
+
+    // The final reveal, every 500 ms.
+    const { before, after } = race(3, 5);
+    await show(page, { view: toView(before), seat: 0 });
+    await strip(page, "final-reveal", toView(after), [0, 500, 1000, 1500, 2000, 2500], true);
+
+    // The caption and prompt of a card taken from the discard, in es and pt.
+    const discard = firstTurn(4, 5);
+    const taken = toView(
+      apply(discard, { type: "draw", seat: discard.current, source: "discard" }),
+    );
+    for (const locale of ["es", "pt"]) {
+      await page.addInitScript((l) => localStorage.setItem("skyjo:locale", l), locale);
+      await show(page, { view: taken, seat: discard.current });
+      await shot(`place-from-discard-${locale}`);
+    }
   });
 });
 
@@ -258,7 +378,7 @@ test("reduced motion: nothing animates", async ({ browser }, info) => {
 });
 
 test("UX-27: with reduced motion the round summary shows at once", async ({ page }) => {
-  const { before, after } = finalMove(3, 3);
+  const { before, after } = race(3, 5);
   await show(page, { view: toView(before), seat: 0, lead: true });
   const atOnce = await page.evaluate((view) => {
     dispatchEvent(new CustomEvent("skyjo:table", { detail: { view } }));

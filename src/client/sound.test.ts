@@ -178,11 +178,13 @@ describe("soundsBetween", () => {
 
   /** A's last turn, after B (seat 1) ended: C's 3 face-down cards turn over, then A's. */
   function lastTurn() {
+    // Low cards, no equal column: the round ends well under 100.
+    const LOW = [0, 1, 2, 3, 1, 2, 3, 0, 2, 3, 0, 1];
     const s = createGame(["A", "B", "C"], [1, 0, 0, 0]);
     s.phase = "draw";
     s.current = 0;
     s.ender = 1;
-    const deal = (down: number[]) => GRID.map((card, i) => ({ card, up: !down.includes(i) }));
+    const deal = (down: number[]) => LOW.map((card, i) => ({ card, up: !down.includes(i) }));
     s.players[0].grid = deal([3, 4, 9]);
     s.players[1].grid = deal([]);
     s.players[2].grid = deal([10, 1, 6]);

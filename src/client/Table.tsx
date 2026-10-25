@@ -4,7 +4,7 @@ import type { GameView, PlayerView, ViewSlot } from "../engine/view";
 import { TURN_MS, type Wait } from "../protocol";
 import { Card } from "./Card";
 import { type T, useI18n } from "./i18n";
-import { slotKey, useCountUp, useFlights, useReducedMotion } from "./motion";
+import { slotKey, useCountUp, useFlights, useReducedMotion, useRevealing } from "./motion";
 import { nudge, useMuted, useSounds } from "./sound";
 
 interface TableProps {
@@ -68,6 +68,7 @@ export function Table(props: TableProps) {
   const discardMode = discarding && myTurn && phase === "place" && view.drawnFrom === "deck";
 
   const reg = useFlights(view);
+  const revealing = useRevealing(view);
   useSounds(view, seat);
   const [muted, toggleMuted] = useMuted();
   // Tapping an opponent opens their grid full size; your own turn closes it.
@@ -169,6 +170,7 @@ export function Table(props: TableProps) {
       ? players.map((_, i) => i)
       : Array.from({ length: n - 1 }, (_, i) => (seat + 1 + i) % n);
   const lastTurns = view.ender !== null && playing;
+  const fromDiscard = view.drawn !== null && view.drawnFrom === "discard";
 
   let pill = "";
   if (playing) {
@@ -304,8 +306,9 @@ export function Table(props: TableProps) {
           />
           <span className="pile-label">{t("deckCount", { n: view.deckCount })}</span>
         </div>
-        {view.drawn !== null && (
-          // Held, never highlighted: the highlights are what to tap (UX-4).
+        {/* Always there, empty unless you hold a card from the deck, so the piles never move (UX-2).
+            Held, never highlighted: the highlights are what to tap (UX-4). */}
+        {view.drawn !== null && view.drawnFrom === "deck" ? (
           <div className="pile held">
             <Card
               slot={view.drawn}
@@ -317,19 +320,36 @@ export function Table(props: TableProps) {
             />
             <span className="pile-label">{discardMode ? t("tapToKeep") : t("drawn")}</span>
           </div>
+        ) : (
+          <div className="pile empty" aria-hidden="true">
+            <span className="card md" />
+            <span className="pile-label">&nbsp;</span>
+          </div>
         )}
         <div className="pile">
-          <Card
-            slot={view.discardTop}
-            size="md"
-            label={t("discardPile")}
-            testId="discard"
-            // In discard mode tapping it only cancels: your face-down cards are the targets (UX-18).
-            highlight={!!onDiscard && !discardMode}
-            onClick={myAuto ? pointAtSwitch : onDiscard}
-            cardRef={reg("discard")}
-          />
-          <span className="pile-label">{t("discard")}</span>
+          {/* A card taken from the discard is held up over its pile, not moved aside (UX-21). */}
+          <span className={`stack${fromDiscard ? " taken" : ""}`}>
+            <Card
+              slot={view.discardTop}
+              size="md"
+              label={t("discardPile")}
+              testId="discard"
+              // In discard mode tapping it only cancels: your face-down cards are the targets (UX-18).
+              highlight={!!onDiscard && !discardMode}
+              onClick={myAuto ? pointAtSwitch : onDiscard}
+              cardRef={reg("discard")}
+            />
+            {fromDiscard && (
+              <Card
+                slot={view.drawn}
+                size="md"
+                label={t("drawnCard")}
+                testId="drawn"
+                cardRef={reg("drawn")}
+              />
+            )}
+          </span>
+          <span className="pile-label">{fromDiscard ? t("fromDiscard") : t("discard")}</span>
         </div>
       </section>
 
@@ -406,7 +426,8 @@ export function Table(props: TableProps) {
         <Zoom view={view} seat={zoom} onClose={() => setZoom(null)} />
       )}
 
-      {summary && !peek && (
+      {/* The summary waits for the final reveal (UX-27). */}
+      {summary && !peek && !revealing && (
         <Summary
           view={view}
           lead={lead}
