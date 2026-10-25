@@ -54,7 +54,7 @@ export default defineConfig(({ mode }) => ({
     include: ["src/**/*.test.{ts,tsx}"],
     coverage: {
       include: ["src/engine/**"],
-      exclude: ["**/*.test.ts"],
+      exclude: ["**/*.test.ts", "src/engine/simkit.ts"],
       thresholds: { lines: 95, branches: 95 },
     },
   },

@@ -534,16 +534,28 @@ describe("RoomDO per-IP message budget", () => {
     expect(everyone.filter((ws) => ws.closed !== null)).toEqual([]);
     expect(peakMinute(env.MESSAGES.calls, HOME)).toBeLessThanOrEqual(0.75 * IP_MESSAGES_PER_MINUTE);
   });
+
+  it("M17, SEC-11: 8 friends behind one IP play two knockout games: longer games, the same per-minute rates", async () => {
+    const env = { MESSAGES: messageLimiter() };
+    const t = await harness(env);
+    const everyone = await eightFriends(t, { slow: false, knockout: true });
+    expect(everyone.filter((ws) => ws.closed !== null)).toEqual([]);
+    expect(peakMinute(env.MESSAGES.calls, HOME)).toBeLessThanOrEqual(0.75 * IP_MESSAGES_PER_MINUTE);
+  });
 });
 
 /**
  * 8 phones on one IP (HOME) join, play two games and a rematch, all 8 reconnecting at every round
  * end. They tap once a second, every turn, which is faster than any real table plays. `slow` adds a
  * 5-minute lobby wait (during which one phone silently drops and must show offline), a 3-minute
- * chat over each summary, and 25 s of thinking on every 5th draw. Returns every socket used, after
- * checking that nobody was put on auto-play.
+ * chat over each summary, and 25 s of thinking on every 5th draw. `knockout`: the host ticks "Play
+ * until one is left" first (R16), which plays on until at most one is left. Returns every socket used,
+ * after checking that nobody was put on auto-play.
  */
-async function eightFriends(t: Awaited<ReturnType<typeof harness>>, { slow }: { slow: boolean }) {
+async function eightFriends(
+  t: Awaited<ReturnType<typeof harness>>,
+  { slow, knockout = false }: { slow: boolean; knockout?: boolean },
+) {
   const TAP = 1_000;
   const phones: FakeSocket[] = [];
   const everyone: FakeSocket[] = [];
@@ -567,6 +579,10 @@ async function eightFriends(t: Awaited<ReturnType<typeof harness>>, { slow }: { 
     await t.advance(5 * 60_000, phones);
   }
   const act = (seat: number, action: Action) => t.send(phones[seat], { t: "act", action });
+  if (knockout) {
+    await t.send(phones[0], { t: "knockout", on: true });
+    await t.advance(TAP, phones);
+  }
   for (let games = 0; games < 2; games++) {
     await t.send(phones[0], { t: "start" });
     await t.advance(TAP, phones);
@@ -594,9 +610,11 @@ async function eightFriends(t: Awaited<ReturnType<typeof harness>>, { slow }: { 
       }
       await t.advance(TAP, phones);
     }
+    if (knockout) expect(t.game()?.players.filter((p) => p.out === null).length).toBeLessThan(2);
     await t.send(phones[0], { t: "rematch" });
     await t.advance(TAP, phones);
   }
+  expect(lastView(phones[0]).knockout).toBe(knockout);
   expect(lastView(phones[0]).seats.map((s) => s.auto)).toEqual(phones.map(() => false));
   return everyone;
 }

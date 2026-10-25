@@ -42,7 +42,7 @@ One npm package (no monorepo tooling). Four areas:
 
 ## Rules spec
 
-The canonical rule list (R1–R15), including every default chosen where the brief is silent, lives in [`AGENTS.md` § Rules](../AGENTS.md#rules). Each rule has a named test.
+The canonical rule list (R1–R16), including every default chosen where the brief is silent, lives in [`AGENTS.md` § Rules](../AGENTS.md#rules). Each rule has a named test.
 
 ## Multiplayer behavior
 
@@ -52,9 +52,9 @@ The canonical rule list (R1–R15), including every default chosen where the bri
 - **Spectators:** anyone joining a full room (8) or a game in progress sees the public view. They can take a free seat in the lobby. Joining, leaving, and removing seats happen only in the lobby, so seat order always matches the game.
 - **Reconnection:** the client auto-reconnects with backoff and shows a "Reconnecting…" banner. The server sends a full snapshot on reconnect. Seats are held for the whole game.
 - **Turn clock and Auto-play (M8, replaces the 60 s stall guard):** each turn has 30 s from its start, and a draw always leaves at least 10 s to place. The opening flip has 30 s from the deal, shared by every seat still flipping. Online or offline, a seat whose time runs out gets the server's move (`autoMove`) and goes on Auto-play, which plays its turns a step at a time (draw 2 s into the turn, place 1.2 s later) until its player unticks it. A player can tick it too. The clock and Auto-play run only while a seated player is connected: another seat, on Auto-play or not, or the seat itself while it's on Auto-play; a player thinking alone has no clock. When nobody connected is playing by hand, Auto-play may turn over the last face-down card, so the round ends; the round summary waits for a tap on Next round (BUG-1, v2.1.1; it used to need a connected seat off Auto-play, and an all-auto table froze).
-- **Next round:** the engine's `nextRound` carries no seat, so the room decides who may send it: the host advances from the round summary; if the host is disconnected or on Auto-play, any seated player can.
+- **Next round:** the engine's `nextRound` carries no seat, so the room decides who may send it: the host advances from the round summary; if the host is disconnected, on Auto-play, or out of a knockout game (M17), any seated player can.
 - **Persistence:** room state is written to Durable Object storage on every change, so eviction loses nothing. Idle rooms are deleted after 24 h via an alarm.
-- **Rematch:** after game over, the host's **Play again** returns everyone to the lobby with the same seats. Late arrivals join there, and the host can remove offline (ghost) seats. Then the host starts. Each deal (every start and every new round) gets fresh CSPRNG entropy.
+- **Rematch:** after game over, the host's **Play again** (anyone's, under the same rule as Next round) returns everyone to the lobby with the same seats. Late arrivals join there, and the host can remove offline (ghost) seats. Then the host starts. Each deal (every start and every new round) gets fresh CSPRNG entropy.
 
 ## Milestones
 
@@ -286,6 +286,10 @@ This is a small, client-only patch (`Table.tsx`, `styles.css`, `i18n.tsx`) with 
 - Each new test fails on `main`. The release checklist is done.
 
 ### M9 — Smooth animations, part 1: no jumps, and the discard reads right (user request, 2026-10-24) · v2.2.1
+
+**First commit of M9's PR, test only (delivery health, PO PR #24).** The iPhone job is now 2:15–2:45 against a 3-minute PR budget, and the M9–M11 animation work adds more iPhone checks.
+- **The change:** make `e2e/online.spec.ts` "a round runs to its summary, then the next round (or the game ends)" run on Pixel only, like the other long play-throughs (`AGENTS.md`). On iPhone it is about 45 bot moves, and took 25–51 s in PR #24's three runs, the biggest single source of the job's spread. Its iPhone-specific part, the summary's layout, stays covered on all three devices by the `table.spec.ts` round-summary harness test.
+- **Acceptance:** the PR reports the iPhone job and Playwright-step times on 2 runs, next to PR #24's (job 123–166 s, step 71–117 s).
 
 **Diagnosis (UX expert, live site, 2026-10-24).** Frame rate is fine. In Chromium at 4× CPU throttle, 903 frames measured p50 16.7 ms and p99 16.8 ms, with one frame at 33 ms; WebKit p99 was 21 ms. Everything animates on the compositor, and layout p99 is 6.3 ms. The "not smooth" feeling comes from cards starting in the wrong place and stacking wrong, plus slow taps.
 
@@ -584,7 +588,7 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 7   | ✅ BUG-1                           | Everyone on Auto-play froze the table: auto seats keep playing while a seated player is connected, and finish the round | 2.1.1         | a live freeze (room 8WTHE); hotfix, effort S, ahead of SEC-9, which had no commits yet                           |
 | 8   | ✅ SEC-9                           | Slower presence checks in rooms where nobody has sent anything for 10 min; M8's ping-only return; the CI timeout        | 2.1.2         | medium, effort S; after M8, which rewrites the alarm schedule and ends stuck flips                               |
 | 9   | ✅ M18                             | Discard mode shows where to tap: UX-18, UX-20, UX-4 redefined                                                           | 2.1.3         | the user's complaint, hit on every first deck draw; client-only and S; after SEC-9, whose implementer is waiting |
-| 10  | M17                                | Play until one is left (knockout), a lobby option                                                                       | 2.2.0         | the user's request; right after SEC-9 and M18                                                                    |
+| 10  | ✅ M17                             | Play until one is left (knockout), a lobby option                                                                       | 2.2.0         | the user's request; right after SEC-9 and M18                                                                    |
 | 11  | M9                                 | UX-1, UX-2, UX-21, UX-25, UX-27 (final reveal)                                                                          | 2.2.1         | no jumps, and a card from the discard stays at the pile                                                          |
 | 12  | M11                                | UX-22, UX-23, UX-24 (+ UX-9), UX-7                                                                                      | 2.2.2         | the user asked for natural animations; it needs M9's correct start positions                                     |
 | 13  | M10                                | UX-3, UX-5, UX-19                                                                                                       | 2.2.3         | feedback before the server answers                                                                               |
@@ -641,7 +645,7 @@ There is a second guard the old rule hid: `autoMove` never flips a seat's last f
 - **Accepted:** a present player who runs out of time while every other connected seat is on Auto-play goes on Auto-play in the same `tick`, so that very move may turn over their last card and end the round, doubled unless lowest (the PO reproduced it). That is the decision above (at that moment nobody is playing by hand), and the round has to end. Computing `mayEnd` before the due seats switch would spare that one move; revisit if players say so.
 - **M17:** `canStall` only counts seats, so a lone connected spectator keeps nothing running (the PO checked on the injected clock), but no test pins it. M17's out-seat test covers it; see there.
 
-### M17 — Play until one is left (knockout) (user request, 2026-10-24) · v2.2.0
+### M17 — Play until one is left (knockout) (user request, 2026-10-24) · v2.2.0 · ✅ shipped (PR #24)
 
 The user asked for a game option, **"Play until one is left"**, and approved the rule and the edge cases below after a walkthrough. It is numbered M17 because M9–M16 were already planned, but it ships before them (see § Queue after M7).
 
@@ -662,7 +666,9 @@ The user asked for a game option, **"Play until one is left"**, and approved the
 - **M8:** a player who is out has no turn, so no clock entry and no auto-play.
   - Going out clears that seat's auto-play.
   - Out seats count like spectators (BUG-1): they don't keep the clock or Auto-play running, and they don't count when deciding whether anyone is still playing by hand. A room test checks both, and that a lone connected spectator keeps nothing running either: no test pins that yet (PO, PR #21).
-- **The host going out** still leads (Next round, Rematch).
+- **The host going out** still leads (Next round, Rematch), **and so may anyone seated** (PO ruling, PR #24): the same rule as for a host on Auto-play or offline.
+  - _Reason: the screen stays on during a game, so a knocked-out host who puts the phone down still looks connected. Every later round summary would wait on them, and the players still in would have no way to go on. Going out also ends Auto-play, which was the other way to let someone else lead._
+  - _Cost: once the host is out, whoever taps Next round or Play again first moves the table on. At game over the host is usually out, so anyone may send the table back to the lobby. That is the behavior friends already get when the host is on Auto-play._
 - **An active player who drops:** as now; the timer and auto-play keep the table moving.
 - **Final ranking:**
   - the winner, or the tied winners, are 1st;
@@ -729,6 +735,34 @@ The user asked for a game option, **"Play until one is left"**, and approved the
 - **Delivery health:** PR CI wall time grows by ≤ 15 s, with per-job times in the PR.
 - **Release:** version 2.2.0 with its CHANGELOG section, and `docs/screenshots/m17/` at iPhone size.
 - **PO:** the PO plays a local 3–4 phone knockout game at least until a player goes out, and checks game over through the harness. Scores needed: Rules correctness 5, Mobile UX ≥ 4, Game feel ≥ 4.
+
+**PO review (PR #24, round 1): changes requested, two small client fixes.**
+- **Played:** 4 phones (en, en, pt at 390×664, es at 360×740), host Ana. Ana ended round 1 at 82 × 2 = 164 and went out; every phone, Ben included, got Next round. Round 2 was dealt to the other three only. Ana watched: "Out · watching" on her panel, no cards, no Auto-play switch, and a tap on the deck did nothing. In round 2 all three crossed 100: Cris won on 116, then Ben 118, Dani 132, and Ana last, out in round 1. Ben's Play again returned everyone to the lobby with the option still on. Every summary showed "Out in round N" in en, es and pt.
+- **Engine, checked independently:** an oracle replayed 900 random knockout games (3–8 players) and checked every R16 decision against the rule above: who goes out, R4 among active players, R10's final turns, R12 among that round's players, out seats rejected for every action, the winners when one or none is left, and `places()` from the state and from the view. All held: 192 games ended head to head, 532 with nobody left, and 16 were shared wins.
+- **Requested:**
+  1. At game over the winner is tagged "Out in round 2" when everyone still in crossed 100 (D, E, F). The heading says "Cris wins!" and the row beside it says Cris is out. Show the tag only for players who aren't winners, and test that in a game where nobody is left.
+  2. A player who may not lead sees the lobby switch exactly as the host does, bright and apparently live, but tapping it does nothing. Dim it when it is disabled.
+- **Follow-ups (not blocking, game feel):**
+  - Going out has no moment of its own: no sound and no line for you. Your summary row has the same small tag as everyone else's, and afterwards you get the stranger's line, "You're watching this game." Something like "You're out · watching" for the out player, plus a short sting at the summary where you go out, would make it feel part of the game. This fits M13's summary work.
+  - With 4 players, the out panel takes a full grid's space with only a note in it. That's fine for now; revisit with M12, which reworks the spectator layout that out players get.
+
+**PO review (PR #24, round 2): approved.**
+- **Both fixes are in, and I checked them in a real 4-phone game after SEC-9 and M18 were merged in.**
+  - Everyone crossed 100 in round 2. "¡Gana Dani!" now has no out tag, and the other three keep theirs.
+  - The disabled switch is dimmed for non-leaders.
+  - M18's glow still lights all 10 face-down cards and none of the face-up ones.
+- **The merge is sound.** `room.ts` differs from `main` only by M17's lines. SEC-9's `resume()` builds `stopped` from `awaited()` and `canStall()`, which both skip out seats, so an out seat never lands in `stopped` and never pays.
+- **Delivery.** Measured on `3ad20fd` and on `main`:
+
+  | Measure                    | This PR (`3ad20fd`)                                  | `main`        |
+  | -------------------------- | ---------------------------------------------------- | ------------- |
+  | iPhone job, total          | 166, 151, 123 s (1 run, 2 reruns)                    | 135 and 140 s |
+  | iPhone Playwright step     | 117, 105, 71 s                                       | 88 and 92 s   |
+  | M17's own iPhone test time | 36, 28, 21 s (about 5–9 s of wall time at 4 workers) |               |
+  - So M17 itself stays within the +15 s budget, and most of the spread is runner variance.
+  - The largest single source is `online.spec.ts` "a round runs to its summary…": 51, 25 and 40 s on iPhone in the same three runs.
+  - The PR run took 171 s from push to finish, under 3 min.
+  - Scores: Rules correctness 5, Mobile UX 5, Visual polish 4, Multiplayer stability 5, Security 5, Code health 5, Delivery health 4, Game feel 4.
 
 ### M16 — Launch in the App Store and Google Play (user decision, 2026-10-24) · last
 
@@ -801,7 +835,7 @@ Each criterion is scored 1–5, or N/A when the milestone has no surface for it 
 
 | Criterion             | 5 means                                                                                                                                                                                          |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Rules correctness     | Every rule R1–R15 behaves as specified in play and in tests                                                                                                                                      |
+| Rules correctness     | Every rule R1–R16 behaves as specified in play and in tests                                                                                                                                      |
 | Mobile UX             | One-handed portrait play, clear turn state, ≥ 44 px targets, no dead ends                                                                                                                        |
 | Visual polish         | Original, cohesive art; readable cards; smooth, purposeful motion                                                                                                                                |
 | Multiplayer stability | No desyncs; reload and network drop recover; no leaked hidden info                                                                                                                               |

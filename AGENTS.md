@@ -59,7 +59,7 @@ The `MESSAGES` check awaits a binding, which, unlike storage, lets other events 
 
 The Worker has its own tsconfig (`tsconfig.worker.json`, runtime types from `wrangler types`, gitignored). `npm run typecheck` checks both.
 
-Engine API: `createGame(names, seed)` (`seed` is 4 int32s from `crypto.getRandomValues` in real games), `apply(state, action)` (throws `RuleError`, never mutates input), `legalActions(state)`, `toView(state)`.
+Engine API: `createGame(names, seed, options?)` (`seed` is 4 int32s from `crypto.getRandomValues` in real games; `options.knockout` turns on R16), `apply(state, action)` (throws `RuleError`, never mutates input), `legalActions(state)`, `toView(state)`, and `places(state or view)`, the final ranking.
 
 ## Commands
 
@@ -140,5 +140,8 @@ The engine implements these exactly. Rows marked _ambiguity_ are places the brie
 | R13 | Deck exhausted | _Ambiguity: on drawing from an empty deck, the discard pile except its top card is shuffled into a new deck._                                                                                          |
 | R14 | Game end       | After a round in which any total is ≥ 100, the game ends. Lowest total wins. _Ambiguity: ties share the win._                                                                                          |
 | R15 | New round      | _Ambiguity: all 150 cards are reshuffled and dealt fresh._                                                                                                                                             |
+| R16 | Knockout       | Option set in the lobby, off by default (off: R14 applies). After each round, every total ≥ 100 is out: seat kept, no cards, watches. Ends when at most one is left (below).                           |
 
 Invariant (tested): any player whose turn comes has at least one face-down card, so discard-and-flip is always available after drawing from the deck.
+
+R16 in detail (user-approved): only players still in flip (R3) and may start (R4, ties to the lowest seat still in); turn order (R5) and the final turns (R10) skip those out; the ender's doubling (R12) compares only that round's players. The game ends after a round in which at most one player is still in: that one wins, or if none is, the lowest total among those who just went out (ties share). Final ranking (`places`): the winners, then whoever went out later, then the lower total.

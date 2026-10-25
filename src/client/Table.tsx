@@ -1,6 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
-import type { Action } from "../engine/game";
-import type { GameView, ViewSlot } from "../engine/view";
+import { type Action, places } from "../engine/game";
+import type { GameView, PlayerView, ViewSlot } from "../engine/view";
 import { TURN_MS, type Wait } from "../protocol";
 import { Card } from "./Card";
 import { type T, useI18n } from "./i18n";
@@ -31,9 +31,14 @@ const where = (t: T, pos: number) =>
 const upCount = (grid: ViewSlot[]) => grid.filter((slot) => typeof slot === "number").length;
 /** Orange in a clock's last 10 s, red in its last 5. */
 const hurry = (left: number | null) => (left === null ? "" : left <= 5 ? " danger" : " warn");
+/** Out (R16) before this round: no cards and no turns. */
+const isOut = (p: PlayerView | undefined, round: number) =>
+  p !== undefined && p.out !== null && p.out < round;
 
 export function Table(props: TableProps) {
-  const { view, seat, onAction, onAuto, onPlayAgain, onExit, lead, connected, auto } = props;
+  const { view, onAction, onAuto, onPlayAgain, onExit, lead, connected, auto } = props;
+  // A player who is out watches the rest of the game the way a spectator does.
+  const seat = isOut(view.players[props.seat ?? -1], view.round) ? null : props.seat;
   const wait = props.wait ?? [];
   const { t } = useI18n();
   const { phase, players } = view;
@@ -237,7 +242,9 @@ export function Table(props: TableProps) {
       >
         {others.map((i) => {
           const p = players[i];
-          const active = phase === "flip" ? upCount(p.grid) < 2 : playing && view.current === i;
+          const out = isOut(p, view.round);
+          const active =
+            !out && (phase === "flip" ? upCount(p.grid) < 2 : playing && view.current === i);
           const gone = connected?.[i] === false;
           const clock = wait.find((w) => w.seat === i && w.reason !== "auto");
           return (
@@ -248,9 +255,11 @@ export function Table(props: TableProps) {
                 if (el) oppRefs.current.set(i, el);
                 else oppRefs.current.delete(i);
               }}
-              className={`opp${active ? " active" : ""}${gone ? " away" : ""}${clock ? " timed" : ""}`}
+              className={`opp${active ? " active" : ""}${gone ? " away" : ""}${clock ? " timed" : ""}${out ? " out" : ""}`}
               data-testid="opponent"
-              aria-label={`${gone ? `${t("offline")}: ` : ""}${auto?.[i] ? `${t("autoPlay")}: ` : ""}${t("showCards", { name: p.name })}, ${t("pts", { n: p.total })}`}
+              aria-label={`${gone ? `${t("offline")}: ` : ""}${auto?.[i] ? `${t("autoPlay")}: ` : ""}${out ? `${p.name}, ${t("outWatching")}` : t("showCards", { name: p.name })}, ${t("pts", { n: p.total })}`}
+              // No cards to show.
+              disabled={out}
               onClick={() => setZoom(i)}
             >
               <span className="opp-head">
@@ -261,18 +270,22 @@ export function Table(props: TableProps) {
                 {clock && <Ring inMs={clock.inMs} />}
                 <span className="opp-total">{p.total}</span>
               </span>
-              <span className="mini">
-                {p.grid.map((slot, pos) => (
-                  <Card
-                    // biome-ignore lint/suspicious/noArrayIndexKey: grid position is the identity
-                    key={pos}
-                    slot={slot}
-                    size="sm"
-                    label={`${p.name}, ${where(t, pos)}`}
-                    cardRef={reg(slotKey(i, pos))}
-                  />
-                ))}
-              </span>
+              {out ? (
+                <span className="out-note">{t("outWatching")}</span>
+              ) : (
+                <span className="mini">
+                  {p.grid.map((slot, pos) => (
+                    <Card
+                      // biome-ignore lint/suspicious/noArrayIndexKey: grid position is the identity
+                      key={pos}
+                      slot={slot}
+                      size="sm"
+                      label={`${p.name}, ${where(t, pos)}`}
+                      cardRef={reg(slotKey(i, pos))}
+                    />
+                  ))}
+                </span>
+              )}
             </button>
           );
         })}
@@ -339,17 +352,20 @@ export function Table(props: TableProps) {
                 <strong>{me.name}</strong> <span className="pts">{t("pts", { n: me.total })}</span>
               </span>
             )}
-            <label className="auto">
-              {!myAuto && t("autoPlay")}
-              <span className="switch">
-                <input
-                  type="checkbox"
-                  aria-label={t("autoPlay")}
-                  checked={myAuto}
-                  onChange={(e) => onAuto?.(e.target.checked)}
-                />
-              </span>
-            </label>
+            {/* Nothing left to play once you're out (R16), even at that round's summary. */}
+            {me.out === null && (
+              <label className="auto">
+                {!myAuto && t("autoPlay")}
+                <span className="switch">
+                  <input
+                    type="checkbox"
+                    aria-label={t("autoPlay")}
+                    checked={myAuto}
+                    onChange={(e) => onAuto?.(e.target.checked)}
+                  />
+                </span>
+              </label>
+            )}
             {myClock.until !== null && (
               <Drain
                 key={myClock.until}
@@ -386,7 +402,7 @@ export function Table(props: TableProps) {
         </section>
       )}
 
-      {zoom !== null && players[zoom] && (
+      {zoom !== null && players[zoom] && !isOut(players[zoom], view.round) && (
         <Zoom view={view} seat={zoom} onClose={() => setZoom(null)} />
       )}
 
@@ -487,7 +503,9 @@ function Summary({ view, lead, auto, onPeek, onNext, onPlayAgain, onExit }: Summ
   const over = view.phase === "gameOver";
   const winners = view.winners.map((i) => view.players[i].name);
   const rows = view.players.map((p, seat) => ({ ...p, seat }));
-  if (over) rows.sort((a, b) => a.total - b.total);
+  // The final ranking (R14, R16) is the engine's.
+  const place = places(view);
+  if (over) rows.sort((a, b) => place[a.seat] - place[b.seat]);
   return (
     <div
       className="overlay"
@@ -516,29 +534,42 @@ function Summary({ view, lead, auto, onPeek, onNext, onPlayAgain, onExit }: Summ
             </tr>
           </thead>
           <tbody>
-            {rows.map((p) => (
-              <tr key={p.seat} className={view.winners.includes(p.seat) ? "win" : undefined}>
-                <td>
-                  {auto?.[p.seat] && <Bot />}
-                  {p.name}
-                  {p.seat === view.ender && <span className="tag">{t("ended")}</span>}
-                </td>
-                <td>
-                  {p.seat === view.ender && view.doubled ? (
-                    // "57 ×2 = 114": the doubling already happened, and the base is visible.
-                    <>
-                      {(p.scores.at(-1) ?? 0) / 2}
-                      <span className="tag x2">×2</span> = {p.scores.at(-1)}
-                    </>
-                  ) : (
-                    p.scores.at(-1)
-                  )}
-                </td>
-                <td>
-                  <CountUp from={p.total - (p.scores.at(-1) ?? 0)} to={p.total} />
-                </td>
-              </tr>
-            ))}
+            {rows.map((p) => {
+              // Players out before this round (R16) have no score in it.
+              const played = !isOut(p, view.round);
+              const last = played ? (p.scores.at(-1) ?? 0) : 0;
+              return (
+                <tr key={p.seat} className={view.winners.includes(p.seat) ? "win" : undefined}>
+                  <td>
+                    {auto?.[p.seat] && <Bot />}
+                    {p.name}
+                    {p.seat === view.ender && <span className="tag">{t("ended")}</span>}
+                    {/* A winner may have reached 100 too, when nobody was left under it. */}
+                    {p.out !== null && !view.winners.includes(p.seat) && (
+                      <span className="tag" data-testid="out-tag">
+                        {t("outInRound", { n: p.out })}
+                      </span>
+                    )}
+                  </td>
+                  <td>
+                    {!played ? (
+                      "–"
+                    ) : p.seat === view.ender && view.doubled ? (
+                      // "57 ×2 = 114": the doubling already happened, and the base is visible.
+                      <>
+                        {last / 2}
+                        <span className="tag x2">×2</span> = {last}
+                      </>
+                    ) : (
+                      last
+                    )}
+                  </td>
+                  <td>
+                    <CountUp from={p.total - last} to={p.total} />
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
         {!lead && <p className="prompt">{t("waitingHost")}</p>}

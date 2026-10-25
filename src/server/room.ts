@@ -50,6 +50,8 @@ export interface RoomData {
    * Unset before 2.1.2.
    */
   stopped?: number[];
+  /** "Play until one is left" (R16), set in the lobby and dealt with at every start. Unset before 2.2.0. */
+  knockout?: boolean;
 }
 
 /** One open socket, persisted in its attachment. */
@@ -240,6 +242,9 @@ export class Room {
     private readonly deps: Deps,
   ) {
     data.turnSince ??= data.waitSince; // a room saved before 2.1.0
+    // A game saved before 2.2.0 (R16).
+    if (data.game) data.game.knockout ??= false;
+    for (const p of data.game?.players ?? []) p.out ??= null;
   }
 
   seatOf(conn: Conn): number | null {
@@ -313,14 +318,22 @@ export class Room {
         this.data.game = createGame(
           seats.map((s) => s.name),
           this.deps.seed(),
+          { knockout: this.data.knockout === true },
         );
         this.data.waitSince = now;
         this.data.turnSince = now;
         // Auto-play lasts a game: in the lobby it only let others lead while you were away.
         for (const s of seats) s.auto = false;
         return "data";
+      case "knockout":
+        // Shared before the deal, so everyone knows the rule, and a stand-in leader keeps it.
+        if (!lobby || !this.canLead(seat, live)) throw new RoomError("not-allowed");
+        if ((this.data.knockout === true) === msg.on) return "none";
+        this.data.knockout = msg.on;
+        return "data";
       case "auto": {
-        if (seat === null) throw new RoomError("not-allowed");
+        // A player who is out has no turns to play (R16).
+        if (seat === null || this.isOut(seat)) throw new RoomError("not-allowed");
         if ((seats[seat].auto === true) === msg.on) return "none";
         seats[seat].auto = msg.on;
         // Unticking on your turn gives you a fresh clock, once per move: ticking on and off can't
@@ -391,6 +404,7 @@ export class Room {
       you,
       lead: this.canLead(you, live),
       clocks: this.clocks(live),
+      knockout: this.data.knockout === true,
       game: this.data.game && toView(this.data.game),
     };
   }
@@ -422,7 +436,9 @@ export class Room {
     const due = this.awaited().filter((s) => this.canStall(s, live) && now >= this.due(s));
     for (const seat of due) this.data.seats[seat].auto = true;
     // With nobody there playing by hand, nobody else can end the round (BUG-1).
-    const mayEnd = this.data.seats.every((s, i) => s.auto || !this.connected(i, live));
+    const mayEnd = this.data.seats.every(
+      (s, i) => s.auto || this.isOut(i) || !this.connected(i, live),
+    );
     for (const seat of due) {
       if (!this.data.game) break;
       this.play(this.data.game, autoMove(this.data.game, seat, mayEnd));
@@ -499,14 +515,13 @@ export class Room {
   }
 
   /**
-   * The host leads; if the host is away, or on auto-play, anyone seated may, so one dropped phone
-   * can't freeze the table.
+   * The host leads; if the host is away, on auto-play, or out of a knockout game (R16: they may
+   * well have stopped watching), anyone seated may, so one dropped phone can't freeze the table.
    */
   private canLead(seat: number | null, live: Conn[]): boolean {
     const { host, seats } = this.data;
-    return (
-      seat !== null && (seat === host || seats[host]?.auto === true || !this.connected(host, live))
-    );
+    const away = seats[host]?.auto === true || this.isOut(host) || !this.connected(host, live);
+    return seat !== null && (seat === host || away);
   }
 
   private needsLead(): boolean {
@@ -539,22 +554,30 @@ export class Room {
   /**
    * The clock and auto-play run for a seat only while a seated player is there to pay for them
    * (each step is an alarm, charged to the IPs in the room, SEC-11): another connected seat, on
-   * auto-play or not (BUG-1), or the seat itself when it's on auto-play. Spectators don't count,
-   * and a player thinking alone has no clock. Nobody connected, nothing plays.
+   * auto-play or not (BUG-1), or the seat itself when it's on auto-play. Spectators and players
+   * who are out (R16) don't count, and a player thinking alone has no clock. Nobody connected,
+   * nothing plays.
    */
   private canStall(seat: number, live: Conn[]): boolean {
     return this.data.seats.some(
-      (s, i) => this.connected(i, live) && (i !== seat || s.auto === true),
+      (s, i) => this.connected(i, live) && !this.isOut(i) && (i !== seat || s.auto === true),
     );
   }
 
-  /** Seats the table is waiting on right now. */
+  /** Seats the table is waiting on right now; never one that is out (R16). */
   private awaited(): number[] {
     const g = this.data.game;
     if (g?.phase === "flip") {
-      return g.players.flatMap((p, i) => (p.grid.filter((s) => s?.up).length < 2 ? [i] : []));
+      return g.players.flatMap((p, i) =>
+        !this.isOut(i) && p.grid.filter((s) => s?.up).length < 2 ? [i] : [],
+      );
     }
     return g?.phase === "draw" || g?.phase === "place" ? [g.current] : [];
+  }
+
+  /** Out of the game (R16): no cards, no turns, no clock and no Auto-play; they watch. */
+  private isOut(seat: number): boolean {
+    return (this.data.game?.players[seat]?.out ?? null) !== null;
   }
 
   private removeSeat(seat: number): void {
@@ -574,6 +597,8 @@ export class Room {
     }
     this.data.game = next;
     this.data.waitSince = this.deps.now();
+    // Going out ends a seat's Auto-play: it has no more turns (R16).
+    for (const [i, s] of this.data.seats.entries()) if (this.isOut(i)) s.auto = false;
     // The clock keeps running through a draw and through the opening flip; anything else starts a turn.
     if (next.phase !== "place" && !(next.phase === "flip" && state.phase === "flip")) {
       this.data.turnSince = this.data.waitSince;

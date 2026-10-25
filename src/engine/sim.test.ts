@@ -9,53 +9,14 @@ import {
   createGame,
   type GameState,
   legalActions,
-  newDeck,
   RuleError,
   type Slot,
 } from "./game";
-import { nextRandom, type Rng } from "./rng";
+import type { Rng } from "./rng";
+import { names, type Pick, playRandom, simulate } from "./simkit";
 import { toView } from "./view";
 
-const names = (n: number) => Array.from({ length: n }, (_, i) => `P${i}`);
 const seed = (n: number): Rng => [n, 0, 0, 0];
-
-/** Count of each card value, index = value + 2. */
-function histogram(cards: Card[]): number[] {
-  const counts = Array<number>(15).fill(0);
-  for (const card of cards) counts[card + 2]++;
-  return counts;
-}
-const FULL_DECK = histogram(newDeck()).join();
-
-function cardsInPlay(s: GameState): Card[] {
-  const cards = [...s.deck, ...s.discard];
-  for (const p of s.players) for (const slot of p.grid) if (slot) cards.push(slot.card);
-  if (s.drawn !== null) cards.push(s.drawn);
-  return cards;
-}
-
-type Pick = (n: number) => number;
-
-/** Plays one game choosing uniformly among legal actions; `onStep` sees each state before its move. */
-function playRandom(players: number, seed: number, onStep?: (s: GameState, pick: Pick) => void) {
-  let rng: Rng = [seed, 7, 7, 7];
-  const pick: Pick = (n) => {
-    let v: number;
-    [v, rng] = nextRandom(rng);
-    return Math.floor(v * n);
-  };
-  let s = createGame(names(players), [seed, 0, 0, 0]);
-  const actions: Action[] = [];
-  while (s.phase !== "gameOver") {
-    onStep?.(s, pick);
-    const legal = legalActions(s);
-    const action = legal[pick(legal.length)] as Action;
-    s = apply(s, action);
-    actions.push(action);
-    if (actions.length > 20_000) throw new Error(`seed ${seed} did not finish`);
-  }
-  return { s, actions };
-}
 
 const actionKey = (a: Action) =>
   JSON.stringify([
@@ -84,34 +45,25 @@ function randomAction(pick: Pick, players: number): Action {
 
 describe("simulation", () => {
   it("simulates 1000 seeded games (2–8 players) to completion", () => {
-    for (let seed = 0; seed < 1000; seed++) {
-      const players = 2 + (seed % 7);
-      const { s } = playRandom(players, seed, (state) => {
-        if (histogram(cardsInPlay(state)).join() !== FULL_DECK) {
-          throw new Error(`seed ${seed}: cards not conserved`);
-        }
-        const turnTaker = state.players[state.current].grid;
-        if (state.phase === "draw" && !turnTaker.some((slot) => slot && !slot.up)) {
-          throw new Error(`seed ${seed}: turn-taker has no face-down card`);
-        }
-      });
-      expect(s.phase).toBe("gameOver");
-      expect(s.players.some((p) => p.total >= 100)).toBe(true);
-      for (const p of s.players) expect(p.total).toBe(p.scores.reduce((a, b) => a + b, 0));
-    }
+    simulate(false);
   });
 
-  it("rejects random illegal actions", () => {
+  it("rejects random illegal actions, out players' included (R16)", () => {
     let checked = 0;
     for (let seed = 0; seed < 100; seed++) {
       const players = 2 + (seed % 7);
-      playRandom(players, seed, (s, pick) => {
-        const legal = new Set(legalActions(s).map(actionKey));
-        const action = randomAction(pick, players);
-        if (legal.has(actionKey(action))) return;
-        expect(() => apply(s, action)).toThrow(RuleError);
-        checked++;
-      });
+      playRandom(
+        players,
+        seed,
+        (s, pick) => {
+          const legal = new Set(legalActions(s).map(actionKey));
+          const action = randomAction(pick, players);
+          if (legal.has(actionKey(action))) return;
+          expect(() => apply(s, action)).toThrow(RuleError);
+          checked++;
+        },
+        seed % 2 === 1,
+      );
     }
     expect(checked).toBeGreaterThan(1000);
   });
@@ -135,22 +87,29 @@ function withHiddenCardsReversed(s: GameState): GameState {
 }
 
 describe("view", () => {
-  it("toView never exposes face-down values or deck order", () => {
+  it("toView never exposes face-down values or deck order, with knockout off and on", () => {
     for (let seed = 0; seed < 50; seed++) {
-      playRandom(2 + (seed % 7), seed, (s) => {
-        const view = toView(s);
-        s.players.forEach((p, i) => {
-          const expected = p.grid.map((slot) =>
-            slot === null ? null : slot.up ? slot.card : "down",
-          );
-          expect(view.players[i]?.grid).toEqual(expected);
-        });
-        expect(toView(withHiddenCardsReversed(s))).toEqual(view);
-        expect(view.deckCount).toBe(s.deck.length);
-        expect(view.discardTop).toBe(s.discard.at(-1) ?? null);
-        expect(Object.keys(view)).not.toContain("deck");
-        expect(Object.keys(view)).not.toContain("rng");
-      });
+      playRandom(
+        2 + (seed % 7),
+        seed,
+        (s) => {
+          const view = toView(s);
+          s.players.forEach((p, i) => {
+            const expected = p.grid.map((slot) =>
+              slot === null ? null : slot.up ? slot.card : "down",
+            );
+            expect(view.players[i]?.grid).toEqual(expected);
+          });
+          expect(toView(withHiddenCardsReversed(s))).toEqual(view);
+          expect(view.deckCount).toBe(s.deck.length);
+          expect(view.discardTop).toBe(s.discard.at(-1) ?? null);
+          expect(Object.keys(view)).not.toContain("deck");
+          expect(Object.keys(view)).not.toContain("rng");
+          expect(view.knockout).toBe(s.knockout);
+          expect(view.players.map((p) => p.out)).toEqual(s.players.map((p) => p.out));
+        },
+        seed % 2 === 1,
+      );
     }
   });
 

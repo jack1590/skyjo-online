@@ -4,6 +4,20 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.2.0] - 2026-10-25
+
+### Added
+
+- **Play until one is left.** A new option in the lobby ("Jugar hasta que quede uno", "Jogar até sobrar um"). The host switches it on before starting, and everyone in the lobby sees it, so nobody is surprised by the rule. After each round, everyone at 100 points or more is out: they keep their seat, name and score, and watch the rest of the game. The others play on, down to two head to head. The last player under 100 wins; if everyone still in reaches 100 in the same round, the lowest total among them wins, and a tie shares the win. With the option off, the game ends at 100 as before.
+- Out players see the table the way a spectator does, with "Out · watching" on their seat and nothing to tap. Everyone else sees "Out · watching" in their panel instead of cards. Nobody waits on them: they have no turns, no clock and no Auto-play.
+- The round summary shows "Out in round 3" by everyone who went out. At game over the rows are the final ranking: the winner first, then whoever went out later, then the lower total.
+- If the host is out, they still lead (**Next round**, **Play again**), and so may anyone else seated, so the players still in never wait on someone who has stopped watching. **Play again** puts everyone back in, and the lobby keeps the option as it was.
+- "How to play" explains the option.
+
+### Security
+
+- One new message, the lobby's option switch. Only whoever may start the game can send it, only in the lobby, and it counts against each network's 120-a-minute budget like any other message. A knockout game lasts more rounds, but nothing in it happens more often: 8 phones on one network playing two knockout games still stay under 90 a minute. Out players and people watching don't keep the clock or Auto-play running.
+
 ## [2.1.3] - 2026-10-25
 
 ### Fixed

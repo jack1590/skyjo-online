@@ -104,6 +104,12 @@ const en = {
   flipOnePlain: "Flip 1 card",
   flipManyPlain: "Flip {n} cards",
   drawPlain: "Draw from the deck or take the discard",
+  rules8:
+    "Play until one is left (the host's choice in the lobby): after each round, everyone at 100 or more is out and watches. The last player under 100 wins; if everyone left reaches 100 in the same round, the lowest total wins.",
+  knockout: "Play until one is left",
+  knockoutHelp: "After each round, everyone at 100 or more is out. The last one under 100 wins.",
+  outWatching: "Out · watching",
+  outInRound: "Out in round {n}",
 };
 
 export type Key = keyof typeof en;
@@ -214,6 +220,13 @@ const es: Record<Key, string> = {
   flipOnePlain: "Voltea 1 carta",
   flipManyPlain: "Voltea {n} cartas",
   drawPlain: "Roba del mazo o toma el descarte",
+  rules8:
+    "Jugar hasta que quede uno (lo elige el anfitrión en la sala): después de cada ronda, quien tenga 100 o más queda fuera y mira. Gana el último por debajo de 100; si todos los que quedan llegan a 100 en la misma ronda, gana el total más bajo.",
+  knockout: "Jugar hasta que quede uno",
+  knockoutHelp:
+    "Después de cada ronda, quien tenga 100 o más queda fuera. Gana el último por debajo de 100.",
+  outWatching: "Fuera · mirando",
+  outInRound: "Fuera en la ronda {n}",
 };
 
 /** Brazilian Portuguese. */
@@ -321,6 +334,12 @@ const pt: Record<Key, string> = {
   flipOnePlain: "Vire 1 carta",
   flipManyPlain: "Vire {n} cartas",
   drawPlain: "Compre do monte ou pegue o descarte",
+  rules8:
+    "Jogar até sobrar um (o anfitrião escolhe na sala): depois de cada rodada, quem tiver 100 ou mais sai e assiste. Vence o último abaixo de 100; se todos que restam chegarem a 100 na mesma rodada, vence o menor total.",
+  knockout: "Jogar até sobrar um",
+  knockoutHelp: "Depois de cada rodada, quem tiver 100 ou mais sai. Vence o último abaixo de 100.",
+  outWatching: "Fora · assistindo",
+  outInRound: "Fora na rodada {n}",
 };
 
 export const LOCALES = {

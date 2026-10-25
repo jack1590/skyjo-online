@@ -1022,3 +1022,62 @@ button.card:active {
     background: rgb(242 193 78 / 0.45);
   }
 }
+
+/* M17: the lobby's game option, its help under it and the switch on the right. */
+.option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.option-help {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.option:has(input:disabled) {
+  cursor: default;
+}
+
+/* Only a leader can flip it: everyone else sees its state, plainly not a control. */
+.option:has(input:disabled) .switch {
+  opacity: 0.5;
+}
+
+.option .switch input {
+  top: -10px;
+}
+
+.option .switch:has(input:checked) {
+  background: var(--accent);
+}
+
+.option .switch:has(input:checked)::after {
+  transform: translateX(16px);
+  background: var(--accent-ink);
+}
+
+/* A player who is out (R16): no cards, just the note, in a dimmed panel. */
+.opp.out {
+  display: flex;
+  flex-direction: column;
+  opacity: 0.7;
+}
+
+.out-note {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  min-height: 44px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  text-align: center;
+}
