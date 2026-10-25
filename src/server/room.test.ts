@@ -233,32 +233,48 @@ describe("play", () => {
     expect(t.room.view(t.connect("token-0-abcdef"), t.live).you).toBe(0);
   });
 
-  it("a full game through the room reaches game over; views never leak secrets, with a seat on auto-play", () => {
-    const t = setup();
-    const conns = t.seated(3);
-    const watcher = t.connect("token-w-abcdef");
-    t.send(conns[0], { t: "start" });
-    t.send(conns[1], { t: "auto", on: true });
-    for (let i = 0; t.room.data.game?.phase !== "gameOver"; i++) {
-      expect(i).toBeLessThan(20_000);
-      // The server plays seat 1's steps as they come due; the others play at once.
-      t.advance(AUTO_FIRST_MS);
-      if (!t.room.tick(t.live)) stepAny(t, conns);
-      const state = t.room.data.game;
-      for (const c of [...conns, watcher]) {
-        const view = t.room.view(c, t.live);
-        expect(JSON.stringify(view)).not.toMatch(/token-|"deck":|"rng":|"seenAt":/);
-        // Every face-down card reaches every client, its own player included, only as "down".
-        state?.players.forEach((p, seat) => {
-          p.grid.forEach((slot, pos) => {
-            if (slot && !slot.up) expect(view.game?.players[seat].grid[pos]).toBe("down");
+  for (const knockout of [false, true]) {
+    it(`a full game through the room reaches game over; views never leak secrets, with a seat on auto-play${knockout ? "; M17: with knockout on, out seats are never waited on, and the right player wins" : ""}`, () => {
+      const t = setup();
+      const conns = t.seated(3);
+      const watcher = t.connect("token-w-abcdef");
+      t.send(conns[0], { t: "knockout", on: knockout });
+      t.send(conns[0], { t: "start" });
+      t.send(conns[1], { t: "auto", on: true });
+      for (let i = 0; t.room.data.game?.phase !== "gameOver"; i++) {
+        expect(i).toBeLessThan(20_000);
+        // The server plays seat 1's steps as they come due; the others play at once.
+        t.advance(AUTO_FIRST_MS);
+        if (!t.room.tick(t.live)) stepAny(t, conns);
+        const state = t.room.data.game;
+        for (const c of [...conns, watcher]) {
+          const view = t.room.view(c, t.live);
+          expect(JSON.stringify(view)).not.toMatch(/token-|"deck":|"rng":|"seenAt":/);
+          // Every face-down card reaches every client, its own player included, only as "down".
+          state?.players.forEach((p, seat) => {
+            p.grid.forEach((slot, pos) => {
+              if (slot && !slot.up) expect(view.game?.players[seat].grid[pos]).toBe("down");
+            });
+            if (p.out === null) return;
+            expect(view.clocks.map((w) => w.seat)).not.toContain(seat);
+            expect(view.seats[seat].auto).toBe(false);
           });
-        });
+        }
       }
-    }
-    // Start + one fresh seed per round after the first.
-    expect(t.seedCalls()).toBe(t.room.data.game?.round);
-  });
+      // Start + one fresh seed per round after the first.
+      const game = t.room.data.game;
+      expect(t.seedCalls()).toBe(game?.round);
+      if (!knockout || !game) return;
+      // R16 on this seeded deal: Seat 1 went out in an earlier round than the last.
+      expect(game.players.some((p) => p.out !== null && p.out < game.round)).toBe(true);
+      const left = game.players.flatMap((p, seat) => (p.out === null ? [seat] : []));
+      const among = left.length
+        ? left
+        : [0, 1, 2].filter((s) => game.players[s].out === game.round);
+      const best = Math.min(...among.map((s) => game.players[s].total));
+      expect(game.winners).toEqual(among.filter((s) => game.players[s].total === best));
+    });
+  }
 
   it("the host advances rounds; anyone may once the host is away", () => {
     const t = setup();
@@ -303,6 +319,124 @@ describe("play", () => {
 
 const autoSeats = (t: Setup) => t.room.data.seats.map((s) => s.auto === true);
 const drawMsg: ClientMsg = { t: "act", action: { type: "draw", seat: 0, source: "deck" } };
+const nextRound: ClientMsg = { t: "act", action: { type: "nextRound" } };
+
+/** A 3-seat knockout game at round 1's summary: seat 0, the host, on Auto-play until it went out. */
+function hostOut(t: Setup) {
+  const conns = t.seated(3);
+  t.send(conns[0], { t: "knockout", on: true });
+  t.send(conns[0], { t: "start" });
+  t.send(conns[0], { t: "auto", on: true });
+  const game = t.room.data.game;
+  // Out at the end of round 1 whatever it scores; the others can't be.
+  for (const [seat, p] of game?.players.entries() ?? []) p.total = seat === 0 ? 150 : -200;
+  while (t.room.data.game?.phase !== "roundOver") stepAny(t, conns);
+  expect(t.room.data.game.players.map((p) => p.out)).toEqual([1, null, null]);
+  return conns;
+}
+
+describe("knockout (M17, R16)", () => {
+  it("M17: only whoever may lead switches it, only in the lobby; everyone sees it, and start deals with it", () => {
+    const t = setup();
+    const [a, b] = t.seated(2);
+    const watcher = t.connect("token-w-abcdef");
+    const on: ClientMsg = { t: "knockout", on: true };
+    expect(t.errorOf(() => t.send(b, on))).toBe("not-allowed");
+    expect(t.errorOf(() => t.send(watcher, on))).toBe("not-allowed");
+    expect(t.send(a, on)).toBe("data");
+    expect(t.send(a, on)).toBe("none");
+    for (const c of [a, b, watcher]) expect(t.room.view(c, t.live).knockout).toBe(true);
+    // With the host away, the stand-in leads with the same setting, and may change it.
+    t.drop(a);
+    expect(t.send(b, { t: "knockout", on: false })).toBe("data");
+    expect(t.room.view(watcher, t.live).knockout).toBe(false);
+    t.send(b, on);
+    t.send(b, { t: "start" });
+    expect(t.room.data.game?.knockout).toBe(true);
+    expect(t.room.view(watcher, t.live).game?.knockout).toBe(true);
+    expect(t.errorOf(() => t.send(b, { t: "knockout", on: false }))).toBe("not-allowed");
+    expect(parseClientMsg('{"t":"knockout","on":true,"seat":1}')).toEqual(on);
+    for (const raw of ['{"t":"knockout"}', '{"t":"knockout","on":"yes"}']) {
+      expect(parseClientMsg(raw)).toBeNull();
+    }
+  });
+
+  it("M17: the option survives a reload from storage and a rematch; a game saved before 2.2.0 loads with knockout off", () => {
+    const t = setup();
+    const conns = t.seated(2);
+    t.send(conns[0], { t: "knockout", on: true });
+    const deps = { now: t.now, seed: (): Rng => [1, 2, 3, 4] };
+    const reload = () => new Room(JSON.parse(JSON.stringify(t.room.data)), deps);
+    expect(reload().view(conns[1], t.live).knockout).toBe(true);
+    t.send(conns[0], { t: "start" });
+    expect(reload().data.game?.knockout).toBe(true);
+    while (t.room.data.game?.phase !== "gameOver") {
+      if (t.room.data.game?.phase === "roundOver") t.send(conns[0], nextRound);
+      else stepAny(t, conns);
+    }
+    t.send(conns[0], { t: "rematch" });
+    expect(t.room.view(conns[1], t.live).knockout).toBe(true);
+    t.send(conns[0], { t: "start" });
+    expect(t.room.data.game?.knockout).toBe(true);
+    const old = JSON.parse(JSON.stringify(t.room.data));
+    delete old.knockout;
+    delete old.game.knockout;
+    for (const p of old.game.players) delete p.out;
+    const loaded = new Room(old, deps);
+    expect(loaded.data.game?.knockout).toBe(false);
+    expect(loaded.data.game?.players.map((p) => p.out)).toEqual([null, null]);
+    expect(loaded.view(conns[0], t.live).knockout).toBe(false);
+  });
+
+  it("M17: going out ends a seat's Auto-play, and it can't tick it again; a host who is out still leads", () => {
+    const t = setup();
+    const conns = hostOut(t);
+    expect(autoSeats(t)).toEqual([false, false, false]);
+    expect(t.errorOf(() => t.send(conns[1], nextRound))).toBe("not-allowed");
+    expect(t.room.view(conns[0], t.live).lead).toBe(true);
+    t.send(conns[0], nextRound);
+    expect(t.room.data.game?.phase).toBe("flip");
+    expect(t.errorOf(() => t.send(conns[0], { t: "auto", on: true }))).toBe("not-allowed");
+    const flip: ClientMsg = { t: "act", action: { type: "flip", seat: 0, pos: 0 } };
+    expect(t.errorOf(() => t.send(conns[0], flip))).toBe("illegal-move");
+  });
+
+  it("M17: an out seat is never waited on, no clock and no Auto-play, and doesn't count as playing by hand: the others' Auto-play ends the round", () => {
+    const t = setup();
+    const conns = hostOut(t);
+    t.send(conns[0], nextRound);
+    const playing = () => ["flip", "draw", "place"].includes(t.room.data.game?.phase ?? "");
+    for (let i = 0; playing(); i++) {
+      expect(i).toBeLessThan(2_000);
+      expect(t.room.view(conns[0], t.live).clocks.map((w) => w.seat)).not.toContain(0);
+      t.advance(TURN_MS);
+      t.room.tick(t.live);
+      expect(t.room.data.seats[0].auto).toBe(false);
+      expect(t.room.data.game?.players[0].grid).toEqual([]);
+    }
+    expect(autoSeats(t)).toEqual([false, true, true]);
+    expect(t.room.data.game?.round).toBe(2);
+  });
+
+  it("M17, BUG-1: an out seat and a lone spectator keep nothing running", () => {
+    const t = setup();
+    const conns = hostOut(t);
+    t.send(conns[0], nextRound);
+    pastFlips(t, conns);
+    const watcher = t.connect("token-w-abcdef");
+    t.drop(conns[1]);
+    t.drop(conns[2]);
+    const before = structuredClone(t.room.data.game);
+    for (const leaving of [conns[0], null]) {
+      expect(t.room.view(watcher, t.live).clocks).toEqual([]);
+      expect(t.room.nextAlarm(t.live)).toBeGreaterThan(t.now() + 2 * TURN_MS);
+      t.advance(2 * TURN_MS);
+      t.room.tick(t.live);
+      expect(t.room.data.game).toEqual(before); // nothing played
+      if (leaving) t.drop(leaving); // then the spectator is alone
+    }
+  });
+});
 
 describe("turn clock (M8)", () => {
   it("M8: nothing happens at 30 s − 1 ms; at 30 s the waited-on seat's move is played and its auto-play is on", () => {

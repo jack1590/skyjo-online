@@ -33,6 +33,8 @@ export type ClientMsg = (
   | { t: "rematch" }
   /** Ticks or unticks Auto-play for the sender's own seat. */
   | { t: "auto"; on: boolean }
+  /** In the lobby, whoever may lead switches "Play until one is left" (R16) on or off. */
+  | { t: "knockout"; on: boolean }
 ) & {
   /** Client counter; the server echoes the highest one handled as `ack`. */
   seq?: number;
@@ -76,6 +78,8 @@ export interface RoomView {
    * Not `wait`, which tabs loaded before 2.1.0 read as a single offline seat.
    */
   clocks: Wait[];
+  /** The lobby's "Play until one is left" option (R16), which the next start deals with. */
+  knockout: boolean;
   game: GameView | null;
 }
 
@@ -123,7 +127,8 @@ function parseBody(msg: Record<string, unknown>): ClientMsg | null {
     case "kick":
       return Number.isInteger(msg.seat) ? { t: "kick", seat: msg.seat as number } : null;
     case "auto":
-      return typeof msg.on === "boolean" ? { t: "auto", on: msg.on } : null;
+    case "knockout":
+      return typeof msg.on === "boolean" ? { t: msg.t, on: msg.on } : null;
     case "act": {
       const a = msg.action;
       if (!isObject(a)) return null;
