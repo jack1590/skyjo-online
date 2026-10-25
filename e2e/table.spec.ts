@@ -224,13 +224,15 @@ test("screenshots: M18 place and discard mode", async ({ page }, info) => {
 test("UX-2: the deck and discard never move (±0.5 px): you or another player drawing, from either pile, with 2 and 8 players", async ({
   page,
 }) => {
-  const boxes = () =>
-    page.evaluate(() =>
-      ["deck", "discard"].map((id) => {
+  // Each table after the first is the harness's next view: one page load per player count.
+  const boxes = (table: Shown) =>
+    page.evaluate((table) => {
+      dispatchEvent(new CustomEvent("skyjo:table", { detail: table }));
+      return ["deck", "discard"].map((id) => {
         const r = document.querySelector(`[data-testid="${id}"]`)?.getBoundingClientRect();
         return r ? [r.x, r.y, r.width, r.height] : [];
-      }),
-    );
+      });
+    }, table);
   for (const players of [2, 8]) {
     const state = firstTurn(players, 5);
     const seat = state.current;
@@ -239,12 +241,10 @@ test("UX-2: the deck and discard never move (±0.5 px): you or another player dr
       apply(state, { type: "draw", seat, source: "deck" }),
       apply(state, { type: "draw", seat, source: "discard" }),
     ].map(toView);
+    await show(page, { view: views[0], seat });
     const seen: number[][][] = [];
     for (const view of views) {
-      for (const as of [seat, (seat + 1) % players]) {
-        await show(page, { view, seat: as });
-        seen.push(await boxes());
-      }
+      for (const as of [seat, (seat + 1) % players]) seen.push(await boxes({ view, seat: as }));
     }
     for (const b of seen) {
       for (const [i, n] of b.flat().entries()) {

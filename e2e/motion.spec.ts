@@ -311,10 +311,11 @@ test.describe("with motion allowed", () => {
     const { before, after } = race(3, 5);
     const me = before.current; // the last to play, holding a card from the deck
     await show(page, { view: toView(before), seat: me });
-    await page.getByTestId("discard").click();
+    // Forced: hit-testing isn't under test, and WebKit's stability wait is slow with motion on.
+    await page.getByTestId("discard").click({ force: true });
     const mine = page.getByTestId("my-grid").locator('button[data-face="down"]').last();
     const pos = await mine.evaluate((el) => [...(el.parentElement?.children ?? [])].indexOf(el));
-    await mine.click();
+    await mine.click({ force: true });
     const delays = await page.evaluate((view) => {
       const w = window as unknown as { flights: { el: Element; a: Animation }[] };
       const start = w.flights.length;
