@@ -54,7 +54,7 @@ The canonical rule list (R1–R16), including every default chosen where the bri
 - **Turn clock and Auto-play (M8, replaces the 60 s stall guard):** each turn has 30 s from its start, and a draw always leaves at least 10 s to place. The opening flip has 30 s from the deal, shared by every seat still flipping. Online or offline, a seat whose time runs out gets the server's move (`autoMove`) and goes on Auto-play, which plays its turns a step at a time (draw 2 s into the turn, place 1.2 s later) until its player unticks it. A player can tick it too. The clock and Auto-play run only while a seated player is connected: another seat, on Auto-play or not, or the seat itself while it's on Auto-play; a player thinking alone has no clock. When nobody connected is playing by hand, Auto-play may turn over the last face-down card, so the round ends; the round summary waits for a tap on Next round (BUG-1, v2.1.1; it used to need a connected seat off Auto-play, and an all-auto table froze).
 - **Next round:** the engine's `nextRound` carries no seat, so the room decides who may send it: the host advances from the round summary; if the host is disconnected, on Auto-play, or out of a knockout game (M17), any seated player can.
 - **Persistence:** room state is written to Durable Object storage on every change, so eviction loses nothing. Idle rooms are deleted after 24 h via an alarm.
-- **Rematch:** after game over, the host's **Play again** returns everyone to the lobby with the same seats. Late arrivals join there, and the host can remove offline (ghost) seats. Then the host starts. Each deal (every start and every new round) gets fresh CSPRNG entropy.
+- **Rematch:** after game over, the host's **Play again** (anyone's, under the same rule as Next round) returns everyone to the lobby with the same seats. Late arrivals join there, and the host can remove offline (ghost) seats. Then the host starts. Each deal (every start and every new round) gets fresh CSPRNG entropy.
 
 ## Milestones
 
@@ -661,7 +661,9 @@ The user asked for a game option, **"Play until one is left"**, and approved the
 - **M8:** a player who is out has no turn, so no clock entry and no auto-play.
   - Going out clears that seat's auto-play.
   - Out seats count like spectators (BUG-1): they don't keep the clock or Auto-play running, and they don't count when deciding whether anyone is still playing by hand. A room test checks both, and that a lone connected spectator keeps nothing running either: no test pins that yet (PO, PR #21).
-- **The host going out** still leads (Next round, Rematch).
+- **The host going out** still leads (Next round, Rematch), **and so may anyone seated** (PO ruling, PR #24): the same rule as for a host on Auto-play or offline.
+  - _Reason: the screen stays on during a game, so a knocked-out host who puts the phone down still looks connected. Every later round summary would wait on them, and the players still in would have no way to go on. Going out also ends Auto-play, which was the other way to let someone else lead._
+  - _Cost: once the host is out, whoever taps Next round or Play again first moves the table on. At game over the host is usually out, so anyone may send the table back to the lobby. That is the behavior friends already get when the host is on Auto-play._
 - **An active player who drops:** as now; the timer and auto-play keep the table moving.
 - **Final ranking:**
   - the winner, or the tied winners, are 1st;
@@ -728,6 +730,16 @@ The user asked for a game option, **"Play until one is left"**, and approved the
 - **Delivery health:** PR CI wall time grows by ≤ 15 s, with per-job times in the PR.
 - **Release:** version 2.2.0 with its CHANGELOG section, and `docs/screenshots/m17/` at iPhone size.
 - **PO:** the PO plays a local 3–4 phone knockout game at least until a player goes out, and checks game over through the harness. Scores needed: Rules correctness 5, Mobile UX ≥ 4, Game feel ≥ 4.
+
+**PO review (PR #24, round 1): changes requested, two small client fixes.**
+- **Played:** 4 phones (en, en, pt at 390×664, es at 360×740), host Ana. Ana ended round 1 at 82 × 2 = 164 and went out; every phone, Ben included, got Next round. Round 2 was dealt to the other three only. Ana watched: "Out · watching" on her panel, no cards, no Auto-play switch, and a tap on the deck did nothing. In round 2 all three crossed 100: Cris won on 116, then Ben 118, Dani 132, and Ana last, out in round 1. Ben's Play again returned everyone to the lobby with the option still on. Every summary showed "Out in round N" in en, es and pt.
+- **Engine, checked independently:** an oracle replayed 900 random knockout games (3–8 players) and checked every R16 decision against the rule above: who goes out, R4 among active players, R10's final turns, R12 among that round's players, out seats rejected for every action, the winners when one or none is left, and `places()` from the state and from the view. All held: 192 games ended head to head, 532 with nobody left, and 16 were shared wins.
+- **Requested:**
+  1. At game over the winner is tagged "Out in round 2" when everyone still in crossed 100 (D, E, F). The heading says "Cris wins!" and the row beside it says Cris is out. Show the tag only for players who aren't winners, and test that in a game where nobody is left.
+  2. A player who may not lead sees the lobby switch exactly as the host does, bright and apparently live, but tapping it does nothing. Dim it when it is disabled.
+- **Follow-ups (not blocking, game feel):**
+  - Going out has no moment of its own: no sound and no line for you. Your summary row has the same small tag as everyone else's, and afterwards you get the stranger's line, "You're watching this game." Something like "You're out · watching" for the out player, plus a short sting at the summary where you go out, would make it feel part of the game. This fits M13's summary work.
+  - With 4 players, the out panel takes a full grid's space with only a note in it. That's fine for now; revisit with M12, which reworks the spectator layout that out players get.
 
 ### M16 — Launch in the App Store and Google Play (user decision, 2026-10-24) · last
 
