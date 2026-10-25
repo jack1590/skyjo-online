@@ -22,12 +22,13 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           nproc
           run() {
-            git checkout -q -- . && git clean -fdq src e2e public
+            git reset -q --hard HEAD && git clean -fdq src e2e public
             workers=2
             case "$1" in
               main) git checkout -q 525758899a047165d06e20a6bb3122b360ec5be9 -- src e2e public ;;
               real-wakelock) sed -i 's/^  if (!Object.getOwnPropertyDescriptor(navigator, "wakeLock")) {/  if (false) {/' e2e/helpers.ts ;;
               workers4) workers=4 ;;
+              no-ring) printf '\n.ring { display: none !important; }\n' >> src/client/styles.css ;;
             esac
             reporter="--reporter=list"
             [ "$1" = html ] && reporter=""
@@ -37,9 +38,10 @@ jobs:
             end=$(date +%s)
             round=$(grep -E 'a round runs to its summary' "/tmp/$1-$2.log" | grep -oE '\(([0-9.]+)s\)$' | tr -d '()')
             m8=$(grep -E 'M8: a player who ticks' "/tmp/$1-$2.log" | grep -oE '\(([0-9.]+)s\)$' | tr -d '()')
-            echo "RESULT $1 pass$2 wall=$((end-start))s round=${round} m8online=${m8} $(grep -E ' passed| failed| flaky' "/tmp/$1-$2.log" | tr -s ' ' | tr '\n' ' ')"
+            tests=$(grep -cE "✓|✘" "/tmp/$1-$2.log")
+            echo "RESULT $1 pass$2 tests=$tests wall=$((end-start))s round=${round} m8online=${m8} $(grep -E ' passed| failed| flaky' "/tmp/$1-$2.log" | tr -s ' ' | tr '\n' ' ')"
             grep -E "✘" "/tmp/$1-$2.log" | head -3 || true
           }
           for pass in 1 2; do
-            for v in main head real-wakelock workers4 html; do run $v $pass; done
+            for v in head main real-wakelock no-ring workers4; do run $v $pass; done
           done
