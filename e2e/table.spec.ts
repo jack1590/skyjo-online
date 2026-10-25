@@ -158,6 +158,7 @@ test.describe("M18: discard mode shows where to tap", () => {
       await page.getByTestId("discard").click();
       await expect(page.getByTestId("drawn")).toHaveJSProperty("tagName", "BUTTON"); // tap to keep
       expect((await top("deck")) - (await top("drawn"))).toBeCloseTo(6, 0);
+      await expectMobileFriendly(page);
       const marks = await page.evaluate(() => {
         const grid = '[data-testid="my-grid"]';
         const hl = [...document.querySelectorAll(".hl")];

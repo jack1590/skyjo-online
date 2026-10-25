@@ -821,6 +821,9 @@ dialog.zoom::backdrop {
   border-radius: inherit;
   box-shadow: 0 0 12px 2px var(--accent);
   pointer-events: none;
+  /* Under every card (the grid's perspective makes it the stacking context), so neighbouring
+     glows never paint over a card. */
+  z-index: -1;
   animation: pulse 1.2s ease-in-out infinite;
 }
 

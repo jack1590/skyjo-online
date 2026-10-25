@@ -9,7 +9,7 @@ Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When
 ### Fixed
 
 - After you throw away a card you drew, it's now clear which card to tap. Your face-down cards get a glowing gold outline, and your face-up cards fade back. Before, the only gold outline was on the discard pile, and tapping it only took you back. With reduced motion on, the outline holds still.
-- The prompt says what to do: "Now flip one of your face-down cards, or tap the drawn card to keep it" (in Spanish, "Ahora voltea una de tus cartas boca abajo…"; in Portuguese, "Agora vire uma das suas cartas viradas para baixo…"). It fits in two lines on small phones.
+- The prompt says what to do: "Now flip one of your face-down cards, or keep the drawn card" (in Spanish, "Ahora voltea una de tus cartas boca abajo…"; in Portuguese, "Agora vire uma das suas cartas viradas para baixo…"). It fits in two lines on small phones.
 
 ### Changed
 
