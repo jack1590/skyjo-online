@@ -42,7 +42,7 @@ One npm package (no monorepo tooling). Four areas:
 
 ## Rules spec
 
-The canonical rule list (R1–R15), including every default chosen where the brief is silent, lives in [`AGENTS.md` § Rules](../AGENTS.md#rules). Each rule has a named test.
+The canonical rule list (R1–R16), including every default chosen where the brief is silent, lives in [`AGENTS.md` § Rules](../AGENTS.md#rules). Each rule has a named test.
 
 ## Multiplayer behavior
 
@@ -640,7 +640,7 @@ There is a second guard the old rule hid: `autoMove` never flips a seat's last f
 - **Accepted:** a present player who runs out of time while every other connected seat is on Auto-play goes on Auto-play in the same `tick`, so that very move may turn over their last card and end the round, doubled unless lowest (the PO reproduced it). That is the decision above (at that moment nobody is playing by hand), and the round has to end. Computing `mayEnd` before the due seats switch would spare that one move; revisit if players say so.
 - **M17:** `canStall` only counts seats, so a lone connected spectator keeps nothing running (the PO checked on the injected clock), but no test pins it. M17's out-seat test covers it; see there.
 
-### M17 — Play until one is left (knockout) (user request, 2026-10-24) · v2.2.0
+### M17 — Play until one is left (knockout) (user request, 2026-10-24) · v2.2.0 · ✅ built (PR open)
 
 The user asked for a game option, **"Play until one is left"**, and approved the rule and the edge cases below after a walkthrough. It is numbered M17 because M9–M16 were already planned, but it ships before them (see § Queue after M7).
 
@@ -800,7 +800,7 @@ Each criterion is scored 1–5, or N/A when the milestone has no surface for it 
 
 | Criterion             | 5 means                                                                                                                                                                                          |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Rules correctness     | Every rule R1–R15 behaves as specified in play and in tests                                                                                                                                      |
+| Rules correctness     | Every rule R1–R16 behaves as specified in play and in tests                                                                                                                                      |
 | Mobile UX             | One-handed portrait play, clear turn state, ≥ 44 px targets, no dead ends                                                                                                                        |
 | Visual polish         | Original, cohesive art; readable cards; smooth, purposeful motion                                                                                                                                |
 | Multiplayer stability | No desyncs; reload and network drop recover; no leaked hidden info                                                                                                                               |
