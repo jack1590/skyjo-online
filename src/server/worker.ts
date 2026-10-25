@@ -234,22 +234,12 @@ export class RoomDO extends DurableObject<Env> {
     return this.webSocketClose(ws);
   }
 
-  private lastAlarm = 0;
-  private fastAlarms = 0;
   alarm() {
     return this.serial(async () => {
       const room = await this.load();
       this.alarmAt = null; // this one just fired
       if (!room) return;
       const live = this.live();
-      // PROBE: every alarm, compactly.
-      {
-        const gap = Date.now() - this.lastAlarm;
-        this.lastAlarm = Date.now();
-        const conns = [...live.values()];
-        const g = room.data.game;
-        console.error(`PROBEALARM ${room.data.code} n=${++this.fastAlarms} gap=${gap} phase=${g?.phase} cur=${g?.current} auto=${room.data.seats.map((x) => +(x.auto === true)).join("")} live=${conns.length} next-now=${room.nextAlarm(conns) - Date.now()} idleIn=${room.data.updatedAt + 86_400_000 - Date.now()}`);
-      }
       if (room.isIdle([...live.values()])) {
         for (const ws of live.keys()) {
           send(ws, { t: "missing" });

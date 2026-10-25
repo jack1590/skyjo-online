@@ -228,7 +228,32 @@ test("a round runs to its summary, then the next round (or the game ends)", asyn
   const t0 = Date.now();
   const log: string[] = [];
   const mark = (what: string) => log.push(`${((Date.now() - t0) / 1000).toFixed(2)} ${what}`);
-  const { pages } = await seatedRoom(browser, info, ["Ana", "Ben"]);
+  const all = await phones(browser, info, 2);
+  const stats = all.map(() => ({ states: 0, sent: 0, lat: [] as number[], pending: new Map<number, number>(), last: [] as string[] }));
+  for (const [i, page] of all.entries()) {
+    page.on("websocket", (ws) => {
+      ws.on("framesent", (f) => {
+        const s = String(f.payload);
+        const seq = s.match(/"seq":(\d+)/)?.[1];
+        if (seq) { stats[i].sent++; stats[i].pending.set(Number(seq), Date.now()); }
+      });
+      ws.on("framereceived", (f) => {
+        const s = String(f.payload);
+        if (!s.startsWith("{")) return;
+        const m = JSON.parse(s);
+        if (m.t !== "state") return;
+        stats[i].states++;
+        const t = stats[i].pending.get(m.ack);
+        if (t) { stats[i].lat.push(Date.now() - t); stats[i].pending.delete(m.ack); }
+        const g = m.room.game;
+        stats[i].last.push(`${((Date.now() - t0) / 1000).toFixed(2)} ack=${m.ack} ${g?.phase} cur=${g?.current} clocks=${JSON.stringify(m.room.clocks)}`);
+        if (stats[i].last.length > 6) stats[i].last.shift();
+      });
+    });
+  }
+  const code = await createRoom(all[0]);
+  for (const [i, page] of all.entries()) await join(page, code, ["Ana", "Ben"][i]);
+  const pages = all;
   mark("seated");
   for (const [i, page] of pages.entries()) {
     page.on("console", (m) => mark(`p${i} console ${m.type()} ${m.text().slice(0, 90)}`));
@@ -269,7 +294,8 @@ test("a round runs to its summary, then the next round (or the game ends)", asyn
     }
     mark("round 2");
   } finally {
-    console.log(`ROUNDLOG total ${((Date.now() - t0) / 1000).toFixed(1)}\n${log.join("\n")}`);
+    const med = (xs: number[]) => xs.sort((x, y) => x - y)[Math.floor(xs.length / 2)] ?? 0;
+    console.log(`ROUNDLOG total ${((Date.now() - t0) / 1000).toFixed(1)} moves ${moves} | ${stats.map((x, i) => `p${i}: sent ${x.sent} states ${x.states} ackLat med ${med(x.lat)} max ${Math.max(0, ...x.lat)}`).join(" | ")}\n${log.slice(-6).join("\n")}\n${stats.map((x, i) => `p${i} last: ${x.last.join(" ; ")}`).join("\n")}`);
   }
 });
 

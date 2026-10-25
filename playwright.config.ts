@@ -39,7 +39,6 @@ export default defineConfig({
         // Never test a server we didn't start: a stale build on the port would pass or fail for
         // the wrong reasons. A busy port fails loudly instead.
         reuseExistingServer: false,
-        stdout: "pipe",
       },
   projects: [
     { name: "iphone", use: { ...devices["iPhone 13"] } },
