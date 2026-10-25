@@ -236,7 +236,7 @@ Decisions (PO, 2026-10-24), refined the same day with the UX expert's advice. Ea
 - **Delivery health:** fails the ≤ 15 s rule. `e2e (iphone)`, the critical path, took 136, 123 and 132 s on 3 attempts of this PR's head (mean 130), against 106, 112, 110, 110, 101, 102 and 121 s on the last 7 runs before it (mean 109): +21 s. The wall clock from creation (2:17 → 2:19 in the PR) mostly measured queue time. The M8 tests add 44 s of WebKit test time and save 18, and "a round runs to its summary" doubled on CI's WebKit only (7–11 s on all 4 baseline runs, 20–24 s on all 3 M8 attempts; Pixel, desktop and Node unchanged; no difference in a local macOS A/B, main 2.3–3.1 s vs M8 2.6–2.7 s). Local `npm run e2e` is 50 s, no test flaked in 5 repeats (Node: 10), and wall stays under 3 min.
 - **Follow-ups (not blocking):** a phone whose network stalls for 45 s while visible and then only pings (its socket survived) never restarts the clock it stopped, so the next message from anyone auto-plays a player who was thinking alone (PO probe through `Room`). Fold into SEC-9, which rewrites the same presence path: the client could say `hello` when a view shows its own seat offline. On your own phone the pill reads "Your turn" while Auto-play plays that turn; "Your turn · auto" would match the bar (next UX pass).
 
-### M9 — Smooth animations, part 1: no jumps (user request, 2026-10-24) · v2.1.2
+### M9 — Smooth animations, part 1: no jumps (user request, 2026-10-24) · v2.2.1
 
 **Diagnosis (UX expert, live site, 2026-10-24).** Frame rate is fine. In Chromium at 4× CPU throttle, 903 frames measured p50 16.7 ms and p99 16.8 ms, with one frame at 33 ms; WebKit p99 was 21 ms. Everything animates on the compositor, and layout p99 is 6.3 ms. The "not smooth" feeling comes from cards starting in the wrong place and stacking wrong, plus slow taps.
 
@@ -254,7 +254,7 @@ So M9–M11 fix those instead of tuning frame rate. The perf-spec harness planne
 - Each new test fails on `main` without the fix; the PR shows this.
 - CI grows by ≤ 10 s. The release checklist is done. The PO plays with motion on and sees no jump.
 
-### M10 — Responsive taps, honest connection state · v2.1.3
+### M10 — Responsive taps, honest connection state · v2.2.2
 
 The expert counts slow taps as part of the "not smooth" feeling, so they come right after the jumps.
 - **UX-3.** Time from tap to new state: draw p50 97 ms, p90 181 ms, max 372 ms; discard-and-flip p90 401 ms. Extra taps are dropped silently (`useRoom.ts:134`). On a tap, immediately play the sound, vibrate briefly and lift the tapped card, and keep that until the view arrives.
@@ -266,7 +266,7 @@ The expert counts slow taps as part of the "not smooth" feeling, so they come ri
 - The reload and reconnect E2E still pass.
 - The release checklist is done.
 
-### M11 — Smooth animations, part 2: flights read cleanly · v2.1.4
+### M11 — Smooth animations, part 2: flights read cleanly · v2.2.3
 
 - **UX-7.** A card leaving your grid slides under your other cards. Raise its z-index during the flight.
 - **UX-8.** Flights to opponents are clipped by the strip's overflow (`styles.css:327`). Fly a fixed-position copy instead.
@@ -319,17 +319,17 @@ The user asked for a UX expert agent to find improvements and ship them step by 
 | After M6 | Quick reactions                                                        | idea     | M      | defer: the user's call                         |
 
 Queued UX milestones after M11, each with its acceptance:
-- **M12, spectators keep the piles (v2.1.5).** At 390×664 with 8 players, a spectator sees the deck, the discard pile and the drawn card on every turn of a played round, on all 3 devices.
-- **M13, round summary and game over (v2.2.0).**
+- **M12, spectators keep the piles (v2.2.4).** At 390×664 with 8 players, a spectator sees the deck, the discard pile and the drawn card on every turn of a played round, on all 3 devices.
+- **M13, round summary and game over (v2.3.0).**
   - UX-11: `<dialog>.showModal()`, and Tab stays inside it.
-  - UX-14: rows sorted by total, with your row tagged.
+  - UX-14: rows sorted by M17's engine ranking (by total when knockout is off), with your row tagged.
   - UX-17: "You win!" or "You placed 2nd", with a unit test for ties (R14 shares the win), plus confetti, none with reduced motion.
   - A game-over cue of at least 1 s (CC0) that fires once, unit-tested through `soundsBetween`.
-- **M14, round awareness (v2.3.0).**
+- **M14, round awareness (v2.4.0).**
   - UX-15: each player's sum of face-up cards, matching the engine (unit test on the `GameView`).
-  - UX-16: "Beto starts: highest pair (17)" (R4, including the tie rule), and "Revealing your last card ends the round", shown exactly when you have one face-down card on your turn.
+  - UX-16: "Beto starts: highest pair (17)" (R4, including the tie rule, and only among active players in knockout), and "Revealing your last card ends the round", shown exactly when you have one face-down card on your turn.
   - A last-round cue for everyone, with a vibration, that fires once when the round enters its final turns (unit test).
-- **M15, lobby buttons (v2.3.1).** UX-13: "Start game" comes first, and "Leave seat" is a quiet text button (still ≥ 44 px) that isn't directly below Start.
+- **M15, lobby buttons (v2.4.1).** UX-13: "Start game" comes first, and "Leave seat" is a quiet text button (still ≥ 44 px) that isn't directly below Start.
 
 ### Security hardening (SEC) (user request, 2026-10-24) · one patch each
 
@@ -435,7 +435,7 @@ A bot doesn't need many rooms to use up the rows: a `join`/`leave` loop from one
 
 ### Queue after M7 (PO, 2026-10-24)
 
-One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for the user to check it on an iPhone. SEC-3 (PR #12) merged as v2.0.2. PR #12's PO review added SEC-10, folded into SEC-1, and SEC-9, after M8, which moves M9–M12 up one patch version. SEC-1 (PR #13) merged as v2.0.3; its PO review added SEC-11, critical, next, which moves SEC-2 + SEC-6 to 2.0.5. SEC-11 (PR #14) merged as v2.0.4. SEC-2 + SEC-6 (PR #15) merged as v2.0.5 after PO round 2; its round-1 review added SEC-12, deferred to M16. SEC-8 (PR #16) shipped the hourly check, CI only. M8 comes next.
+One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for the user to check it on an iPhone. SEC-3 (PR #12) merged as v2.0.2. PR #12's PO review added SEC-10, folded into SEC-1, and SEC-9, after M8, which moves M9–M12 up one patch version. SEC-1 (PR #13) merged as v2.0.3; its PO review added SEC-11, critical, next, which moves SEC-2 + SEC-6 to 2.0.5. SEC-11 (PR #14) merged as v2.0.4. SEC-2 + SEC-6 (PR #15) merged as v2.0.5 after PO round 2; its round-1 review added SEC-12, deferred to M16. SEC-8 (PR #16) shipped the hourly check, CI only. M8 comes next. **M17, knockout (user request, 2026-10-24), goes right after SEC-9 (PO).** SEC-9 is small (effort S) and rewrites the same alarm schedule M8 just changed. Its slower presence checks also cover the round summaries, which are the polls for who may lead, and knockout games have more of those, because they run until one player is left. It still goes ahead of all the UX passes, so M9–M15 each move up a version; the versions in this table are the current ones. M9's heading still reads v2.1.2 because PR #17 edits the lines just above it; it becomes v2.2.1 when PR #17 merges.
 
 | #   | PR                                 | Contents                                                                                                         | Version       | Why here                                                                                               |
 | --- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------ |
@@ -446,16 +446,106 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 5   | ✅ SEC-8                           | Hourly outage check                                                                                              | none          | completes option (c); CI only                                                                          |
 | 6   | M8                                 | Turn timer and auto-play (+ UX-6, UX-10, UX-12, the → M8 follow-ups)                                             | 2.1.0         | the user's first request                                                                               |
 | 7   | SEC-9                              | Slower presence checks in rooms where nobody has sent anything for 10 min                                        | 2.1.1         | medium, effort S; after M8, which rewrites the alarm schedule and ends stuck flips                     |
-| 8   | M9                                 | UX-1, UX-2, UX-4, final reveal                                                                                   | 2.1.2         | majors, visible every turn                                                                             |
-| 9   | M10                                | UX-3, UX-5                                                                                                       | 2.1.3         | majors                                                                                                 |
-| 10  | M11                                | UX-7, UX-8, UX-9                                                                                                 | 2.1.4         | the rest of the smoothness request                                                                     |
-| 11  | M12                                | Spectators keep the piles                                                                                        | 2.1.5         | minor                                                                                                  |
-| 12  | M13                                | UX-11, UX-14, UX-17, game-over cue                                                                               | 2.2.0         | minor, new                                                                                             |
-| 13  | M14                                | UX-15, UX-16, last-round cue                                                                                     | 2.3.0         | minor, new                                                                                             |
-| 14  | M15                                | UX-13                                                                                                            | 2.3.1         | minor                                                                                                  |
-| 15  | M16                                | Launch in the App Store and Google Play                                                                          | set at launch | last: the user wants the product final first                                                           |
+| 8   | M17                                | Play until one is left (knockout), a lobby option                                                                | 2.2.0         | the user's request; right after SEC-9, which is small and cheapens the summaries knockout adds         |
+| 9   | M9                                 | UX-1, UX-2, UX-4, final reveal                                                                                   | 2.2.1         | majors, visible every turn                                                                             |
+| 10  | M10                                | UX-3, UX-5                                                                                                       | 2.2.2         | majors                                                                                                 |
+| 11  | M11                                | UX-7, UX-8, UX-9                                                                                                 | 2.2.3         | the rest of the smoothness request                                                                     |
+| 12  | M12                                | Spectators keep the piles                                                                                        | 2.2.4         | minor                                                                                                  |
+| 13  | M13                                | UX-11, UX-14, UX-17, game-over cue                                                                               | 2.3.0         | minor, new                                                                                             |
+| 14  | M14                                | UX-15, UX-16, last-round cue                                                                                     | 2.4.0         | minor, new                                                                                             |
+| 15  | M15                                | UX-13                                                                                                            | 2.4.1         | minor                                                                                                  |
+| 16  | M16                                | Launch in the App Store and Google Play                                                                          | set at launch | last: the user wants the product final first                                                           |
 
 Deferred: Turnstile (SEC-4), SEC-12 (until M16) and quick reactions (the user's call). Declined: SEC-7. Versions assume this order; a PR that reorders says so.
+
+### M17 — Play until one is left (knockout) (user request, 2026-10-24) · v2.2.0
+
+The user asked for a game option, **"Play until one is left"**, and approved the rule and the edge cases below after a walkthrough. It is numbered M17 because M9–M16 were already planned, but it ships before them (see § Queue after M7).
+
+**The rule (R16, an option, off by default):**
+- The host ticks **Play until one is left** in the lobby before starting. When it is off, R14 is unchanged.
+- Scores still count only at the end of each round. Nobody goes out mid-round.
+- After each round, every player with a total ≥ 100 is **out**. They keep their seat, name and total, and they watch the rest of the game. No cards are dealt to them.
+- The players still under 100 play the next round, and only they get cards. When two are left, they play head to head.
+- The game ends after a round in which at most one player is still under 100:
+  - if **one** is under 100, that player wins;
+  - if **none** are (everyone still in crossed 100 in the same round), the lowest total among them wins, and ties share the win.
+
+**Edge cases (approved by the user):**
+- **R3 and R4:** only active players flip. The start player has the highest 2 flipped cards among them; ties go to the lowest seat, as now.
+- **R5:** turn order skips players who are out.
+- **R10:** "every other player gets one more turn" means every other active player.
+- **R12:** the ender's doubling is compared only against the players in that round.
+- **M8:** a player who is out has no turn, so no clock entry and no auto-play.
+  - Going out clears that seat's auto-play.
+  - Out seats don't count as "someone really there" for a table of auto seats; they watch, the way spectators do.
+- **The host going out** still leads (Next round, Rematch).
+- **An active player who drops:** as now; the timer and auto-play keep the table moving.
+- **Final ranking:**
+  - the winner, or the tied winners, are 1st;
+  - everyone else ranks by the round they went out, later ranking higher;
+  - players who went out in the same round rank by lower total;
+  - the summary shows "Out in round N".
+- **An out player's view:** their seat shows "Out · watching", and they see the table the way a spectator does.
+- **Rematch:** everyone is back in, and the lobby keeps the checkbox as it was.
+
+**Design (PO):**
+- **Engine:**
+  - `createGame(names, seed, options?)`, with `options = { knockout?: boolean }` kept in `GameState`, so the next deal and the scoring see it.
+  - Each player gains `out: number | null`: the round they went out.
+  - The ranking is a pure engine function, so the client never ranks (M13's sorted summary reuses it).
+  - The engine stays pure: it imports only `./…`, with no `Date` and no `Math.random`.
+- **View:**
+  - `GameView` gains `knockout` and each player's `out`, both public.
+  - An out player's grid is empty: no cards, so nothing to hide. Hidden information is unchanged.
+- **Lobby:**
+  - The checkbox can be changed only by whoever may lead (the host, or anyone while the host is away, as for Start), and only in the lobby.
+  - Everyone in the lobby sees its state, so everyone knows the rule before the deal, and a stand-in leader starts with the same setting.
+  - It is one new lobby-only client message, persisted in `RoomData`, and `start` reads it.
+  - _Reason: a setting carried only on `start` would leave the other players guessing until the deal._
+- **Rules docs:** the implementer adds an **R16** row to `AGENTS.md` § Rules, and this plan's Rules spec then says R1–R16.
+
+**Acceptance:**
+- Engine tests named `R16: …`, one per example:
+  - **A.** After R3 at Ana 104, Ben 88, Cris 61 and Dani 95, Ana is out, and R4 deals only to Ben, Cris and Dani. Ana's grid is empty, and all 150 cards are accounted for.
+  - **B.** After R4 at Ben 102, Dani 110 and Cris 79, Ben and Dani are out and Cris wins.
+  - **C.** The last two, Cris 85 and Ben 92, end at Cris 97 and Ben 106: Cris wins.
+  - **D.** The last two, Cris 95 and Ben 98, end at Cris 103 and Ben 115: both crossed, and Cris wins with the lower total.
+  - **E.** Both end at 108: a shared win.
+  - **F.** Three left all cross, at Ben 101, Cris 120 and Dani 104: Ben wins.
+- Engine tests for the edge cases:
+  - R3 and R4: only active players flip, the start player is chosen among them, and on a tie it is the lowest active seat.
+  - R5: turn order skips out seats, including when it wraps past the last seat.
+  - R10: only active players get the final turns.
+  - R12: doubling compares only that round's players.
+  - The ranking: a later out ranks higher, the same round ranks by lower total, and ties share 1st.
+  - `apply` rejects any action from an out seat with a `RuleError`.
+- **With the option off,** the existing R14 tests pass unchanged, plus one new test: with 3 or more players, a round in which one player crosses 100 ends the game.
+- **With 2 players,** knockout and R14 give the same winners on every seeded game of the simulation.
+- **The 1,000-game simulation also runs with knockout on.** Every game ends, all 150 cards stay accounted for, out players never act or hold cards, and the views never leak face-down values.
+- **Room unit tests:**
+  - Only a leader can change the option, and only in the lobby.
+  - The option survives a reload of the room from storage and a rematch, and `start` passes it to the engine.
+  - An out seat is never waited on: no clock and no auto-play.
+  - A host who is out still leads.
+  - In a simulated 3-client knockout game on a seeded deal, the server reaches game over with the right winner.
+- **E2E, on all 3 devices:**
+  - **Online lobby:** when the host ticks the checkbox, the other phone sees it ticked; that phone can't change it; and after Start, the game reports knockout.
+  - **A knockout game to a winner, through the table harness:**
+    - The harness uses states built by the seeded engine: a round in which one player goes out, the next round dealt only to the others, the final round, and game over.
+    - No E2E plays a full game in real time.
+  - **The out player's view:** their seat reads "Out · watching", they get the spectator layout, and they have no tappable card and no auto-play checkbox.
+  - **The summary ranking:** the winner is first, then players rank by the round they went out, with "Out in round N" shown in en, es and pt.
+- Every new string exists in en, es and pt; the type checker enforces it.
+- **README:** how-to-play explains the option, with fresh images from `npm run shots:readme`: the lobby checkbox, an out player's view, and the knockout game-over summary.
+- **Security:**
+  - The new lobby message is charged to `MESSAGES` like any other.
+  - The 8-friends rule still holds: an 8-player knockout game on one IP stays inside `API_REQUESTS` and `MESSAGES`. Games last longer, but the per-minute rates don't change.
+  - The PR lists the new entry point with its bound.
+  - The hidden-information test passes with knockout on.
+- **Delivery health:** PR CI wall time grows by ≤ 15 s, with per-job times in the PR.
+- **Release:** version 2.2.0 with its CHANGELOG section, and `docs/screenshots/m17/` at iPhone size.
+- **PO:** the PO plays a local 3–4 phone knockout game at least until a player goes out, and checks game over through the harness. Scores needed: Rules correctness 5, Mobile UX ≥ 4, Game feel ≥ 4.
 
 ### M16 — Launch in the App Store and Google Play (user decision, 2026-10-24) · last
 
