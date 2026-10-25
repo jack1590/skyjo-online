@@ -18,6 +18,7 @@ jobs:
       - name: Variants, interleaved
         shell: bash
         run: |
+          set +e +o pipefail
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           nproc
           run() {
@@ -28,15 +29,17 @@ jobs:
               real-wakelock) sed -i 's/^  if (!Object.getOwnPropertyDescriptor(navigator, "wakeLock")) {/  if (false) {/' e2e/helpers.ts ;;
               workers4) workers=4 ;;
             esac
+            reporter="--reporter=list"
+            [ "$1" = html ] && reporter=""
             npm run build > /dev/null 2>&1
             start=$(date +%s)
-            npx playwright test --project=iphone --workers=$workers --reporter=list > "/tmp/$1-$2.log" 2>&1 || true
+            npx playwright test --project=iphone --workers=$workers $reporter > "/tmp/$1-$2.log" 2>&1 || true
             end=$(date +%s)
             round=$(grep -E 'a round runs to its summary' "/tmp/$1-$2.log" | grep -oE '\(([0-9.]+)s\)$' | tr -d '()')
             m8=$(grep -E 'M8: a player who ticks' "/tmp/$1-$2.log" | grep -oE '\(([0-9.]+)s\)$' | tr -d '()')
             echo "RESULT $1 pass$2 wall=$((end-start))s round=${round} m8online=${m8} $(grep -E ' passed| failed| flaky' "/tmp/$1-$2.log" | tr -s ' ' | tr '\n' ' ')"
-            grep -E "✘" "/tmp/$1-$2.log" | head -3
+            grep -E "✘" "/tmp/$1-$2.log" | head -3 || true
           }
           for pass in 1 2; do
-            for v in main head real-wakelock workers4; do run $v $pass; done
+            for v in main head real-wakelock workers4 html; do run $v $pass; done
           done
