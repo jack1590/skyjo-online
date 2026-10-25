@@ -224,9 +224,12 @@ export class RoomDO extends DurableObject<Env> {
       if (!room || !conn) return;
       // The seat's last sign of life is kept in memory only: a close writes no row unless it moves
       // the alarm earlier, and then its IP pays for it.
-      if ((await this.commit(live, room.closed(conn) ? "view" : "none")) && conn.ip) {
-        await spend(this.env, conn.ip, 1);
-      }
+      const moved = await this.commit(live, room.closed(conn) ? "view" : "none");
+      // The last socket out also pays for an alarm it leaves armed before the room's expiry: that
+      // run (a row and a request) finds no IP in the room to charge (SEC-13).
+      const early = live.size === 0 && this.alarmAt !== null && this.alarmAt < room.nextAlarm([]);
+      const units = (moved ? 1 : 0) + (early ? 2 : 0);
+      if (units && conn.ip) await spend(this.env, conn.ip, units);
     });
   }
 

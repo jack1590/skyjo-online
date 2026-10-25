@@ -4,6 +4,22 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.1.2] - 2026-10-25
+
+### Changed
+
+- A room where nobody has tapped anything for 10 minutes checks who is still there every 10 minutes instead of every 45 seconds. In such a room, a player's dot can stay green, or the **Start**, **Next round** and **Play again** buttons can stay with the host, for up to 10 minutes after that phone has gone. Anything anyone sends, including a phone coming back to the app, brings the room up to date at once and back to the 45-second checks for 10 minutes. Turn clocks and Auto-play keep their exact timing.
+- Coming back to a room (to its tab or the app) now keeps it alive like a tap, for as long as that tab stays open. Once it's closed, the room is deleted 24 hours after the last tap, as before.
+
+### Fixed
+
+- A player thinking alone is no longer auto-played the moment the other player comes back. When the other phone lost its network for 45 seconds or more but kept its connection, it came back unseen, and the next message from anyone played the thinking player's turn. Now that player gets a fresh 30 seconds when the other comes back. A phone that the room shows as offline while it is open on screen also tells the room it is back, so everyone sees it at once, in a game, the lobby or a summary.
+
+### Security
+
+- A room left open with 2 tabs and nobody playing writes about 160 rows a day instead of about 2,160, whether it sits in the lobby or at a round summary. A game nobody starts flipping in plays out its round on Auto-play and then waits at the summary: about 320 rows that day, instead of about 2,300. So about 600 such forgotten rooms, not about 45, would use up the free plan's 100,000 rows a day.
+- The last phone or tab to leave a room now pays for the room's next presence check or clock step from its network's 120-a-minute budget: 2 of it. That check runs after everyone has left, so it had no network to charge. Before this, one network that kept leaving games mid-turn and coming back, plus a join/leave loop, could use up the day's rows in about 12.2 hours; now it needs 21 hours. Every way of attacking that we test needs at least 14 hours to use up the rows and 18 hours to use up the requests. A normal table pays it at most once, when its last player leaves.
+
 ## [2.1.1] - 2026-10-25
 
 ### Fixed

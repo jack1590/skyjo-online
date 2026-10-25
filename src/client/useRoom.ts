@@ -70,6 +70,8 @@ export function useRoom(code: string) {
       const ws = new WebSocket(url);
       socket.current = ws;
       lastHeard = Date.now();
+      /** This socket's last view showed this phone offline. */
+      let away = false;
       ws.onopen = () => {
         attempt = 0;
         setStatus("open");
@@ -83,8 +85,17 @@ export function useRoom(code: string) {
         if ("ack" in msg && awaiting.current !== null && msg.ack >= awaiting.current) {
           awaiting.current = null;
         }
-        if (msg.t === "state") setRoom(msg.room);
-        else if (msg.t === "missing" || msg.t === "full") stop(msg.t);
+        if (msg.t === "state") {
+          setRoom(msg.room);
+          // Shown offline on a visible page: the room missed our pings (a network stall the socket
+          // survived), and pings alone never reach it. A hello does, once per stretch shown offline,
+          // so everyone sees us back at once and any clock we stopped restarts (M8, SEC-9). Hidden
+          // pages wait for `wake`: a throttled tab would otherwise keep a forgotten room busy.
+          const me = msg.room.you === null ? undefined : msg.room.seats[msg.room.you];
+          const shown = me?.connected === false && document.visibilityState === "visible";
+          if (shown && !away) ws.send(JSON.stringify({ t: "hello", token } satisfies ClientMsg));
+          away = shown;
+        } else if (msg.t === "missing" || msg.t === "full") stop(msg.t);
         else setError(msg.code);
       };
       ws.onclose = (e) => {

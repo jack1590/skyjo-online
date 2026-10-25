@@ -44,6 +44,12 @@ export interface RoomData {
   waitSince: number;
   /** When the turn clock started (ms): the deal, the turn's start, or an untick on your turn. */
   turnSince: number;
+  /**
+   * Waited-on seats whose clock was stopped at the last event, with nobody there to pay for it
+   * (`canStall`). Saved because a phone can come back by pings alone, which no event shows (SEC-9).
+   * Unset before 2.1.2.
+   */
+  stopped?: number[];
 }
 
 /** One open socket, persisted in its attachment. */
@@ -52,6 +58,11 @@ export interface Conn {
   token: string | null;
   /** Last message or ping (ms). */
   seenAt: number;
+  /**
+   * Last message (ms), pings aside; 0 = none yet. A hello writes no row, so the room's quiet and
+   * idle clocks read it here, in the attachment, which survives hibernation (SEC-9).
+   */
+  heardAt: number;
   /** Highest client `seq` handled, echoed back so the client knows its move landed. */
   ack: number;
   windowStart: number;
@@ -93,6 +104,11 @@ export const GRACE_MS = 10_000;
 export const AUTO_FIRST_MS = 2_000;
 /** ...and makes each next step this long after the last move: every step is its own broadcast. */
 export const AUTO_NEXT_MS = 1_200;
+/**
+ * No client message for this long and presence is checked only this often (SEC-9): each check is a
+ * row and a request, and a forgotten tab only pings. Dots and "may lead" can lag by that much.
+ */
+export const QUIET_MS = 10 * 60_000;
 /** No client message for this long and the room is deleted. */
 export const IDLE_MS = 24 * 60 * 60_000;
 /** A room nobody ever joined goes much sooner (abandoned "Create a room" taps, creation bursts). */
@@ -148,6 +164,7 @@ export const newRoom = (code: string, now: number): RoomData => ({
 export const newConn = (now: number, ip: string | null): Conn => ({
   token: null,
   seenAt: now,
+  heardAt: 0,
   ack: 0,
   windowStart: now,
   windowCount: 0,
@@ -237,10 +254,7 @@ export class Room {
   receive(conn: Conn, msg: ClientMsg, live: Conn[]): Change {
     const stopped = this.awaited().filter((s) => !this.canStall(s, live));
     const change = this.handle(conn, msg, live);
-    // A clock that wasn't running starts afresh once someone is there to pay for it (canStall).
-    if (!stopped.some((s) => this.awaited().includes(s) && this.canStall(s, live))) return change;
-    this.data.turnSince = this.deps.now();
-    return "data";
+    return this.resume(live, stopped) ? "data" : change;
   }
 
   private handle(conn: Conn, msg: ClientMsg, live: Conn[]): Change {
@@ -255,15 +269,20 @@ export class Room {
     }
     if (conn.token === null) throw new RoomError("bad-message");
     const seat = this.seatOf(conn);
+    // No message from this seat for STALE_MS: the table may have been shown it offline.
+    const quiet = seat !== null && now - this.data.seats[seat].seenAt >= STALE_MS;
     if (seat !== null) this.data.seats[seat].seenAt = now;
     this.data.updatedAt = now;
+    conn.heardAt = now;
 
     const { seats, game } = this.data;
     const lobby = game === null;
     switch (msg.t) {
       case "hello":
-        // A repeated hello, or a second tab, only refreshes signs of life: nobody else sees it.
-        return this.online(live) === online ? "none" : "view";
+        // A repeated hello, or a second tab, only refreshes signs of life: nobody else sees it. A
+        // quiet seat's hello is told to everyone (no row): pings that land before it would hide
+        // from `online` that the table saw it offline (SEC-9).
+        return this.online(live) === online && !quiet ? "none" : "view";
       case "join": {
         if (seat !== null || !lobby) throw new RoomError("not-allowed");
         if (seats.length >= MAX_PLAYERS) throw new RoomError("room-full");
@@ -398,6 +417,7 @@ export class Room {
    * Returns whether anything changed.
    */
   tick(live: Conn[]): boolean {
+    const resumed = this.resume(live);
     const now = this.deps.now();
     const due = this.awaited().filter((s) => this.canStall(s, live) && now >= this.due(s));
     for (const seat of due) this.data.seats[seat].auto = true;
@@ -407,22 +427,27 @@ export class Room {
       if (!this.data.game) break;
       this.play(this.data.game, autoMove(this.data.game, seat, mayEnd));
     }
-    return due.length > 0;
+    // Saves any clock those steps stopped (the next turn's player alone at the table).
+    return this.resume(live) || resumed || due.length > 0;
   }
 
   /** When the adapter should call tick() and re-broadcast next (ms). Always in the future. */
   nextAlarm(live: Conn[]): number {
     const now = this.deps.now();
-    const due = [this.data.updatedAt + this.idleAfter(live)];
+    const heard = this.heard(live);
+    // A presence check (a row and a request) comes when someone would turn stale, for 10 min after
+    // the last client message, then every 10 min (SEC-9). Clock and Auto-play steps never wait.
+    const check = (at: number) => (at < heard + QUIET_MS ? at : Math.max(at, now + QUIET_MS));
+    const due = [heard + this.idleAfter(live)];
     for (const s of this.awaited()) {
       if (!this.canStall(s, live)) continue;
       due.push(this.due(s));
       // A phone that goes silent: re-broadcast when it turns stale, so the table sees it's offline.
-      if (this.connected(s, live)) due.push(this.lastSeen(s, live) + STALE_MS);
+      if (this.connected(s, live)) due.push(check(this.lastSeen(s, live) + STALE_MS));
     }
     // If the host goes quiet while the table needs a lead, others must learn they may step in.
     if (this.needsLead() && this.connected(this.data.host, live)) {
-      due.push(this.lastSeen(this.data.host, live) + STALE_MS);
+      due.push(check(this.lastSeen(this.data.host, live) + STALE_MS));
     }
     // A step that came due after this event's tick() (a timer that fired a millisecond early) is
     // checked again at once, not dropped: dropping it stalled the turn until the next check.
@@ -430,7 +455,31 @@ export class Room {
   }
 
   isIdle(live: Conn[]): boolean {
-    return this.deps.now() - this.data.updatedAt >= this.idleAfter(live);
+    return this.deps.now() - this.heard(live) >= this.idleAfter(live);
+  }
+
+  /** The last client message (ms), pings aside, any message counting: a hello too (SEC-9). */
+  private heard(live: Conn[]): number {
+    return Math.max(this.data.updatedAt, ...live.map((c) => c.heardAt));
+  }
+
+  /**
+   * A seat's clock stops while nobody is there to pay for it (`canStall`) and starts afresh, a
+   * full TURN_MS, once someone is. Stopped clocks are saved, since a phone that comes back by pings
+   * alone is only seen at the next event, from anyone (M8's ping-only return). `before`: seats
+   * stopped just before this event. Returns whether the room changed.
+   */
+  private resume(live: Conn[], before: number[] = []): boolean {
+    // With no socket open nobody can come back by pings, and a new socket's hello brings `before`.
+    if (live.length === 0) return false;
+    const awaited = this.awaited();
+    const stopped = awaited.filter((s) => !this.canStall(s, live));
+    const was = [...(this.data.stopped ?? []), ...before];
+    const back = was.some((s) => awaited.includes(s) && !stopped.includes(s));
+    if (back) this.data.turnSince = this.deps.now();
+    if (!back && String(stopped) === String(this.data.stopped ?? [])) return false;
+    this.data.stopped = stopped;
+    return true;
   }
 
   /** A room with no seats and no open socket was abandoned; one with a waiting creator wasn't. */
