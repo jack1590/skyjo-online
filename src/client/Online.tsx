@@ -168,6 +168,25 @@ function Lobby({ room, send }: { room: RoomView; send: (msg: ClientMsg) => void 
             {t("leaveSeat")}
           </button>
         )}
+        {/* Everyone sees the rule before the deal; whoever may start may change it (R16). */}
+        <label className="option">
+          <span>
+            {t("knockout")}
+            <span className="option-help" id="knockout-help">
+              {t("knockoutHelp")}
+            </span>
+          </span>
+          <span className="switch">
+            <input
+              type="checkbox"
+              aria-label={t("knockout")}
+              aria-describedby="knockout-help"
+              checked={room.knockout}
+              disabled={!room.lead}
+              onChange={(e) => send({ t: "knockout", on: e.target.checked })}
+            />
+          </span>
+        </label>
         {room.lead && (
           <button
             type="button"

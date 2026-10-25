@@ -3,7 +3,7 @@
 import { execFileSync } from "node:child_process";
 import { expect, type Page, test } from "@playwright/test";
 import { toView } from "../src/engine/view";
-import { atTurnStart, lastTurnGame, roundOver, show } from "./harness";
+import { atTurnStart, knockoutGame, lastTurnGame, roundOver, show } from "./harness";
 import { botStep, seatedRoom, startGame } from "./helpers";
 
 test.skip(!process.env.SHOTS, "run with npm run shots:readme");
@@ -29,6 +29,8 @@ test("README stills", async ({ browser, page }, info) => {
     el.textContent =
       el.textContent?.replace(location.origin, "https://skyjo-online.jcarl-30.workers.dev") ?? "";
   });
+  await pages[0].getByRole("checkbox", { name: "Play until one is left" }).click({ force: true });
+  await expect(pages[1].getByRole("checkbox", { name: "Play until one is left" })).toBeChecked();
   await shot(pages[0], "lobby");
 
   // Your turn with 9 s on the clock (M8).
@@ -50,6 +52,18 @@ test("README stills", async ({ browser, page }, info) => {
   await shot(page, "zoom");
   await show(page, { view: toView(roundOver(2, 11)), seat: 0, lead: true });
   await shot(page, "summary");
+
+  // Play until one is left (R16), seed 1: Dani goes out after round 1; Cris is the one left.
+  const knockout = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 1);
+  const firstOut = knockout.find((s) => s.phase === "roundOver");
+  const round2 = knockout.find((s) => s.round === 2 && s.phase === "draw");
+  if (!firstOut || !round2) throw new Error("seed 1 no longer plays out this way");
+  await show(page, { view: toView(firstOut), seat: 0, lead: true });
+  await shot(page, "knockout-summary");
+  await show(page, { view: toView(round2), seat: 3 });
+  await shot(page, "knockout-out");
+  await show(page, { view: toView(knockout[knockout.length - 1]), seat: 2 });
+  await shot(page, "knockout-over");
 });
 
 /** Few colors and frame-to-frame diffs keep the GIF near 1 MB despite the detailed card art. */

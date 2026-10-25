@@ -35,6 +35,21 @@ export function firstTurn(players: number, seed: number): GameState {
   return state;
 }
 
+/**
+ * A knockout game (R16) the seeded engine plays the same way, to game over: every state on the
+ * way, so a test can pick a round summary, a later round and the end.
+ */
+export function knockoutGame(names: string[], seed: number): GameState[] {
+  const states = [createGame(names, [seed, 0, 0, 0], { knockout: true })];
+  let state = states[0];
+  while (state.phase !== "gameOver") {
+    const legal = legalActions(state);
+    state = apply(state, legal[state.phase === "place" ? legal.length - 1 : 0]);
+    states.push(state);
+  }
+  return states;
+}
+
 export interface Shown {
   view: GameView;
   seat: number | null;

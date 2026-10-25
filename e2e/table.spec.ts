@@ -3,7 +3,15 @@
 import { expect, type Page, test } from "@playwright/test";
 import { apply } from "../src/engine/game";
 import { toView } from "../src/engine/view";
-import { atTurnStart, firstTurn, lastTurnGame, roundOver, type Shown, show } from "./harness";
+import {
+  atTurnStart,
+  firstTurn,
+  knockoutGame,
+  lastTurnGame,
+  roundOver,
+  type Shown,
+  show,
+} from "./harness";
 
 async function expectMobileFriendly(page: Page) {
   const { scrollWidth, innerWidth, small } = await page.evaluate(() => ({
@@ -318,6 +326,84 @@ test("round summary: rows, who ended, doubling shown as base ×2 = total; View t
   await expect(page.getByRole("button", { name: "Next round" })).toBeVisible();
 });
 
+/**
+ * Seed 1 of a 4-player knockout game (R16): Dani goes out after round 1, Ana and Ben after round 2,
+ * and Cris, the one left, wins.
+ */
+const knockout = () => {
+  const states = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 1);
+  const pick = (test: (s: (typeof states)[number]) => boolean) => {
+    const state = states.find(test);
+    if (!state) throw new Error("seed 1 no longer plays out this way");
+    return toView(state);
+  };
+  return {
+    firstOut: pick((s) => s.phase === "roundOver"),
+    round2: pick((s) => s.round === 2 && s.phase === "draw"),
+    over: pick((s) => s.phase === "gameOver"),
+  };
+};
+const DANI = 3;
+
+test("M17: a knockout game to a winner: one goes out, the next round deals only to the others, and the one left wins", async ({
+  page,
+}) => {
+  const { firstOut, round2, over } = knockout();
+  expect(firstOut.players.map((p) => p.out)).toEqual([null, null, null, 1]);
+  await show(page, { view: firstOut, seat: 0, lead: true });
+  const summary = page.getByTestId("round-summary");
+  await expect(summary.getByTestId("out-tag")).toHaveText(["Out in round 1"]);
+  await expect(summary.getByRole("row", { name: /Dani/ })).toContainText("Out in round 1");
+  // Round 2: Dani's panel has no cards, says why, and opens nothing.
+  await show(page, { view: round2, seat: 0 });
+  const dani = page.getByTestId("opponent").filter({ hasText: "Dani" });
+  await expect(dani).toContainText("Out · watching");
+  await expect(dani.locator(".card")).toHaveCount(0);
+  await expect(dani).toBeDisabled();
+  await expect(page.getByTestId("opponent").locator(".card")).toHaveCount(24);
+  await expectMobileFriendly(page);
+  expect(over.winners).toEqual([2]);
+  await show(page, { view: over, seat: 2 });
+  await expect(page.getByTestId("game-over")).toContainText("Cris wins!");
+});
+
+test("M17: a player who is out watches: 'Out · watching' on their seat, the spectator layout, nothing to tap", async ({
+  page,
+}) => {
+  await show(page, { view: knockout().round2, seat: DANI, auto: [false, false, false, false] });
+  await expect(page.getByTestId("my-grid")).toHaveCount(0);
+  await expect(page.getByTestId("opponents")).toHaveClass(/watch/);
+  await expect(page.getByTestId("opponent")).toHaveCount(4);
+  await expect(page.getByTestId("opponent").nth(DANI)).toContainText("Out · watching");
+  await expect(page.locator("button.card")).toHaveCount(0);
+  await expect(page.getByRole("checkbox")).toHaveCount(0);
+  await expect(page.getByTestId("prompt")).toHaveText("You're watching this game");
+  await expectMobileFriendly(page);
+});
+
+test("M17: the final ranking: the winner first, then by the round they went out, then the lower total, in en, es and pt", async ({
+  page,
+}) => {
+  const { over } = knockout();
+  for (const [locale, out] of [
+    ["en", "Out in round"],
+    ["es", "Fuera en la ronda"],
+    ["pt", "Fora na rodada"],
+  ]) {
+    await page.addInitScript((l) => localStorage.setItem("skyjo:locale", l), locale);
+    await show(page, { view: over, seat: DANI });
+    // Ben (121) and Ana (123) went out in round 2, Dani in round 1.
+    await expect(page.getByTestId("game-over").locator("tbody tr")).toHaveText([
+      /^Cris/,
+      new RegExp(`^Ben.*${out} 2`),
+      new RegExp(`^Ana.*${out} 2`),
+      new RegExp(`^Dani.*${out} 1–172$`),
+    ]);
+    await expect(page.getByTestId("game-over").getByTestId("out-tag")).toHaveCount(3);
+    await expectMobileFriendly(page);
+  }
+});
+
 test.describe("small phone (375×548)", () => {
   test.use({ viewport: { width: 375, height: 548 } });
 
@@ -371,6 +457,27 @@ test("screenshots: 2–8 players", async ({ page }, info) => {
   await shot("zoom");
   await show(page, { view: toView(lastTurnGame(8, 3)), seat: null });
   await shot("spectator-8");
+});
+
+test("screenshots: M17 knockout", async ({ page }, info) => {
+  test.skip(!process.env.SHOTS || info.project.name !== "iphone", "run with SHOTS=1");
+  const shot = (name: string) =>
+    page.screenshot({
+      path: `docs/screenshots/m17/${name}.jpg`,
+      type: "jpeg",
+      quality: 80,
+      scale: "css",
+      animations: "disabled",
+    });
+  const { firstOut, round2, over } = knockout();
+  await show(page, { view: firstOut, seat: 0, lead: true });
+  await shot("03-out-in-round-1");
+  await show(page, { view: round2, seat: 0 });
+  await shot("04-others-see-who-is-out");
+  await show(page, { view: round2, seat: DANI });
+  await shot("05-out-watching");
+  await show(page, { view: over, seat: 2 });
+  await shot("06-winner-and-ranking");
 });
 
 test.describe("with motion allowed", () => {

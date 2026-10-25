@@ -150,6 +150,35 @@ test("M8, BUG-1: a player who ticks Auto-play is played for, a step at a time, u
   await expect.poll(() => seen(both, 8_000), { timeout: 8_000 }).toBe("placed");
 });
 
+test("M17: the host switches on 'Play until one is left'; the other phone sees it and can't change it, and the game is dealt with it", async ({
+  browser,
+}, info) => {
+  const [ana, ben] = await phones(browser, info, 2);
+  const seen: RoomView[] = [];
+  ben.on("websocket", (ws) =>
+    ws.on("framereceived", (f) => {
+      const msg = String(f.payload).startsWith("{") ? JSON.parse(String(f.payload)) : null;
+      if (msg?.t === "state") seen.push(msg.room);
+    }),
+  );
+  const code = await createRoom(ana);
+  await join(ana, code, "Ana");
+  await join(ben, code, "Ben");
+  const option = (page: Page) => page.getByRole("checkbox", { name: "Play until one is left" });
+  await expect(option(ben)).not.toBeChecked();
+  await expect(option(ben)).toBeDisabled();
+  await option(ana).click({ force: true });
+  await expect(option(ana)).toBeChecked();
+  await expect(option(ben)).toBeChecked();
+  await expect(option(ben)).toBeDisabled();
+  if (process.env.SHOTS && info.project.name === "iphone") {
+    await ana.screenshot({ path: "docs/screenshots/m17/01-lobby-option.jpg", scale: "css" });
+    await ben.screenshot({ path: "docs/screenshots/m17/02-others-see-it.jpg", scale: "css" });
+  }
+  await startGame(ana);
+  await expect.poll(() => seen.at(-1)?.game?.knockout).toBe(true);
+});
+
 test("a 9th phone can't take a seat and watches instead", async ({ browser }, info) => {
   test.skip(info.project.name !== "pixel", "9 contexts; one device is enough");
   const names = ["Ana", "Ben", "Cris", "Dani", "Eli", "Fer", "Gabi", "Hugo"];
