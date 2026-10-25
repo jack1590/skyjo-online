@@ -18,10 +18,7 @@ jobs:
       - name: Whole iPhone project x2 on head, logging fast alarms
         run: |
           npm run build > /dev/null 2>&1
-          for i in 1 2; do npx playwright test --project=iphone --workers=2 --reporter=list 2>&1 | grep -E "ROUNDLOG total|PROBE fast alarm|passed|failed" | head -60 ; done
-      - name: Same with the old nextAlarm filter (no clamp)
-        run: |
-          sed -i 's|    return Math.max(Math.min(...due), now + 1);|    const future = due.filter((t) => t > now);\n    return future.length ? Math.min(...future) : now + STALE_MS;|' src/server/room.ts
-          grep -n "future" src/server/room.ts
-          npm run build > /dev/null 2>&1
-          for i in 1 2; do npx playwright test --project=iphone --workers=2 --reporter=list 2>&1 | grep -E "ROUNDLOG total|PROBE fast alarm|passed|failed" | head -60 ; done
+          npx playwright test --project=iphone --workers=2 --reporter=list > /tmp/run.log 2>&1 || true
+          grep -E "ROUNDLOG total|passed|failed" /tmp/run.log
+          grep -c "PROBE fast alarm" /tmp/run.log || true
+          grep -E "PROBE fast alarm" /tmp/run.log | cut -c1-900 | head -30 || true
