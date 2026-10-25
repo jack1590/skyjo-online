@@ -65,7 +65,7 @@ export function unlockAudio() {
     const audio = new AudioContext();
     ctx = audio;
     master = audio.createGain();
-    master.gain.value = VOLUME;
+    master.gain.value = muted ? 0 : VOLUME;
     master.connect(audio.destination);
     preloadSounds();
     void files?.then((loaded) => {
@@ -138,7 +138,7 @@ export function soundsBetween(
     if (!out.some(([n, t]) => n === name && t === ms)) out.push([name, ms]);
   };
   const { moves, flips, reveal } = flightsBetween(prev, cur);
-  const staggered = motion && reveal && flips.length > 0;
+  const staggered = motion && reveal;
   for (const [to, from] of moves) {
     if (to === "drawn") add("draw");
     else if (to === "discard") add("discard");
@@ -202,6 +202,8 @@ export function useMuted(): [boolean, () => void] {
   const [value, setValue] = useState(muted);
   const toggle = () => {
     muted = !muted;
+    // Also silences sounds already scheduled, like a final reveal's (UX-27).
+    if (master) master.gain.value = muted ? 0 : VOLUME;
     setValue(muted);
     try {
       localStorage.setItem(MUTED_KEY, muted ? "1" : "0");

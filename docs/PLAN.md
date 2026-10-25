@@ -335,7 +335,7 @@ The user asked for natural animations, so this comes right after M9, ahead of M1
   - The incoming card starts 90 ms later.
   - Stacking: incoming above outgoing, above the table.
   - The discard sound plays at landing − 210 ms and the place sound at landing − 160 ms. The whole swap takes ≤ 560 ms.
-- **UX-24, the flip** (this includes UX-9: rotate from 180° and give cards a back face).
+- **UX-24, the flip** (this includes UX-9: rotate from 180° and give cards a back face). M9 already shows the back for the first half of every flip and draw (`turnOver` in `motion.ts`, a discrete picture swap at 50%); UX-24 replaces those keyframes.
   - Keyframes: 0 `perspective(6w) rotateY(180°)`, then 0.5 `translateY(−4px) rotateY(90°) scale(1.08)`, then 1 `rotateY(0)`.
   - Easing: `cubic-bezier(0.45,0,0.25,1)`.
   - Durations: large cards 380 ms, medium 340 ms, small 260 ms with no lift.

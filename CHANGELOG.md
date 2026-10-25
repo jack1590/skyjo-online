@@ -16,7 +16,7 @@ Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When
 
 - A card drawn from the deck leaves the top of the deck face down, lifts, and turns face up on its way to your hand.
 - Cards turn over all the way: you see the back, then the face.
-- At the end of a round the hidden cards turn over one by one, player by player, starting with the player after the one who ended the round. The scores appear just after the last card has turned, instead of covering the table while the cards were still turning. Each player's cards make a sound as they start turning, and the game-over sound plays when the scores appear.
+- At the end of a round the hidden cards turn over one by one, player by player, starting with the player after the one who ended the round. If you end the round by turning a card over, that card turns at once. The scores appear just after the last card has turned, instead of covering the table while the cards were still turning. Each player's cards make a sound as they start turning, and the game-over sound plays when the scores appear.
 - With reduced motion on, nothing moves and the scores appear at once, as before.
 
 ## [2.2.0] - 2026-10-25

@@ -18,18 +18,13 @@ export function lastTurnGame(players: number, seed: number): GameState {
 }
 
 /** The finished round: everyone takes their last turn the same way. */
-export const roundOver = (players: number, seed: number) => finalMove(players, seed).after;
-
-/** The round's last move: the table just before it (`before`) and the finished round (`after`). */
-export function finalMove(players: number, seed: number) {
-  let before = lastTurnGame(players, seed);
-  let after = before;
-  while (after.phase === "draw" || after.phase === "place") {
-    before = after;
-    const legal = legalActions(after);
-    after = apply(after, legal[after.phase === "place" ? legal.length - 1 : 0]);
+export function roundOver(players: number, seed: number): GameState {
+  let state = lastTurnGame(players, seed);
+  while (state.phase === "draw" || state.phase === "place") {
+    const legal = legalActions(state);
+    state = apply(state, legal[state.phase === "place" ? legal.length - 1 : 0]);
   }
-  return { before, after };
+  return state;
 }
 
 /** A game right after the opening flip: the starting player is to draw. */

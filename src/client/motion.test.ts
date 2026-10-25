@@ -123,6 +123,7 @@ describe("flightsBetween", () => {
     // The last of 5 flips starts at 440 ms and takes 300 ms.
     expect(revealMs(5)).toBe(440 + 300 + 600);
     expect(revealMs(1)).toBe(900);
+    expect(revealMs(0), "nothing to turn: still the last move's flights").toBe(900);
   });
 
   it("UX-27: an ordinary turn is not a reveal", () => {

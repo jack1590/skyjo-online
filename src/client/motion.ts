@@ -77,8 +77,11 @@ export function flightsBetween(prev: GameView, cur: GameView): Flights {
 /** The final reveal (UX-27): flip i of n starts at i·step, all within 2.5 s. */
 export const revealStep = (n: number) => Math.min(110, 2500 / n);
 const FLIP_MS = 300;
-/** How long the round summary waits for a final reveal of n flips: 600 ms past the last one. */
-export const revealMs = (n: number) => (n - 1) * revealStep(n) + FLIP_MS + 600;
+/**
+ * How long the round summary waits for a final reveal of n flips: 600 ms past the last one. With
+ * nothing left to turn it still waits as long, for the last move's flights.
+ */
+export const revealMs = (n: number) => Math.max(0, n - 1) * revealStep(n) + FLIP_MS + 600;
 
 const EASE = "cubic-bezier(0.2, 0.8, 0.2, 1)";
 /** Marks this file's animations, so measuring can tell a card in flight from one at rest. */
@@ -107,23 +110,21 @@ function fly(el: HTMLElement, from: DOMRect, to: DOMRect) {
 
 /**
  * Plays `el` through three transforms (start, halfway, end) and turns it over halfway, when it is
- * edge-on: its back before, its face after. Its number hides with the back.
+ * edge-on: its back before, its face after. Its number hides with the back. The picture changes in
+ * an effect of its own, so the transform stays on the compositor.
  */
-function turnOver(el: HTMLElement, [a, b, c]: string[], timing: KeyframeAnimationOptions) {
+function turnOver(el: HTMLElement, [a, b, c]: string[], options: KeyframeAnimationOptions) {
   const face = el.style.backgroundImage;
-  el.animate(
-    [
-      { transform: a, backgroundImage: BACK },
-      { transform: b, backgroundImage: BACK, offset: 0.5 },
-      { transform: b, backgroundImage: face, offset: 0.5 },
-      { transform: c, backgroundImage: face },
-    ],
-    { ...timing, id: FLIGHT },
-  );
-  el.querySelector(".num")?.animate(
-    [{ opacity: 0 }, { opacity: 0, offset: 0.5 }, { opacity: 1, offset: 0.5 }, { opacity: 1 }],
-    timing,
-  );
+  const timing = { ...options, id: FLIGHT };
+  el.animate([{ transform: a }, { transform: b }, { transform: c }], timing);
+  const swap = <T>(back: T, front: T) => [
+    back,
+    { ...back, offset: 0.5 },
+    { ...front, offset: 0.5 },
+    front,
+  ];
+  el.animate(swap({ backgroundImage: BACK }, { backgroundImage: face }), timing);
+  el.querySelector(".num")?.animate(swap({ opacity: 0 }, { opacity: 1 }), timing);
 }
 
 /** A deck draw (UX-25): leaves the top of the deck face down, lifts, and turns face up halfway. */
@@ -168,17 +169,24 @@ const measure = (els: Map<string, HTMLElement>, old: Map<string, DOMRect>) =>
  * Positions are re-measured after scrolls and resizes, so flights start where cards really were.
  * Does nothing (and measures nothing) when the user prefers reduced motion.
  */
-export function useFlights(view: GameView) {
+export function useFlights(view: GameView, tapped?: { current: string | null }) {
   const els = useRef(new Map<string, HTMLElement>());
   const refs = useRef(new Map<string, (el: HTMLElement | null) => void>());
   const prev = useRef<GameView | null>(null);
   const rects = useRef(new Map<string, DOMRect>());
+  const measureAgain = useRef(() => {});
   const reduced = useReducedMotion();
 
   useLayoutEffect(() => {
     const before = prev.current;
     prev.current = view;
     if (reduced) return;
+    if (before && before.round !== view.round) {
+      // A fresh deal: the last round's reveal must not turn the new cards over.
+      for (const el of els.current.values()) {
+        for (const a of el.getAnimations({ subtree: true })) if (a.id === FLIGHT) a.cancel();
+      }
+    }
     // Every new position is read before any flight starts, so none holds a first frame (UX-1).
     const was = rects.current;
     const now = measure(els.current, was);
@@ -193,11 +201,15 @@ export function useFlights(view: GameView) {
       (to === "drawn" && from === "deck" ? draw : fly)(el, a, b);
     }
     const step = reveal ? revealStep(flips.length) : 0;
-    flips.forEach((key, i) => {
+    // The card you tapped to end the round turns at once; the reveal follows it (UX-27).
+    const mine = tapped?.current;
+    const order = mine && flips.includes(mine) ? [mine, ...flips.filter((k) => k !== mine)] : flips;
+    order.forEach((key, i) => {
       const el = els.current.get(key);
       if (el) flipIn(el, i * step);
     });
-  }, [view, reduced]);
+    measureAgain.current(); // and again once they land
+  }, [view, reduced, tapped]);
 
   useEffect(() => {
     if (reduced) return;
@@ -212,7 +224,9 @@ export function useFlights(view: GameView) {
     };
     window.addEventListener("scroll", remeasure, true); // capture: .table scrolls, not the window
     window.addEventListener("resize", remeasure);
+    measureAgain.current = remeasure;
     return () => {
+      measureAgain.current = () => {};
       cancelAnimationFrame(frame);
       window.removeEventListener("scroll", remeasure, true);
       window.removeEventListener("resize", remeasure);
@@ -235,7 +249,7 @@ export function useFlights(view: GameView) {
 
 /**
  * True while a final reveal plays (UX-27), so the round summary waits for it: from the view that
- * ends the round until 600 ms after its last flip. Never with reduced motion.
+ * ends the round until 600 ms after its last flip (`revealMs`). Never with reduced motion.
  */
 export function useRevealing(view: GameView): boolean {
   const reduced = useReducedMotion();
@@ -245,7 +259,7 @@ export function useRevealing(view: GameView): boolean {
   if (view !== last) {
     setLast(view);
     const { flips, reveal } = flightsBetween(last, view);
-    if (reveal && flips.length && !reduced) setHold(revealMs(flips.length));
+    if (reveal && !reduced) setHold(revealMs(flips.length));
   }
   useEffect(() => {
     if (!hold) return;

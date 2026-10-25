@@ -46,9 +46,14 @@ export function Table(props: TableProps) {
   const [discarding, setDiscarding] = useState(false);
   // Hides the summary sheet so players can look at the revealed grids.
   const [peek, setPeek] = useState(false);
+  // The card you last tapped to turn over, so a final reveal turns it first (UX-27).
+  const tapped = useRef<string | null>(null);
   // Local modes never outlive the turn or summary they started in (the server may move for us).
   // biome-ignore lint/correctness/useExhaustiveDependencies: the deps are triggers, not inputs
-  useEffect(() => setDiscarding(false), [view.round, view.current, phase]);
+  useEffect(() => {
+    setDiscarding(false);
+    tapped.current = null;
+  }, [view.round, view.current, phase]);
   useEffect(() => {
     if (!summary) setPeek(false);
   }, [summary]);
@@ -67,7 +72,7 @@ export function Table(props: TableProps) {
   }, [myTurn]);
   const discardMode = discarding && myTurn && phase === "place" && view.drawnFrom === "deck";
 
-  const reg = useFlights(view);
+  const reg = useFlights(view, tapped);
   const revealing = useRevealing(view);
   useSounds(view, seat);
   const [muted, toggleMuted] = useMuted();
@@ -149,7 +154,11 @@ export function Table(props: TableProps) {
     }
     if (phase !== "place") return undefined;
     if (discardMode) {
-      return slot === "down" ? () => act({ type: "discardAndFlip", seat, pos }) : undefined;
+      if (slot !== "down") return undefined;
+      return () => {
+        tapped.current = slotKey(seat, pos);
+        act({ type: "discardAndFlip", seat, pos });
+      };
     }
     return () => act({ type: "swap", seat, pos });
   };

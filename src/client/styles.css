@@ -827,6 +827,8 @@ dialog.zoom::backdrop {
   position: absolute;
   top: 0;
   left: 0;
+  /* Taps reach the pile under it (Auto-play points at its switch). */
+  pointer-events: none;
   translate: 0 -16px;
   scale: 1.06;
   box-shadow:

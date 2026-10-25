@@ -56,11 +56,18 @@ type Boxes = Record<string, Box | null>;
 /**
  * Moves the harness table on to `view` (src/client/App.tsx) and returns each selector's box just
  * before the move, then at each fraction `at` of the flights it started (paused there). Then every
- * flight lands, as if the players took their time.
+ * flight lands, as if the players took their time, unless `land` is false: then they stay paused
+ * at the last fraction.
  */
-async function move(page: Page, view: GameView, read: Record<string, string>, at = [0]) {
+async function move(
+  page: Page,
+  view: GameView,
+  read: Record<string, string>,
+  at = [0],
+  land = true,
+) {
   return page.evaluate(
-    ({ view, read, at }) => {
+    ({ view, read, at, land }) => {
       const w = window as unknown as { flights: { el: Element; a: Animation }[] };
       const box = (sel: string) => {
         const el = document.querySelector(sel);
@@ -87,10 +94,10 @@ async function move(page: Page, view: GameView, read: Record<string, string>, at
         }
         return boxes();
       });
-      for (const a of started) a.finish();
+      if (land) for (const a of started) a.finish();
       return { before, during };
     },
-    { view, read, at },
+    { view, read, at, land },
   ) as Promise<{ before: Boxes; during: Boxes[] }>;
 }
 
@@ -183,6 +190,28 @@ test.describe("with motion allowed", () => {
     }
   });
 
+  test("UX-1: a scroll while a card is in flight records where it lands, not the frame it's drawn at", async ({
+    page,
+  }) => {
+    await recordFlights(page);
+    let state = firstTurn(2, 5);
+    const me = state.current;
+    await show(page, { view: toView(state), seat: me });
+    state = apply(state, { type: "draw", seat: me, source: "deck" });
+    // Held at rest (100%), then left in flight at frame 0, over the deck.
+    const draw = await move(page, toView(state), PILES, [1, 0], false);
+    await page.evaluate(async () => {
+      dispatchEvent(new Event("scroll")); // positions are read again on the next frame
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    });
+    const pos = swapTarget(state);
+    state = apply(state, { type: "swap", seat: me, pos });
+    const swap = await move(page, toView(state), {
+      slot: `[data-testid="my-grid"] > :nth-child(${pos + 1})`,
+    });
+    expectOver(swap.during[0].slot, draw.during[0].drawn, "the swap starts at the held card");
+  });
+
   test("UX-1, UX-21: a card taken from the discard right after an opponent's swap starts at the pile and stays over it (0, 25, 50, 100%)", async ({
     page,
   }) => {
@@ -269,9 +298,42 @@ test.describe("with motion allowed", () => {
     expect(lastFlip).toBeLessThanOrEqual(2500 + 300);
     expect(shown.atOnce).toBe(false);
     await page.clock.runFor(lastFlip + 550);
+    await page.waitForTimeout(100); // time for React to show it, if it were early
     await expect(page.locator(".overlay")).toHaveCount(0);
     await page.clock.runFor(100);
     await expect(page.locator(".overlay")).toBeVisible();
+  });
+
+  test("UX-27: the card you tap to end the round turns at once, then the reveal", async ({
+    page,
+  }) => {
+    await recordFlights(page);
+    const { before, after } = race(3, 5);
+    const me = before.current; // the last to play, holding a card from the deck
+    await show(page, { view: toView(before), seat: me });
+    await page.getByTestId("discard").click();
+    const mine = page.getByTestId("my-grid").locator('button[data-face="down"]').last();
+    const pos = await mine.evaluate((el) => [...(el.parentElement?.children ?? [])].indexOf(el));
+    await mine.click();
+    const delays = await page.evaluate((view) => {
+      const w = window as unknown as { flights: { el: Element; a: Animation }[] };
+      const start = w.flights.length;
+      dispatchEvent(new CustomEvent("skyjo:table", { detail: { view } }));
+      const grid = document.querySelector('[data-testid="my-grid"]');
+      return w.flights
+        .slice(start)
+        .filter(
+          ({ el, a }) => el.parentElement === grid && a.effect?.getTiming().fill === "backwards",
+        )
+        .map(({ el, a }) => [
+          [...(grid?.children ?? [])].indexOf(el),
+          Number(a.effect?.getTiming().delay),
+        ]);
+    }, toView(after));
+    const tapped = delays.filter(([p]) => p === pos);
+    expect(tapped.length).toBeGreaterThan(0);
+    for (const [, delay] of tapped) expect(delay).toBe(0);
+    for (const [p, delay] of delays) if (p !== pos) expect(delay).toBeGreaterThan(0);
   });
 
   /** Moves on to `view` and saves its flights at each time (fractions, or ms with `ms`) as a strip. */
