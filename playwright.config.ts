@@ -41,7 +41,8 @@ export default defineConfig({
         reuseExistingServer: false,
       },
   projects: [
-    { name: "iphone", use: { ...devices["iPhone 13"] } },
+    // At 4 workers on CI (ci.yml) WebKit's 2-phone tests take 26–35 s, past the default 30 s (PR #17).
+    { name: "iphone", use: { ...devices["iPhone 13"] }, timeout: CI ? 60_000 : 30_000 },
     { name: "pixel", use: { ...devices["Pixel 7"] } },
     { name: "desktop", use: { ...devices["Desktop Chrome"] } },
   ],

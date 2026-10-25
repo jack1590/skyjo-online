@@ -17,8 +17,11 @@ async function opponentFlipAnimates(pages: Page[]): Promise<boolean> {
   await countAnimations(pages[1]);
   await pages[1].reload();
   await startGame(pages[0]);
+  // Ben's reloaded page must show the deal before Ana flips, or his first view already holds the
+  // flip and there is nothing to animate (10 of 40 runs at 12 workers, PR #21).
+  await expect(pages[1].getByTestId("table")).toHaveAttribute("data-phase", "flip");
   await pages[0].getByTestId("my-grid").locator("button").first().click();
-  await pages[1].waitForTimeout(400);
+  await expect(pages[1].getByTestId("opponent").locator('[data-face="up"]')).toHaveCount(1);
   return pages[1].evaluate(() => (window as unknown as { animations: number }).animations > 0);
 }
 
