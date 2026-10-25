@@ -400,10 +400,12 @@ export class Room {
   tick(live: Conn[]): boolean {
     const now = this.deps.now();
     const due = this.awaited().filter((s) => this.canStall(s, live) && now >= this.due(s));
+    for (const seat of due) this.data.seats[seat].auto = true;
+    // With nobody there playing by hand, nobody else can end the round (BUG-1).
+    const mayEnd = this.data.seats.every((s, i) => s.auto || !this.connected(i, live));
     for (const seat of due) {
       if (!this.data.game) break;
-      this.data.seats[seat].auto = true;
-      this.play(this.data.game, autoMove(this.data.game, seat));
+      this.play(this.data.game, autoMove(this.data.game, seat, mayEnd));
     }
     return due.length > 0;
   }
@@ -486,12 +488,15 @@ export class Room {
   }
 
   /**
-   * The clock and auto-play run for a seat only while someone else is really there: a connected
-   * seat not on auto-play. An empty table, or one of auto seats, doesn't play itself (each auto
-   * step costs an alarm and a row with no client message to pay for it).
+   * The clock and auto-play run for a seat only while a seated player is there to pay for them
+   * (each step is an alarm, charged to the IPs in the room, SEC-11): another connected seat, on
+   * auto-play or not (BUG-1), or the seat itself when it's on auto-play. Spectators don't count,
+   * and a player thinking alone has no clock. Nobody connected, nothing plays.
    */
   private canStall(seat: number, live: Conn[]): boolean {
-    return this.data.seats.some((s, i) => i !== seat && !s.auto && this.connected(i, live));
+    return this.data.seats.some(
+      (s, i) => this.connected(i, live) && (i !== seat || s.auto === true),
+    );
   }
 
   /** Seats the table is waiting on right now. */
@@ -534,8 +539,10 @@ export class Room {
  * face-down one, unless that is the last and the round isn't ending yet: revealing it would end
  * the round, likely doubled (R12), so it replaces the highest face-up card instead. A card taken from the discard pile can't be
  * thrown away (time ran out after the player took it), so it replaces that face-down card.
+ * `mayEnd` (BUG-1): nobody is playing by hand, so that protection would keep the round from ever
+ * ending; it is skipped.
  */
-export function autoMove(g: GameState, seat: number): Action {
+export function autoMove(g: GameState, seat: number, mayEnd = false): Action {
   const grid = g.players[seat].grid;
   const down = grid.flatMap((s, pos) => (s && !s.up ? [pos] : []));
   if (g.phase === "flip") return { type: "flip", seat, pos: down[0] };
@@ -546,7 +553,7 @@ export function autoMove(g: GameState, seat: number): Action {
   }
   const highCard = grid[high]?.card ?? 0;
   // On a last turn the round is ending anyway, and R11 reveals that card: flipping it costs nothing.
-  const lastCard = down.length === 1 && g.ender === null;
+  const lastCard = down.length === 1 && g.ender === null && !mayEnd;
   if (high !== -1 && ((g.drawn as number) < highCard || lastCard)) {
     return { type: "swap", seat, pos: high };
   }

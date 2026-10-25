@@ -438,24 +438,15 @@ describe("turn clock (M8)", () => {
     expect(autoSeats(t)[current]).toBe(true);
   });
 
-  it("M8: nothing plays when nobody else is connected, or when every connected seat is on auto-play", () => {
-    const alone = setup();
-    const conns = startedGame(alone, 2);
-    pastFlips(alone, conns);
-    const current = alone.room.data.game?.current ?? 0;
-    alone.drop(conns[1 - current]);
-    alone.advance(10 * TURN_MS);
-    expect(alone.room.tick(alone.live)).toBe(false);
-    expect(alone.room.view(conns[current], alone.live).clocks).toEqual([]);
-
-    const bots = setup();
-    const both = startedGame(bots, 2);
-    for (const c of both) bots.send(c, { t: "auto", on: true });
-    bots.advance(10 * TURN_MS);
-    expect(bots.room.tick(bots.live)).toBe(false);
-    expect(upCount(bots, 0) + upCount(bots, 1)).toBe(0);
-    // No step and no presence check is due: the room's only alarm is its idle expiry.
-    expect(bots.room.nextAlarm(bots.live)).toBe(bots.room.data.updatedAt + IDLE_MS);
+  it("M8, BUG-1: a lone player off Auto-play, on their own turn with everyone else offline, has no clock", () => {
+    const t = setup();
+    const conns = startedGame(t, 2);
+    pastFlips(t, conns);
+    const current = t.room.data.game?.current ?? 0;
+    t.drop(conns[1 - current]);
+    t.advance(10 * TURN_MS);
+    expect(t.room.tick(t.live)).toBe(false);
+    expect(t.room.view(conns[current], t.live).clocks).toEqual([]);
   });
 
   it("M8: a clock that wasn't running, with nobody else there, starts afresh when someone comes back", () => {
@@ -556,6 +547,105 @@ describe("turn clock (M8)", () => {
   });
 });
 
+/** Runs the room's alarms for `ms`, as an adapter does, every socket pinging. Returns the moves. */
+function runAlarms(t: Setup, ms: number) {
+  const end = t.now() + ms;
+  let moves = 0;
+  for (let at = t.room.nextAlarm(t.live); at <= end; at = t.room.nextAlarm(t.live)) {
+    t.advance(at - t.now());
+    if (t.room.tick(t.live)) moves++;
+  }
+  t.advance(end - t.now());
+  return moves;
+}
+
+const AUTO_TURN_MS = AUTO_FIRST_MS + AUTO_NEXT_MS;
+
+describe("everyone on Auto-play (BUG-1)", () => {
+  it("BUG-1: with both seats on Auto-play and connected, the current seat draws at +2 s and places 1.2 s later, and play reaches the round summary, where it waits", () => {
+    const t = setup();
+    const conns = startedGame(t, 2);
+    pastFlips(t, conns);
+    const current = t.room.data.game?.current ?? 0;
+    const start = t.now();
+    for (const c of conns) t.send(c, { t: "auto", on: true });
+    expect(t.room.nextAlarm(t.live)).toBe(start + AUTO_FIRST_MS);
+    t.advance(AUTO_FIRST_MS - 1);
+    expect(t.room.tick(t.live)).toBe(false);
+    t.advance(1);
+    expect(t.room.tick(t.live)).toBe(true);
+    expect(t.room.data.game).toMatchObject({ phase: "place", current });
+    expect(t.room.nextAlarm(t.live)).toBe(start + AUTO_TURN_MS);
+    t.advance(AUTO_NEXT_MS);
+    expect(t.room.tick(t.live)).toBe(true);
+    expect(t.room.data.game?.current).toBe(1 - current);
+    runAlarms(t, 60 * 60_000);
+    expect(t.room.data.game?.phase).toBe("roundOver");
+    expect(t.room.data.game?.round).toBe(1);
+    // Next round is a tap: until then nothing is due but presence checks.
+    expect(runAlarms(t, 10 * 60_000)).toBe(0);
+    t.send(conns[1], { t: "act", action: { type: "nextRound" } });
+    expect(runAlarms(t, AUTO_TURN_MS)).toBe(2); // each step flips a card for both seats
+    expect(t.room.data.game).toMatchObject({ round: 2, phase: "draw" });
+  });
+
+  it("BUG-1: with both on Auto-play, one connected and the other offline, the table still plays", () => {
+    const t = setup();
+    const conns = startedGame(t, 2);
+    pastFlips(t, conns);
+    const current = t.room.data.game?.current ?? 0;
+    for (const c of conns) t.send(c, { t: "auto", on: true });
+    t.drop(conns[1]);
+    expect(runAlarms(t, 2 * AUTO_TURN_MS)).toBe(4); // each seat draws and places
+    expect(t.room.data.game).toMatchObject({ phase: "draw", current });
+  });
+
+  it("BUG-1: with both on Auto-play and nobody connected, nothing plays and no auto step is scheduled", () => {
+    const t = setup();
+    const conns = startedGame(t, 2);
+    pastFlips(t, conns);
+    for (const c of conns) t.send(c, { t: "auto", on: true });
+    for (const c of conns) t.drop(c);
+    t.advance(10 * TURN_MS);
+    expect(t.room.tick(t.live)).toBe(false);
+    // The room's only alarm is its idle expiry.
+    expect(t.room.nextAlarm(t.live)).toBe(t.room.data.updatedAt + IDLE_MS);
+  });
+
+  it("BUG-1: in the opening flip, two present players who don't flip for 30 s both go on Auto-play, both flip twice, and the first turn starts", () => {
+    const t = setup();
+    startedGame(t, 2);
+    t.advance(TURN_MS);
+    expect(t.room.tick(t.live)).toBe(true);
+    expect(autoSeats(t)).toEqual([true, true]);
+    expect([upCount(t, 0), upCount(t, 1)]).toEqual([1, 1]);
+    t.advance(AUTO_NEXT_MS);
+    expect(t.room.tick(t.live)).toBe(true);
+    expect([upCount(t, 0), upCount(t, 1)]).toEqual([2, 2]);
+    expect(t.room.data.game?.phase).toBe("draw");
+    t.advance(AUTO_FIRST_MS);
+    expect(t.room.tick(t.live)).toBe(true);
+    expect(t.room.data.game?.phase).toBe("place");
+  });
+
+  it("BUG-1: with a connected player off Auto-play, an auto seat never turns over its last face-down card early; with nobody off it, it does and the round ends", () => {
+    for (const [human, ender] of [
+      [true, null],
+      [false, 0],
+    ] as const) {
+      const t = setup();
+      const conns = startedGame(t, 2);
+      for (const c of human ? [conns[0]] : conns) t.send(c, { t: "auto", on: true });
+      // Seat 0 drew a 12 with one face-down card left; its highest face-up card is 11.
+      t.room.data.game = placing(GRID, ALL_BUT_LAST, 12);
+      t.advance(AUTO_NEXT_MS);
+      expect(t.room.tick(t.live)).toBe(true);
+      expect(t.room.data.game?.ender).toBe(ender);
+      expect(t.room.data.game?.players[0].grid[11]?.up).toBe(!human);
+    }
+  });
+});
+
 /** Seat 0 of a 2-player game placing `drawn`: its grid, with the positions in `up` face up. */
 function placing(grid: number[], up: number[], drawn: number, from: "deck" | "discard" = "deck") {
   const g = createGame(["A", "B"], [1, 0, 0, 0]);
@@ -639,6 +729,43 @@ describe("autoMove (M8)", () => {
         let pick: number;
         [pick, rng] = nextRandom(rng);
         g = apply(g, botsTurn ? autoMove(g, bot) : legal[Math.floor(pick * legal.length)]);
+      }
+    }
+  });
+
+  it("BUG-1: when the round may end, it turns over the last face-down card rather than swap a higher card in", () => {
+    expect(autoMove(placing(GRID, ALL_BUT_LAST, 12), 0, true)).toEqual({
+      type: "discardAndFlip",
+      seat: 0,
+      pos: 11,
+    });
+    expect(autoMove(placing(GRID, ALL_BUT_LAST, 12, "discard"), 0, true)).toEqual({
+      type: "swap",
+      seat: 0,
+      pos: 11,
+    });
+    // A lower card still replaces the highest face-up one.
+    expect(autoMove(placing(GRID, ALL_BUT_LAST, 4), 0, true)).toEqual({
+      type: "swap",
+      seat: 0,
+      pos: 7,
+    });
+  });
+
+  it("BUG-1: in 1,000 seeded tables of 2–8 seats with every seat on autoMove, every round ends", () => {
+    for (let seed = 0; seed < 1000; seed++) {
+      const players = 2 + (seed % 7);
+      let g = createGame(
+        Array.from({ length: players }, (_, i) => `P${i}`),
+        [seed, 1, 2, 3],
+      );
+      for (let moves = 0; g.phase !== "roundOver" && g.phase !== "gameOver"; moves++) {
+        if (moves > 2_000) throw new Error(`seed ${seed} did not end its round`);
+        const seat =
+          g.phase === "flip"
+            ? g.players.findIndex((p) => p.grid.filter((s) => s?.up).length < 2)
+            : g.current;
+        g = apply(g, autoMove(g, seat, true));
       }
     }
   });

@@ -4,6 +4,20 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.1.1] - 2026-10-25
+
+### Fixed
+
+- When everyone is on Auto-play, the game keeps playing to the round summary, which then waits for a tap on **Next round**. Before, the table froze, with every phone saying "Auto-play is playing for you": when the last player still playing by hand switched Auto-play on, or when two players both ran out of time in the opening flip. So that such a round can end, Auto-play now turns over a player's last face-down card when nobody at the table is playing by hand; while someone is, it still never does that early.
+
+### Changed
+
+- Your turn clock now runs even when everyone else still connected is on Auto-play. Before, it stopped, and the table waited for you for as long as you liked.
+
+### Security
+
+- A table where everyone is on Auto-play now plays with no message from anyone, as long as a seated player is connected. As in 2.1.0, each step is paid by every network with a phone in the room: a 2-player table with both on Auto-play costs each connected network at most 76 of its 120-a-minute budget, and it stops at every round summary. With nobody connected, nothing plays. No new message or route.
+
 ## [2.1.0] - 2026-10-24
 
 ### Added

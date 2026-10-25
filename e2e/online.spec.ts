@@ -75,7 +75,7 @@ async function pastFlips(pages: Page[]) {
   return [pages[current], ...pages.filter((_, i) => i !== current)];
 }
 
-test("M8: a player who ticks Auto-play is played for, a step at a time, until they untick it", async ({
+test("M8, BUG-1: a player who ticks Auto-play is played for, a step at a time, until they untick it; with both on Auto-play the table keeps playing", async ({
   browser,
 }, info) => {
   const all = await phones(browser, info, 2);
@@ -103,18 +103,18 @@ test("M8: a player who ticks Auto-play is played for, a step at a time, until th
   await expect(toggle).toBeChecked();
   await expect(a.getByTestId("mine-head")).toHaveText(/^Auto-play (is|was) on/);
   const ticked = sent.get(a)?.find((m) => m.msg.includes('"t":"auto"'))?.at ?? 0;
-  // B's own states: A's drawn card within 4 s, then the card placed in a later state.
-  const seen = () => {
-    const after = states.get(b)?.filter((s) => s.at >= ticked) ?? [];
+  // B's own states since `since`: A's drawn card within `within` ms, then the card placed later.
+  const seen = (since: number, within: number) => {
+    const after = states.get(b)?.filter((s) => s.at >= since) ?? [];
     const drew = after.findIndex(
       (s) => s.room.game?.current === seat && s.room.game.drawn !== null,
     );
     const placed = after.findIndex((s, i) => i > drew && s.room.game?.current !== seat);
     if (drew === -1) return "waiting";
-    if (after[drew].at - ticked > 4_000) return "late";
+    if (after[drew].at - since > within) return "late";
     return placed === -1 ? "drawn" : "placed";
   };
-  await expect.poll(seen, { timeout: 6_000 }).toBe("placed");
+  await expect.poll(() => seen(ticked, 4_000), { timeout: 6_000 }).toBe("placed");
   await expect(b.getByTestId("table")).toHaveAttribute("data-myturn", "true");
   await expect(b.getByRole("img", { name: "Auto-play" })).toBeVisible();
   await expect(b.getByTestId("opponent")).toContainText(name);
@@ -140,6 +140,12 @@ test("M8: a player who ticks Auto-play is played for, a step at a time, until th
   expect(last?.clocks).toEqual([{ seat, inMs: expect.any(Number), reason: "timer" }]);
   expect(last?.clocks[0].inMs).toBeGreaterThan(25_000);
   await expect(b.getByRole("img", { name: "Auto-play" })).toHaveCount(0);
+  // BUG-1: both tick Auto-play, B first, and A's turn still plays. Before 2.1.1, B's tick
+  // stopped A's clock and the table froze, both phones saying Auto-play was playing for them.
+  const both = Date.now();
+  await b.getByRole("checkbox", { name: "Auto-play" }).click({ force: true });
+  await toggle.click({ force: true });
+  await expect.poll(() => seen(both, 8_000), { timeout: 8_000 }).toBe("placed");
 });
 
 test("a 9th phone can't take a seat and watches instead", async ({ browser }, info) => {
