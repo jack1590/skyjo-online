@@ -225,6 +225,9 @@ test("m5 screenshots", async ({ browser }, info) => {
 test("a round runs to its summary, then the next round (or the game ends)", async ({
   browser,
 }, info) => {
+  // A whole round at bot speed: about 45 moves, which CI's WebKit can stretch past 25 s when the
+  // other workers are busy (PR #17 probe).
+  test.setTimeout(60_000);
   const { pages } = await seatedRoom(browser, info, ["Ana", "Ben"]);
   await startGame(pages[0]);
   const phase = () => pages[0].getByTestId("table").getAttribute("data-phase");
