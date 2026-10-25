@@ -124,6 +124,94 @@ test.describe("360×740 (common Android width)", () => {
   });
 });
 
+/** You drew from the deck: place phase, with 2 cards face up. */
+const placing = (): Shown => {
+  const state = firstTurn(4, 5);
+  const view = toView(apply(state, { type: "draw", seat: state.current, source: "deck" }));
+  return { view, seat: state.current };
+};
+
+test.describe("M18: discard mode shows where to tap", () => {
+  // The narrowest phone the prompt must fit (UX-20); on every device, as fonts differ.
+  test.use({ viewport: { width: 360, height: 740 } });
+  const flipNow = {
+    en: "Now flip one of your face-down cards",
+    es: "Ahora voltea una de tus cartas boca abajo",
+    pt: "Agora vire uma das suas cartas viradas para baixo",
+  };
+
+  test("M18: only your face-down cards are highlighted and the rest dims; the held card is lifted, never highlighted; the prompt fits 2 lines in en, es and pt; no pulse with reduced motion", async ({
+    page,
+  }) => {
+    const target = page.getByTestId("my-grid").locator('button[data-face="down"]').first();
+    for (const [locale, text] of Object.entries(flipNow)) {
+      await page.addInitScript((l) => localStorage.setItem("skyjo:locale", l), locale);
+      await show(page, placing());
+      // Place phase (UX-4): every highlight is a button, and the held card sits 6 px up, unmarked.
+      const hl = page.locator(".hl");
+      expect(await hl.evaluateAll((els) => els.map((el) => el.tagName))).toEqual(["BUTTON"]);
+      await expect(page.getByTestId("drawn")).not.toHaveClass(/\bhl\b/);
+      const top = async (id: string) => (await page.getByTestId(id).boundingBox())?.y ?? 0;
+      expect((await top("deck")) - (await top("drawn"))).toBeCloseTo(6, 0);
+
+      // Discard mode (UX-18): the highlights are exactly your face-down cards; face-up ones dim.
+      await page.getByTestId("discard").click();
+      await expect(page.getByTestId("drawn")).toHaveJSProperty("tagName", "BUTTON"); // tap to keep
+      expect((await top("deck")) - (await top("drawn"))).toBeCloseTo(6, 0);
+      const marks = await page.evaluate(() => {
+        const grid = '[data-testid="my-grid"]';
+        const hl = [...document.querySelectorAll(".hl")];
+        const down = [...document.querySelectorAll(`${grid} button[data-face="down"]`)];
+        const up = [...document.querySelectorAll(`${grid} [data-face="up"]`)];
+        return {
+          exact: hl.length === down.length && down.every((el) => hl.includes(el)),
+          down: down.length,
+          up: up.length,
+          opacity: Math.max(...up.map((el) => Number(getComputedStyle(el).opacity))),
+        };
+      });
+      expect(marks).toMatchObject({ exact: true, down: 10, up: 2 });
+      expect(marks.opacity).toBeLessThanOrEqual(0.5);
+      await expect(target).toHaveCSS("outline-width", "3px");
+      await expect(target).toHaveCSS("outline-color", "rgb(242, 193, 78)");
+
+      // UX-20: says what to do, in at most 2 lines.
+      const prompt = page.getByTestId("prompt");
+      await expect(prompt).toContainText(text);
+      const lines = await prompt.evaluate((el) => {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        return new Set([...range.getClientRects()].map((r) => Math.round(r.bottom))).size;
+      });
+      expect(lines, `${locale}: "${await prompt.textContent()}"`).toBeLessThanOrEqual(2);
+    }
+    // The outline holds still with reduced motion (the E2E default) and pulses without it.
+    const pulse = () => target.evaluate((el) => getComputedStyle(el, "::after").animationName);
+    expect(await pulse()).toBe("none");
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    expect(await pulse()).not.toBe("none");
+  });
+});
+
+test("screenshots: M18 place and discard mode", async ({ page }, info) => {
+  test.skip(!process.env.SHOTS || info.project.name !== "iphone", "run with SHOTS=1");
+  const shot = (name: string) =>
+    page.screenshot({
+      path: `docs/screenshots/m18/${name}.jpg`,
+      type: "jpeg",
+      quality: 80,
+      scale: "css",
+      animations: "disabled",
+    });
+  for (const locale of ["es", "en"]) {
+    await page.addInitScript((l) => localStorage.setItem("skyjo:locale", l), locale);
+    await show(page, placing());
+    await shot(`after-${locale}-1-place`);
+    await page.getByTestId("discard").click();
+    await shot(`after-${locale}-2-discard-mode`);
+  }
+});
+
 /** The page's clock stands still from its first load: only page.clock.runFor moves it. */
 async function frozenClock(page: Page) {
   const start = Date.UTC(2026, 9, 24, 12);

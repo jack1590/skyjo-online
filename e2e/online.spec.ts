@@ -268,7 +268,7 @@ test("discard mode can be cancelled and the drawn card swapped in; then a whole 
   await mover.getByTestId("deck").click();
   const drawn = (await mover.getByTestId("drawn").getAttribute("aria-label"))?.split(": ")[1];
   await mover.getByTestId("discard").click();
-  await expect(mover.getByText("Tap a face-down card to flip it")).toBeVisible();
+  await expect(mover.getByText("Now flip one of your face-down cards")).toBeVisible();
   await mover.getByTestId("drawn").click();
   await expect(mover.getByText("Tap a grid card to swap")).toBeVisible();
   const target = mover.getByTestId("my-grid").locator('button[data-face="up"]').first();
