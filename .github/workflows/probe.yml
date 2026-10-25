@@ -1,4 +1,5 @@
 # Throwaway probe for PR #17 RC2 (not for merge): which M8 change slows CI's Linux WebKit?
+# All variants run on one machine, interleaved, since runners differ a lot between jobs.
 name: Probe
 on:
   push:
@@ -6,33 +7,35 @@ on:
 permissions:
   contents: read
 jobs:
-  whole:
-    name: whole (${{ matrix.variant }})
+  same-machine:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 40
     container: mcr.microsoft.com/playwright:v1.64.1-noble
-    strategy:
-      fail-fast: false
-      matrix:
-        variant: [head, main, no-ring, no-ring-no-bar]
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - name: Variant
+      - run: npm ci
+      - name: Variants, interleaved
         shell: bash
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          case "${{ matrix.variant }}" in
-            main) git checkout -q 525758899a047165d06e20a6bb3122b360ec5be9 -- src e2e package.json package-lock.json public ;;
-            no-ring) printf '\n.ring { display: none !important; }\n' >> src/client/styles.css ;;
-            no-ring-no-bar) printf '\n.ring, .clock { display: none !important; }\n' >> src/client/styles.css ;;
-          esac
-          git diff --stat
-      - run: npm ci
-      - run: npm run build
-      - name: Whole iPhone project, run 1
-        run: npx playwright test --project=iphone --retries=0 --reporter=list
-      - name: Whole iPhone project, run 2
-        if: always()
-        run: npx playwright test --project=iphone --retries=0 --reporter=list
+          git stash list >/dev/null
+          run() {
+            git checkout -q -- . && git clean -fdq src e2e public
+            case "$1" in
+              main) git checkout -q 525758899a047165d06e20a6bb3122b360ec5be9 -- src e2e public ;;
+              no-ring) printf '\n.ring { display: none !important; }\n' >> src/client/styles.css ;;
+              no-bar) printf '\n.clock { display: none !important; }\n' >> src/client/styles.css ;;
+            esac
+            npm run build > /dev/null 2>&1
+            start=$(date +%s)
+            npx playwright test --project=iphone --retries=0 --reporter=list > "/tmp/$1-$2.log" 2>&1 || true
+            end=$(date +%s)
+            sum=$(grep -oE '\(([0-9.]+)(m?s)\)$' "/tmp/$1-$2.log" | tr -d '()' | awk '{ if ($1 ~ /ms$/) { sub(/ms/,"",$1); t+=$1/1000 } else { sub(/s/,"",$1); t+=$1 } } END { printf "%.1f", t }')
+            round=$(grep -E 'a round runs to its summary' "/tmp/$1-$2.log" | grep -oE '\(([0-9.]+)s\)$' | tr -d '()')
+            echo "RESULT $1 pass$2 wall=$((end-start))s testsum=${sum}s round=${round} $(grep -E ' passed| failed' "/tmp/$1-$2.log" | tr -s ' ' | tr '\n' ' ')"
+          }
+          for pass in 1 2; do
+            for v in main head no-ring no-bar; do run $v $pass; done
+          done
