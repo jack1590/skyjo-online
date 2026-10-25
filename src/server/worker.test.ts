@@ -1,7 +1,15 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { type Action, legalActions } from "../engine/game";
-import { CLOSE_ROOM_FULL, type ClientMsg, type RoomView, type ServerMsg } from "../protocol";
 import {
+  CLOSE_ROOM_FULL,
+  type ClientMsg,
+  type RoomView,
+  type ServerMsg,
+  TURN_MS,
+} from "../protocol";
+import {
+  AUTO_FIRST_MS,
+  AUTO_NEXT_MS,
   type Conn,
   EMPTY_IDLE_MS,
   HELLO_MS,
@@ -10,7 +18,6 @@ import {
   MAX_SOCKETS,
   type Room,
   STALE_MS,
-  STALL_MS,
 } from "./room";
 import worker, { RoomDO } from "./worker";
 
@@ -330,15 +337,19 @@ describe("RoomDO storage writes", () => {
 });
 
 describe("RoomDO alarms", () => {
-  it("SEC-3: the stall guard still moves for an absent seat exactly 60 s into its wait", async () => {
+  it("M8: the turn clock moves for an absent seat exactly 30 s after the deal, then auto-play its second flip, across hibernation", async () => {
     const t = await harness();
     const [a, b] = await t.seat(2);
     await t.send(a, { t: "start" });
     await t.close(b); // b's phone dies during the opening flip
     t.wake(); // and the object hibernates while the table waits
-    await t.advance(STALL_MS - 1, [a]);
+    await t.advance(TURN_MS - 1, [a]);
     expect(faceUp(lastView(a), 1)).toBe(0);
     await t.advance(1, [a]);
+    expect(faceUp(lastView(a), 1)).toBe(1);
+    expect(lastView(a).seats[1].auto).toBe(true);
+    t.wake();
+    await t.advance(AUTO_NEXT_MS, [a]);
     expect(faceUp(lastView(a), 1)).toBe(2);
   });
 
@@ -444,7 +455,8 @@ describe("RoomDO per-IP message budget", () => {
  * 8 phones on one IP (HOME) join, play two games and a rematch, all 8 reconnecting at every round
  * end. They tap once a second, every turn, which is faster than any real table plays. `slow` adds a
  * 5-minute lobby wait (during which one phone silently drops and must show offline), a 3-minute
- * chat over each summary, and 50 s of thinking on every 5th draw. Returns every socket used.
+ * chat over each summary, and 25 s of thinking on every 5th draw. Returns every socket used, after
+ * checking that nobody was put on auto-play.
  */
 async function eightFriends(t: Awaited<ReturnType<typeof harness>>, { slow }: { slow: boolean }) {
   const TAP = 1_000;
@@ -491,8 +503,8 @@ async function eightFriends(t: Awaited<ReturnType<typeof harness>>, { slow }: { 
         await t.advance(TAP, phones);
         await act(0, { type: "nextRound" });
       } else {
-        // Under the 60 s stall guard.
-        if (slow && game.phase === "draw" && ++turn % 5 === 0) await t.advance(50_000, phones);
+        // Under the 30 s turn clock (M8): nobody here is ever played for.
+        if (slow && game.phase === "draw" && ++turn % 5 === 0) await t.advance(25_000, phones);
         await act(game.current, legal[game.phase === "place" ? legal.length - 1 : 0] as Action);
       }
       await t.advance(TAP, phones);
@@ -500,8 +512,135 @@ async function eightFriends(t: Awaited<ReturnType<typeof harness>>, { slow }: { 
     await t.send(phones[0], { t: "rematch" });
     await t.advance(TAP, phones);
   }
+  expect(lastView(phones[0]).seats.map((s) => s.auto)).toEqual(phones.map(() => false));
   return everyone;
 }
+
+type Harness = Awaited<ReturnType<typeof harness>>;
+
+/** Plays the opening flip at once, every seat through its own socket. */
+async function flipAll(t: Harness, phones: FakeSocket[]) {
+  for (let game = t.game(); game?.phase === "flip"; game = t.game()) {
+    const flip = legalActions(game)[0] as Action & { seat: number };
+    await t.send(phones[flip.seat], { t: "act", action: flip });
+  }
+}
+
+/** Every unit `key` has spent so far. */
+const spent = (env: { MESSAGES: ReturnType<typeof messageLimiter> }, key: string) =>
+  env.MESSAGES.calls.filter(([k]) => k === key).length;
+
+describe("RoomDO auto-play (M8)", () => {
+  const AWAY = "198.51.100.1";
+
+  it("M8: an auto turn is two alarms 0.7 s apart, each its own broadcast: 4 rows and 2 DO requests, charged 2 per alarm to every IP in the room, across hibernation", async () => {
+    const env = { MESSAGES: messageLimiter() };
+    const t = await harness(env);
+    const phones = await t.seat(2);
+    const watcher = await t.connect(AWAY);
+    await t.send(watcher, { t: "hello", token: token(9) });
+    await t.send(phones[0], { t: "start" });
+    await flipAll(t, phones);
+    const human = t.game()?.current ?? 0;
+    const bot = 1 - human;
+    await t.send(phones[bot], { t: "auto", on: true });
+    await t.send(phones[human], { t: "act", action: { type: "draw", seat: 0, source: "deck" } });
+    await t.send(phones[human], { t: "act", action: { type: "swap", seat: 0, pos: 0 } });
+    const before = {
+      rows: t.rows(),
+      requests: t.requests,
+      home: spent(env, HOME),
+      away: spent(env, AWAY),
+      views: watcher.sent.length,
+    };
+    const everyone = [...phones, watcher];
+    await t.advance(AUTO_FIRST_MS - 1, everyone);
+    expect(lastView(watcher).game?.phase).toBe("draw");
+    await t.advance(1, everyone);
+    expect(lastView(watcher).game?.drawn).not.toBeNull(); // everyone sees the drawn card
+    t.wake(); // evicted between the steps
+    await t.advance(AUTO_NEXT_MS, everyone);
+    expect(lastView(watcher).game).toMatchObject({ phase: "draw", current: human, drawn: null });
+    expect(lastView(watcher).seats[bot].auto).toBe(true);
+    expect({
+      rows: t.rows() - before.rows,
+      requests: t.requests - before.requests,
+      home: spent(env, HOME) - before.home,
+      away: spent(env, AWAY) - before.away,
+      views: watcher.sent.length - before.views,
+    }).toEqual({ rows: 4, requests: 2, home: 4, away: 4, views: 2 });
+  });
+
+  it("M8: a room where every seat is on auto-play is idle: after the check already scheduled, nothing runs until someone unticks", async () => {
+    const t = await harness();
+    const phones = await t.seat(2);
+    await t.send(phones[0], { t: "start" });
+    for (const ws of phones) await t.send(ws, { t: "auto", on: true });
+    await t.advance(10 * 60_000, phones); // the deal's 30 s check comes, finds nothing to do
+    const [rows, requests] = [t.rows(), t.requests];
+    await t.advance(60 * 60_000, phones);
+    expect([t.rows() - rows, t.requests - requests]).toEqual([0, 0]);
+    expect(faceUp(lastView(phones[0]), 0) + faceUp(lastView(phones[0]), 1)).toBe(0);
+    // Seat 1 is back: seat 0's flips are played for it again, and seat 1 gets a fresh 30 s.
+    await t.send(phones[1], { t: "auto", on: false });
+    await t.advance(AUTO_FIRST_MS + AUTO_NEXT_MS, phones);
+    expect(faceUp(lastView(phones[1]), 0)).toBe(2);
+    expect(faceUp(lastView(phones[1]), 1)).toBe(0);
+  });
+
+  /**
+   * 8 phones on one IP: seat 0 plays, tapping every `tap` ms, and the other 7 are on auto-play.
+   * A minute in, each of the 7 comes back from the background and says hello. Returns the
+   * busiest minute of the IP's budget after the setup, and every socket.
+   */
+  async function sevenOnAuto(tap: number) {
+    const env = { MESSAGES: messageLimiter() };
+    const t = await harness(env);
+    const phones = await t.seat(8);
+    await t.send(phones[0], { t: "start" });
+    await flipAll(t, phones);
+    for (const ws of phones.slice(1)) await t.send(ws, { t: "auto", on: true });
+    const from = Date.now(); // after the seating, the start and the flips, all at once here
+    const end = from + 10 * 60_000;
+    let woke = false;
+    while (Date.now() < end) {
+      await t.advance(tap, phones);
+      if (!woke && Date.now() > from + 60_000) {
+        woke = true;
+        for (const [i, ws] of phones.entries()) {
+          if (i > 0) await t.send(ws, { t: "hello", token: token(i) });
+        }
+      }
+      const game = t.game();
+      if (!game || game.phase === "gameOver") break;
+      const legal = legalActions(game);
+      const mine = legal.find((a) => a.type === "flip" && a.seat === 0);
+      if (game.phase === "roundOver") await t.send(phones[0], { t: "act", action: legal[0] });
+      else if (mine) await t.send(phones[0], { t: "act", action: mine });
+      else if (game.phase !== "flip" && game.current === 0) {
+        const action = legal[game.phase === "place" ? legal.length - 1 : 0] as Action;
+        await t.send(phones[0], { t: "act", action });
+      }
+    }
+    const played = env.MESSAGES.calls.filter(([, when]) => when > from);
+    return { peak: peakMinute(played, HOME), phones };
+  }
+
+  it("M8, SEC-11: 8 friends on one IP, 7 of them on auto-play and one tapping once a second, stay under 0.75 of the budget", async () => {
+    // Each auto turn costs 4 units (2 alarms) and takes 3.2 s, about what a human turn costs; at
+    // 1.5 s / 0.7 s this peaked at 119, with the wake hellos (PO, PR #17).
+    const { peak, phones } = await sevenOnAuto(1_000);
+    expect(phones.filter((ws) => ws.closed !== null)).toEqual([]);
+    expect(peak).toBeLessThanOrEqual(0.75 * IP_MESSAGES_PER_MINUTE);
+  });
+
+  it("M8, SEC-11: ... and tapping twice a second, faster than anyone plays, still trip nothing", async () => {
+    // At 1.5 s / 0.7 s this hit 125 and closed all 8 sockets (PO, PR #17).
+    const { peak, phones } = await sevenOnAuto(500);
+    expect(phones.filter((ws) => ws.closed !== null)).toEqual([]);
+    expect(peak).toBeLessThanOrEqual(IP_MESSAGES_PER_MINUTE);
+  });
+});
 
 describe("RoomDO event order", () => {
   it("SEC-10: a socket's messages are handled in order even when the limiter answers out of order", async () => {

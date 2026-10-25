@@ -127,9 +127,11 @@ export function Home() {
       <details className="panel rules">
         <summary>{t("howToPlay")}</summary>
         <ul>
-          {(["rules1", "rules2", "rules3", "rules4", "rules5", "rules6"] as const).map((key) => (
-            <li key={key}>{t(key)}</li>
-          ))}
+          {(["rules1", "rules2", "rules3", "rules4", "rules5", "rules6", "rules7"] as const).map(
+            (key) => (
+              <li key={key}>{t(key)}</li>
+            ),
+          )}
         </ul>
       </details>
       <a className="version" href="https://github.com/jack1590/skyjo-online/releases">

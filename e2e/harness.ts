@@ -3,6 +3,7 @@
 import { expect, type Page } from "@playwright/test";
 import { apply, createGame, type GameState, legalActions } from "../src/engine/game";
 import { type GameView, toView } from "../src/engine/view";
+import type { Wait } from "../src/protocol";
 
 /** A game one move into its last turns: someone revealed everything; the next player is to draw. */
 export function lastTurnGame(players: number, seed: number): GameState {
@@ -26,10 +27,21 @@ export function roundOver(players: number, seed: number): GameState {
   return state;
 }
 
+/** A game right after the opening flip: the starting player is to draw. */
+export function firstTurn(players: number, seed: number): GameState {
+  const names = Array.from({ length: players }, (_, i) => `Player ${i + 1}`);
+  let state = createGame(names, [seed, 0, 0, 0]);
+  while (state.phase === "flip") state = apply(state, legalActions(state)[0]);
+  return state;
+}
+
 export interface Shown {
   view: GameView;
   seat: number | null;
   lead?: boolean;
+  connected?: boolean[];
+  auto?: boolean[];
+  wait?: Wait[];
 }
 
 export async function show(page: Page, table: Shown) {

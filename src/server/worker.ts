@@ -50,7 +50,8 @@ const clientKey = (request: Request) => {
  * Spends `units` of an IP's MESSAGES budget, the one budget for every row it makes us write (SEC-11):
  * - a message, 1, and 1 more if it moves the room's alarm earlier (a row), as does a close;
  * - each alarm run, 2 (a row and a Durable Object request) to every IP with a live socket in the
- *   room: a lobby whose sockets only ping re-checks presence every ≤ 45 s;
+ *   room: a lobby whose sockets only ping re-checks presence every ≤ 45 s, and each auto-play step
+ *   (M8) is an alarm run that also saves the room (2 rows, a request);
  * - a new room, 3: two rows now, one when it expires.
  * So one IP writes about a row per unit at most, however it splits them.
  */
@@ -207,7 +208,7 @@ export class RoomDO extends DurableObject<Env> {
       return;
     }
     ws.serializeAttachment(conn);
-    // A returning player may unblock a stall that was waiting for someone to be present.
+    // Ticking auto-play on may make a step due now, and a returning player may restart auto-play.
     if (room.tick([...live.values()])) change = "data";
     if ((await this.commit(live, change, ws)) && conn.ip && !(await spend(this.env, conn.ip, 1))) {
       shut(ws, conn);
@@ -248,12 +249,13 @@ export class RoomDO extends DurableObject<Env> {
         this.room = null;
         return;
       }
-      // Every check costs a row and a request, so the IPs holding the room open pay for it (SEC-11).
+      // Every check, and every auto-play step (M8), costs a row and a request, so the IPs holding
+      // the room open pay for it (SEC-11). A step also saves the room: 2 rows for the 2 units.
       for (const ip of new Set([...live.values()].map((conn) => conn.ip))) {
         if (!ip || (await spend(this.env, ip, 2))) continue;
         for (const [ws, conn] of live) {
           if (conn.ip !== ip) continue;
-          room.closed(conn); // its seat keeps the ping-fresh time, so the stall guard waits its turn
+          room.closed(conn); // its seat keeps the ping-fresh time, so it shows offline only when stale
           shut(ws, conn);
           live.delete(ws);
         }

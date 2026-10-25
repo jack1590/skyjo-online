@@ -1,11 +1,10 @@
-// Platform-agnostic room: seats, permissions, stall guard, scheduling. Adapters (worker.ts,
+// Platform-agnostic room: seats, permissions, the turn clock, scheduling. Adapters (worker.ts,
 // node.ts) own sockets and storage; this file owns who may do what, and when.
 import {
   type Action,
   apply,
   createGame,
   type GameState,
-  legalActions,
   MAX_PLAYERS,
   MIN_PLAYERS,
   RuleError,
@@ -19,6 +18,8 @@ import {
   type ErrorCode,
   NAME_MAX,
   type RoomView,
+  TURN_MS,
+  type Wait,
 } from "../protocol";
 
 export interface Seat {
@@ -27,6 +28,8 @@ export interface Seat {
   name: string;
   /** Last sign of life from this seat (ms). */
   seenAt: number;
+  /** Auto-play (M8): the server plays this seat's turns until its player unticks it. Unset before 2.1.0. */
+  auto?: boolean;
 }
 
 export interface RoomData {
@@ -37,8 +40,10 @@ export interface RoomData {
   game: GameState | null;
   /** Last client message (ms). Pings don't count, so a forgotten tab doesn't keep a room forever. */
   updatedAt: number;
-  /** When the table started waiting on whoever it waits on now (ms): the stall guard counts from here. */
+  /** The last move (ms): a draw's place deadline and auto-play's next step count from here. */
   waitSince: number;
+  /** When the turn clock started (ms): the deal, the turn's start, or an untick on your turn. */
+  turnSince: number;
 }
 
 /** One open socket, persisted in its attachment. */
@@ -78,8 +83,16 @@ export class RoomError extends Error {
 
 /** A socket silent this long counts as gone; phones drop sockets without closing them. */
 export const STALE_MS = 45_000;
-/** A seat the table waits on gets a default move after being gone this long into its wait. */
-export const STALL_MS = 60_000;
+/** After a draw you always have this long to place it, even past the turn's 30 s (TURN_MS). */
+export const GRACE_MS = 10_000;
+/**
+ * An auto-play seat moves this long into its turn (or the opening flip), so everyone sees it...
+ * At 3.2 s an auto turn (4 budget units, SEC-11) costs about what a human turn does, so a table
+ * with seats on auto-play stays under 0.75 of an IP's budget (PO, PR #17; 1.5 s / 0.7 s reached 125).
+ */
+export const AUTO_FIRST_MS = 2_000;
+/** ...and makes each next step this long after the last move: every step is its own broadcast. */
+export const AUTO_NEXT_MS = 1_200;
 /** No client message for this long and the room is deleted. */
 export const IDLE_MS = 24 * 60 * 60_000;
 /** A room nobody ever joined goes much sooner (abandoned "Create a room" taps, creation bursts). */
@@ -129,6 +142,7 @@ export const newRoom = (code: string, now: number): RoomData => ({
   game: null,
   updatedAt: now,
   waitSince: now,
+  turnSince: now,
 });
 
 export const newConn = (now: number, ip: string | null): Conn => ({
@@ -207,7 +221,9 @@ export class Room {
   constructor(
     readonly data: RoomData,
     private readonly deps: Deps,
-  ) {}
+  ) {
+    data.turnSince ??= data.waitSince; // a room saved before 2.1.0
+  }
 
   seatOf(conn: Conn): number | null {
     const seat = this.data.seats.findIndex((s) => s.token === conn.token);
@@ -219,6 +235,15 @@ export class Room {
    * Returns what changed. Throws RoomError for that socket only.
    */
   receive(conn: Conn, msg: ClientMsg, live: Conn[]): Change {
+    const stopped = this.awaited().filter((s) => !this.canStall(s, live));
+    const change = this.handle(conn, msg, live);
+    // A clock that wasn't running, with nobody else there, starts afresh once someone is.
+    if (!stopped.some((s) => this.awaited().includes(s) && this.canStall(s, live))) return change;
+    this.data.turnSince = this.deps.now();
+    return "data";
+  }
+
+  private handle(conn: Conn, msg: ClientMsg, live: Conn[]): Change {
     const now = this.deps.now();
     const online = this.online(live);
     conn.seenAt = now;
@@ -271,7 +296,20 @@ export class Room {
           this.deps.seed(),
         );
         this.data.waitSince = now;
+        this.data.turnSince = now;
+        // Auto-play lasts a game: in the lobby it only let others lead while you were away.
+        for (const s of seats) s.auto = false;
         return "data";
+      case "auto": {
+        if (seat === null) throw new RoomError("not-allowed");
+        if ((seats[seat].auto === true) === msg.on) return "none";
+        seats[seat].auto = msg.on;
+        // Unticking on your turn gives you a fresh clock, once per move: ticking on and off can't
+        // hold a turn open.
+        const moved = this.data.waitSince >= this.data.turnSince;
+        if (!msg.on && moved && this.awaited().includes(seat)) this.data.turnSince = now;
+        return "data";
+      }
       case "rematch":
         // Back to the lobby with the same seats, where people can join, leave, or be removed.
         if (game?.phase !== "gameOver" || !this.canLead(seat, live)) {
@@ -325,39 +363,49 @@ export class Room {
     const you = this.seatOf(conn);
     return {
       code: this.data.code,
-      seats: this.data.seats.map((s, i) => ({ name: s.name, connected: this.connected(i, live) })),
+      seats: this.data.seats.map((s, i) => ({
+        name: s.name,
+        connected: this.connected(i, live),
+        auto: s.auto === true,
+      })),
       host: this.data.host,
       you,
       lead: this.canLead(you, live),
-      wait: this.offlineWait(live),
+      clocks: this.clocks(live),
       game: this.data.game && toView(this.data.game),
     };
   }
 
-  /** The offline seat the table waits on, and how long until the stall guard moves for it. */
-  private offlineWait(live: Conn[]): RoomView["wait"] {
+  /** Every seat the table waits on whose clock runs, and when and why the server moves for it. */
+  private clocks(live: Conn[]): Wait[] {
     const now = this.deps.now();
-    const seat = this.awaited().find((s) => !this.connected(s, live) && this.canStall(s, live));
-    return seat === undefined ? null : { seat, inMs: Math.max(0, this.deadline(seat, live) - now) };
+    return this.awaited()
+      .filter((seat) => this.canStall(seat, live))
+      .map((seat) => ({
+        seat,
+        inMs: Math.max(0, this.due(seat) - now),
+        reason: this.data.seats[seat].auto
+          ? "auto"
+          : this.connected(seat, live)
+            ? "timer"
+            : "offline",
+      }));
   }
 
-  /** Stall guard: plays default moves for seats gone too long. Returns whether anything changed. */
+  /**
+   * The turn clock: plays one step for each waited-on seat that is due, on auto-play or out of
+   * time, which turns auto-play on. One step per seat per call, so everyone sees each one.
+   * Returns whether anything changed.
+   */
   tick(live: Conn[]): boolean {
     const now = this.deps.now();
-    let changed = false;
-    // Bounded: each pass finishes one stalled seat's turn, and a round has finitely many.
-    for (let pass = 0; pass < 1000; pass++) {
-      const seat = this.awaited().find(
-        (s) => this.canStall(s, live) && now >= this.deadline(s, live),
-      );
-      if (seat === undefined) break;
-      // Finish that seat's whole turn (both initial flips, or draw then discard-and-flip).
-      while (this.data.game && this.awaited().includes(seat)) {
-        this.play(this.data.game, autoMove(this.data.game, seat));
-      }
-      changed = true;
+    const due = this.awaited().filter((s) => this.canStall(s, live) && now >= this.due(s));
+    for (const seat of due) {
+      if (!this.data.game) break;
+      this.data.seats[seat].auto = true;
+      this.play(this.data.game, autoMove(this.data.game, seat));
     }
-    return changed;
+    return due.length > 0;
   }
 
   /** When the adapter should call tick() and re-broadcast next (ms). Always in the future. */
@@ -366,16 +414,17 @@ export class Room {
     const due = [this.data.updatedAt + this.idleAfter(live)];
     for (const s of this.awaited()) {
       if (!this.canStall(s, live)) continue;
-      due.push(this.deadline(s, live));
-      // A phone that goes silent mid-turn: re-broadcast when it turns stale, so the table sees it's offline.
+      due.push(this.due(s));
+      // A phone that goes silent: re-broadcast when it turns stale, so the table sees it's offline.
       if (this.connected(s, live)) due.push(this.lastSeen(s, live) + STALE_MS);
     }
     // If the host goes quiet while the table needs a lead, others must learn they may step in.
     if (this.needsLead() && this.connected(this.data.host, live)) {
       due.push(this.lastSeen(this.data.host, live) + STALE_MS);
     }
-    const future = due.filter((t) => t > now);
-    return future.length ? Math.min(...future) : now + STALE_MS;
+    // A step that came due after this event's tick() (a timer that fired a millisecond early) is
+    // checked again at once, not dropped: dropping it stalled the turn until the next check.
+    return Math.max(Math.min(...due), now + 1);
   }
 
   isIdle(live: Conn[]): boolean {
@@ -398,9 +447,15 @@ export class Room {
     return this.data.seats.map((_, i) => this.connected(i, live)).join();
   }
 
-  /** The host leads; if the host is away anyone seated may, so one dropped phone can't freeze the table. */
+  /**
+   * The host leads; if the host is away, or on auto-play, anyone seated may, so one dropped phone
+   * can't freeze the table.
+   */
   private canLead(seat: number | null, live: Conn[]): boolean {
-    return seat !== null && (seat === this.data.host || !this.connected(this.data.host, live));
+    const { host, seats } = this.data;
+    return (
+      seat !== null && (seat === host || seats[host]?.auto === true || !this.connected(host, live))
+    );
   }
 
   private needsLead(): boolean {
@@ -415,14 +470,28 @@ export class Room {
     return Math.max(s.seenAt, ...live.filter((c) => c.token === s.token).map((c) => c.seenAt));
   }
 
-  /** A seat gets a full STALL_MS of absence counted from when its wait began, not from when it went quiet. */
-  private deadline(seat: number, live: Conn[]): number {
-    return Math.max(this.lastSeen(seat, live), this.data.waitSince) + STALL_MS;
+  /**
+   * When the server moves for a waited-on seat: its next auto-play step, or when its clock runs
+   * out, online or not. The clock gives the turn (or the opening flip) TURN_MS, and a draw at
+   * least GRACE_MS to place.
+   */
+  private due(seat: number): number {
+    const { turnSince, waitSince, game } = this.data;
+    if (this.data.seats[seat].auto) {
+      const flipped = game?.players[seat].grid.some((s) => s?.up);
+      const first = game?.phase === "draw" || (game?.phase === "flip" && !flipped);
+      return first ? turnSince + AUTO_FIRST_MS : waitSince + AUTO_NEXT_MS;
+    }
+    return Math.max(turnSince + TURN_MS, game?.phase === "place" ? waitSince + GRACE_MS : 0);
   }
 
-  /** Only stall for someone when somebody else is there to wait; an empty table doesn't play itself. */
+  /**
+   * The clock and auto-play run for a seat only while someone else is really there: a connected
+   * seat not on auto-play. An empty table, or one of auto seats, doesn't play itself (each auto
+   * step costs an alarm and a row with no client message to pay for it).
+   */
   private canStall(seat: number, live: Conn[]): boolean {
-    return this.data.seats.some((_, i) => i !== seat && this.connected(i, live));
+    return this.data.seats.some((s, i) => i !== seat && !s.auto && this.connected(i, live));
   }
 
   /** Seats the table is waiting on right now. */
@@ -442,25 +511,44 @@ export class Room {
   }
 
   private play(state: GameState, action: Action): void {
+    let next: GameState;
     try {
-      this.data.game = apply(state, action);
+      next = apply(state, action);
     } catch (e) {
       if (e instanceof RuleError) throw new RoomError("illegal-move");
       throw e;
     }
+    this.data.game = next;
     this.data.waitSince = this.deps.now();
+    // The clock keeps running through a draw and through the opening flip; anything else starts a turn.
+    if (next.phase !== "place" && !(next.phase === "flip" && state.phase === "flip")) {
+      this.data.turnSince = this.data.waitSince;
+    }
   }
 }
 
-/** The stall guard's move: draw from the deck, discard it, flip the first face-down card. */
+/**
+ * The server's move for a seat on auto-play or out of time (M8). In the opening flip it flips the
+ * first face-down card in reading order. On a turn it draws from the deck; a drawn card lower than
+ * the highest face-up card replaces it. Otherwise it discards the card and flips the first
+ * face-down one, unless that is the last and the round isn't ending yet: revealing it would end
+ * the round, likely doubled (R12), so it replaces the highest face-up card instead. A card taken from the discard pile can't be
+ * thrown away (time ran out after the player took it), so it replaces that face-down card.
+ */
 export function autoMove(g: GameState, seat: number): Action {
-  const legal = legalActions(g).filter((a) => "seat" in a && a.seat === seat);
-  const faceDown = (pos: number) => g.players[seat].grid[pos]?.up === false;
-  return (
-    legal.find((a) => a.type === "discardAndFlip") ??
-    legal.find((a) => a.type === "flip") ??
-    legal.find((a) => a.type === "draw" && a.source === "deck") ??
-    legal.find((a) => a.type === "swap" && faceDown(a.pos)) ??
-    (legal[0] as Action)
-  );
+  const grid = g.players[seat].grid;
+  const down = grid.flatMap((s, pos) => (s && !s.up ? [pos] : []));
+  if (g.phase === "flip") return { type: "flip", seat, pos: down[0] };
+  if (g.phase === "draw") return { type: "draw", seat, source: "deck" };
+  let high = -1;
+  for (const [pos, s] of grid.entries()) {
+    if (s?.up && (high === -1 || s.card > (grid[high]?.card ?? 0))) high = pos;
+  }
+  const highCard = grid[high]?.card ?? 0;
+  // On a last turn the round is ending anyway, and R11 reveals that card: flipping it costs nothing.
+  const lastCard = down.length === 1 && g.ender === null;
+  if (high !== -1 && ((g.drawn as number) < highCard || lastCard)) {
+    return { type: "swap", seat, pos: high };
+  }
+  return { type: g.drawnFrom === "deck" ? "discardAndFlip" : "swap", seat, pos: down[0] };
 }

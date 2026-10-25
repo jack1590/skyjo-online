@@ -112,9 +112,13 @@ export function useRoom(code: string) {
     };
     const wake = () => {
       if (stopped || document.visibilityState !== "visible") return;
-      const state = socket.current?.readyState;
-      if (state === WebSocket.CLOSED || state === WebSocket.CLOSING) connect();
-      else check();
+      const ws = socket.current;
+      if (ws?.readyState === WebSocket.CLOSED || ws?.readyState === WebSocket.CLOSING) connect();
+      else if (ws?.readyState === WebSocket.OPEN && Date.now() - lastHeard <= SILENT_MS) {
+        // Back from the background: a hello, unlike a ping, reaches the room, which then shows
+        // this phone online and restarts any clock that stopped while it was gone (M8).
+        ws.send(JSON.stringify({ t: "hello", token } satisfies ClientMsg));
+      } else check();
     };
 
     reconnect.current = () => {

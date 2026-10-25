@@ -170,3 +170,52 @@ describe("soundsBetween", () => {
     expect(soundsBetween(toView(s), over, 0)).toContain("end");
   });
 });
+
+describe("nudge (M8)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  });
+
+  /** A phone whose sounds are decoded, with `muted` remembered from an earlier visit. */
+  async function phone(muted: boolean) {
+    const audio = fakeAudio("running");
+    const vibrate = vi.fn();
+    vi.stubGlobal("navigator", { vibrate, userActivation: { hasBeenActive: true } });
+    vi.stubGlobal("localStorage", { getItem: () => (muted ? "1" : "0"), setItem() {} });
+    const sound = await load();
+    sound.unlockAudio();
+    await new Promise((done) => setTimeout(done, 10)); // fetch and decode
+    return { ...sound, vibrate, ticks: () => audio.started.length };
+  }
+  const own = { seat: 1, inMs: 4_000, reason: "timer" } as const;
+
+  it("M8: the 5 s tick and vibration fire once per turn, only for the phone's own clock", async () => {
+    const { nudge, vibrate, ticks } = await phone(false);
+    nudge(own, 6, "r1-1");
+    nudge(undefined, 5, "r1-1"); // another player's turn, or watching: no clock of its own
+    nudge({ ...own, reason: "auto" }, 0, "r1-1");
+    expect([vibrate.mock.calls.length, ticks()]).toEqual([0, 0]);
+    nudge(own, 5, "r1-1");
+    nudge(own, 4, "r1-1");
+    nudge(own, 5, "r1-1"); // a draw at 25 s gave it 10 s more
+    expect([vibrate.mock.calls.length, ticks()]).toEqual([1, 1]);
+    nudge(own, 5, "r1-1-next");
+    expect([vibrate.mock.calls.length, ticks()]).toEqual([2, 2]);
+  });
+
+  it("M8: once per turn, every lap: the same turn key comes round again", async () => {
+    const { nudge, vibrate } = await phone(false);
+    nudge(own, 5, "1-1"); // seat 1's turn
+    nudge(undefined, 5, "1-0"); // seat 0's turn: no clock of its own here
+    nudge(own, 5, "1-1"); // seat 1 again, next lap
+    expect(vibrate.mock.calls.length).toBe(2);
+  });
+
+  it("M8: muted, it still vibrates but makes no tick", async () => {
+    const { nudge, vibrate, ticks } = await phone(true);
+    nudge(own, 5, "r1-1");
+    nudge(own, 4, "r1-1");
+    expect([vibrate.mock.calls.length, ticks()]).toEqual([1, 0]);
+  });
+});

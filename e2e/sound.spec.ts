@@ -31,14 +31,20 @@ test("moves make sounds; the mute switch silences them and is remembered", async
     )
     .toBeGreaterThan(0);
   await startGame(ana);
-  await ana.getByTestId("my-grid").locator("button").first().click(); // Ana flips
+  // The deal makes a sound on its own: count from after it.
   await expect.poll(() => soundsOn(ben)).toBeGreaterThan(0);
+  const dealt = await soundsOn(ben);
+  const anaGrid = ana.getByTestId("my-grid");
+  await anaGrid.locator("button").first().click(); // Ana flips
+  await expect(anaGrid.locator('[data-face="up"]')).toHaveCount(1);
+  await expect.poll(() => soundsOn(ben)).toBeGreaterThan(dealt);
 
   const mute = ben.getByRole("button", { name: "Sound" });
   await expect(mute).toHaveAttribute("aria-pressed", "true");
   await mute.click();
   const before = await soundsOn(ben);
-  await ana.getByTestId("my-grid").locator('button[data-face="down"]').first().click();
+  // Ana's first flip has landed, so her second tap can't hit the same card.
+  await anaGrid.locator('button[data-face="down"]').first().click();
   // Ben's table shows Ana's second flip; still no new sound.
   await expect(ben.locator('[data-testid="opponent"] [data-face="up"]')).toHaveCount(2);
   expect(await soundsOn(ben)).toBe(before);

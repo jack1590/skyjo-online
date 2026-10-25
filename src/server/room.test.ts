@@ -1,11 +1,14 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { type Action, legalActions } from "../engine/game";
-import type { Rng } from "../engine/rng";
-import { type ClientMsg, parseClientMsg } from "../protocol";
+import { type Action, apply, createGame, type GameState, legalActions } from "../engine/game";
+import { nextRandom, type Rng } from "../engine/rng";
+import { type ClientMsg, parseClientMsg, TURN_MS } from "../protocol";
 import {
+  AUTO_FIRST_MS,
+  AUTO_NEXT_MS,
   allowIp,
   allowMessage,
+  autoMove,
   type Conn,
   dead,
   EMPTY_IDLE_MS,
@@ -20,7 +23,6 @@ import {
   Room,
   RoomError,
   STALE_MS,
-  STALL_MS,
   silent,
 } from "./room";
 
@@ -108,8 +110,8 @@ describe("lobby", () => {
     expect(t.room.view(a, t.live)).toMatchObject({ you: 0, host: 0, lead: true });
     expect(t.room.view(b, t.live)).toMatchObject({ you: 1, lead: false });
     expect(t.room.view(b, t.live).seats).toEqual([
-      { name: "P0", connected: true },
-      { name: "P1", connected: true },
+      { name: "P0", connected: true, auto: false },
+      { name: "P1", connected: true, auto: false },
     ]);
   });
 
@@ -231,14 +233,17 @@ describe("play", () => {
     expect(t.room.view(t.connect("token-0-abcdef"), t.live).you).toBe(0);
   });
 
-  it("a full game through the room reaches game over; views never leak secrets", () => {
+  it("a full game through the room reaches game over; views never leak secrets, with a seat on auto-play", () => {
     const t = setup();
     const conns = t.seated(3);
     const watcher = t.connect("token-w-abcdef");
     t.send(conns[0], { t: "start" });
+    t.send(conns[1], { t: "auto", on: true });
     for (let i = 0; t.room.data.game?.phase !== "gameOver"; i++) {
       expect(i).toBeLessThan(20_000);
-      stepAny(t, conns);
+      // The server plays seat 1's steps as they come due; the others play at once.
+      t.advance(AUTO_FIRST_MS);
+      if (!t.room.tick(t.live)) stepAny(t, conns);
       const state = t.room.data.game;
       for (const c of [...conns, watcher]) {
         const view = t.room.view(c, t.live);
@@ -296,101 +301,346 @@ describe("play", () => {
   });
 });
 
-describe("stall guard", () => {
-  it("flips two cards for a seat gone 60 s during the initial flip", () => {
-    const t = setup();
-    const [a, b] = startedGame(t, 2);
-    t.drop(b);
-    t.advance(STALL_MS - 1, [a]);
-    expect(t.room.tick(t.live)).toBe(false);
-    t.advance(1, [a]);
-    expect(t.room.tick(t.live)).toBe(true);
-    expect(upCount(t, 1)).toBe(2);
-  });
+const autoSeats = (t: Setup) => t.room.data.seats.map((s) => s.auto === true);
+const drawMsg: ClientMsg = { t: "act", action: { type: "draw", seat: 0, source: "deck" } };
 
-  it("plays draw, discard, flip for the current player gone 60 s", () => {
+describe("turn clock (M8)", () => {
+  it("M8: nothing happens at 30 s − 1 ms; at 30 s the waited-on seat's move is played and its auto-play is on", () => {
     const t = setup();
     const conns = startedGame(t, 2);
     pastFlips(t, conns);
     const current = t.room.data.game?.current ?? 0;
-    const before = upCount(t, current);
-    t.drop(conns[current]);
-    t.advance(STALL_MS);
-    t.room.tick(t.live);
-    expect(t.room.data.game?.current).toBe(1 - current);
-    expect(upCount(t, current)).toBe(before + 1);
+    t.advance(TURN_MS - 1);
+    expect(t.room.tick(t.live)).toBe(false);
+    t.advance(1);
+    expect(t.room.tick(t.live)).toBe(true);
+    expect(t.room.data.game?.phase).toBe("place"); // it drew
+    expect(autoSeats(t)).toEqual([0, 1].map((s) => s === current));
   });
 
-  it("a seat that went quiet before its turn still gets 60 s once its turn starts", () => {
+  it("M8: a draw at 25 s moves the place deadline to 35 s; a draw at 5 s leaves it at 30 s", () => {
+    for (const [drawAt, deadline] of [
+      [25_000, 35_000],
+      [5_000, TURN_MS],
+    ]) {
+      const t = setup();
+      const conns = startedGame(t, 2);
+      pastFlips(t, conns);
+      const current = t.room.data.game?.current ?? 0;
+      t.advance(drawAt);
+      t.send(conns[current], drawMsg);
+      t.advance(deadline - drawAt - 1);
+      expect(t.room.tick(t.live)).toBe(false);
+      t.advance(1);
+      expect(t.room.tick(t.live)).toBe(true);
+      expect(t.room.data.game?.current).toBe(1 - current);
+    }
+  });
+
+  it("M8: in the opening flip, every seat that hasn't flipped is auto-flipped 30 s after the deal, whoever else flips meanwhile; seats that have flipped are left alone", () => {
     const t = setup();
-    const conns = startedGame(t, 3);
+    const [a, b] = startedGame(t, 3);
+    const flip = (c: Conn, pos: number) =>
+      t.send(c, { t: "act", action: { type: "flip", seat: 0, pos } });
+    t.advance(10_000);
+    flip(a, 0);
+    t.advance(10_000);
+    flip(a, 1);
+    t.advance(5_000);
+    flip(b, 0);
+    t.advance(TURN_MS - 25_000 - 1);
+    expect(t.room.tick(t.live)).toBe(false);
+    t.advance(1);
+    expect(t.room.tick(t.live)).toBe(true);
+    expect([0, 1, 2].map((s) => upCount(t, s))).toEqual([2, 2, 1]);
+    expect(autoSeats(t)).toEqual([false, true, true]);
+    // The second flip is its own step, like every auto-play step after the first.
+    expect(t.room.nextAlarm(t.live)).toBe(t.now() + AUTO_NEXT_MS);
+    t.advance(AUTO_NEXT_MS);
+    expect(t.room.tick(t.live)).toBe(true);
+    expect(t.room.data.game?.phase).toBe("draw");
+    // Auto-play flips the first face-down cards in reading order.
+    expect(t.room.data.game?.players[2].grid.map((s) => s?.up)).toEqual(
+      Array.from({ length: 12 }, (_, i) => i < 2),
+    );
+  });
+
+  it("M8: an auto seat draws 1.5 s into its turn and places 0.7 s later, each its own step, and nextAlarm says exactly when", () => {
+    const t = setup();
+    const conns = startedGame(t, 2);
     pastFlips(t, conns);
     const current = t.room.data.game?.current ?? 0;
-    const next = (current + 1) % 3;
-    const others = conns.filter((_, i) => i !== next);
-    t.advance(STALL_MS + 1_000, others); // `next` stops pinging (phone locked) while `current` thinks
+    t.send(conns[1 - current], { t: "auto", on: true }); // ticked before its turn
     stepAny(t, conns);
-    stepAny(t, conns); // current finishes: now it's next's turn
-    expect(t.room.data.game?.current).toBe(next);
+    stepAny(t, conns); // current draws and places: the auto seat's turn begins
+    const start = t.now();
+    expect(t.room.nextAlarm(t.live)).toBe(start + AUTO_FIRST_MS);
+    t.advance(AUTO_FIRST_MS - 1);
     expect(t.room.tick(t.live)).toBe(false);
-    t.advance(STALL_MS, others);
+    t.advance(1);
     expect(t.room.tick(t.live)).toBe(true);
+    expect(t.room.data.game?.phase).toBe("place");
+    expect(t.room.nextAlarm(t.live)).toBe(start + AUTO_FIRST_MS + AUTO_NEXT_MS);
+    t.advance(AUTO_NEXT_MS - 1);
+    expect(t.room.tick(t.live)).toBe(false);
+    t.advance(1);
+    expect(t.room.tick(t.live)).toBe(true);
+    expect(t.room.data.game?.current).toBe(current);
   });
 
-  it("a silent socket counts as gone; a pinging one is never moved for", () => {
+  it("M8: a step that comes due between tick() and nextAlarm() is checked again at once, not dropped", () => {
     const t = setup();
-    const [a] = startedGame(t, 2);
-    t.advance(10 * STALL_MS); // both keep pinging
+    const conns = startedGame(t, 2);
+    pastFlips(t, conns);
+    t.send(conns[t.room.data.game?.current ?? 0], { t: "auto", on: true });
+    // An adapter's timer fires a millisecond early: tick() finds nothing due yet...
+    t.advance(AUTO_FIRST_MS - 1);
     expect(t.room.tick(t.live)).toBe(false);
-    t.advance(STALL_MS, [a]); // b's phone sleeps without closing the socket
-    expect(t.room.tick(t.live)).toBe(true);
-    expect(t.room.view(a, t.live).seats[1].connected).toBe(false);
+    // ...and by the time it asks for the next alarm, the draw is due.
+    t.advance(1);
+    expect(t.room.nextAlarm(t.live)).toBe(t.now() + 1);
   });
 
-  it("with everyone gone nothing is auto-played", () => {
+  it("M8: unticking stops auto-play and starts a fresh 30 s; you can tick it yourself, and only for your own seat", () => {
+    const t = setup();
+    const conns = startedGame(t, 2);
+    pastFlips(t, conns);
+    const current = t.room.data.game?.current ?? 0;
+    const me = conns[current];
+    t.advance(20_000);
+    expect(t.send(me, { t: "auto", on: true })).toBe("data");
+    expect(autoSeats(t)).toEqual([0, 1].map((s) => s === current));
+    expect(t.room.tick(t.live)).toBe(true); // 20 s in, the draw is overdue: it comes at once
+    expect(t.room.data.game?.phase).toBe("place");
+    expect(t.send(me, { t: "auto", on: false })).toBe("data");
+    expect(t.send(me, { t: "auto", on: false })).toBe("none"); // nothing changed, nothing to write
+    t.advance(TURN_MS - 1);
+    expect(t.room.tick(t.live)).toBe(false);
+    t.advance(1);
+    expect(t.room.tick(t.live)).toBe(true);
+    expect(t.room.data.game?.current).toBe(1 - current);
+    // The message names no seat, and a spectator has none.
+    expect(parseClientMsg('{"t":"auto","on":true,"seat":1}')).toEqual({ t: "auto", on: true });
+    const watcher = t.connect("token-w-abcdef");
+    expect(t.errorOf(() => t.send(watcher, { t: "auto", on: true }))).toBe("not-allowed");
+  });
+
+  it("M8: an offline seat gets the same 30 s, then goes on auto-play", () => {
+    const t = setup();
+    const conns = startedGame(t, 2);
+    pastFlips(t, conns);
+    const current = t.room.data.game?.current ?? 0;
+    t.drop(conns[current]);
+    t.advance(TURN_MS - 1);
+    expect(t.room.tick(t.live)).toBe(false);
+    t.advance(1);
+    expect(t.room.tick(t.live)).toBe(true);
+    expect(autoSeats(t)[current]).toBe(true);
+  });
+
+  it("M8: nothing plays when nobody else is connected, or when every connected seat is on auto-play", () => {
+    const alone = setup();
+    const conns = startedGame(alone, 2);
+    pastFlips(alone, conns);
+    const current = alone.room.data.game?.current ?? 0;
+    alone.drop(conns[1 - current]);
+    alone.advance(10 * TURN_MS);
+    expect(alone.room.tick(alone.live)).toBe(false);
+    expect(alone.room.view(conns[current], alone.live).clocks).toEqual([]);
+
+    const bots = setup();
+    const both = startedGame(bots, 2);
+    for (const c of both) bots.send(c, { t: "auto", on: true });
+    bots.advance(10 * TURN_MS);
+    expect(bots.room.tick(bots.live)).toBe(false);
+    expect(upCount(bots, 0) + upCount(bots, 1)).toBe(0);
+    // No step and no presence check is due: the room's only alarm is its idle expiry.
+    expect(bots.room.nextAlarm(bots.live)).toBe(bots.room.data.updatedAt + IDLE_MS);
+  });
+
+  it("M8: a clock that wasn't running, with nobody else there, starts afresh when someone comes back", () => {
+    const t = setup();
+    const conns = startedGame(t, 2);
+    pastFlips(t, conns);
+    const current = t.room.data.game?.current ?? 0;
+    t.drop(conns[1 - current]);
+    t.advance(2 * TURN_MS); // thinking alone: no clock
+    t.connect(`token-${1 - current}-abcdef`);
+    t.advance(TURN_MS - 1);
+    expect(t.room.tick(t.live)).toBe(false);
+    t.advance(1);
+    expect(t.room.tick(t.live)).toBe(true);
+  });
+
+  it("M8: a phone that went quiet before its turn shows as offline once stale, before its clock runs out", () => {
+    const t = setup();
+    const conns = startedGame(t, 2);
+    pastFlips(t, conns);
+    const current = t.room.data.game?.current ?? 0;
+    const next = conns[1 - current];
+    t.advance(20_000, [conns[current]]); // next's phone locks while current thinks
+    stepAny(t, conns);
+    stepAny(t, conns);
+    expect(t.room.data.game?.current).toBe(1 - current);
+    expect(t.room.nextAlarm(t.live)).toBe(next.seenAt + STALE_MS);
+    t.advance(STALE_MS - 20_000, [conns[current]]);
+    expect(t.room.view(conns[current], t.live).clocks).toEqual([
+      { seat: 1 - current, inMs: TURN_MS - 25_000, reason: "offline" },
+    ]);
+  });
+
+  it("M8: with everyone gone nothing is auto-played", () => {
     const t = setup();
     const conns = startedGame(t, 4);
     for (const c of conns) t.drop(c);
-    t.advance(10 * STALL_MS, []);
+    t.advance(10 * TURN_MS, []);
     expect(t.room.tick(t.live)).toBe(false);
     expect(t.room.data.game?.phase).toBe("flip");
   });
 
-  it("a long-dead socket closing late doesn't restart its seat's stall clock", () => {
+  it("M8: wait lists every waited-on seat, with ms until the server moves and why", () => {
     const t = setup();
-    const [a, b] = startedGame(t, 2);
-    t.advance(STALL_MS, [a]);
-    t.drop(b); // the server only now notices the close
-    expect(t.room.tick(t.live)).toBe(true);
+    const conns = startedGame(t, 4);
+    for (const pos of [0, 1])
+      t.send(conns[3], { t: "act", action: { type: "flip", seat: 0, pos } });
+    t.drop(conns[1]);
+    t.send(conns[2], { t: "auto", on: true });
+    t.advance(1_000);
+    expect(t.room.view(conns[3], t.live).clocks).toEqual([
+      { seat: 0, inMs: TURN_MS - 1_000, reason: "timer" },
+      { seat: 1, inMs: TURN_MS - 1_000, reason: "offline" },
+      { seat: 2, inMs: AUTO_FIRST_MS - 1_000, reason: "auto" },
+    ]);
+    expect(t.room.view(conns[3], t.live).seats.map((s) => s.auto)).toEqual([
+      false,
+      false,
+      true,
+      false,
+    ]);
+  });
+
+  it("M8: while the host is on auto-play, anyone seated may lead: start, next round, rematch; a new game starts with Auto-play off", () => {
+    const t = setup();
+    const conns = t.seated(2);
+    t.send(conns[0], { t: "auto", on: true });
+    expect(t.room.view(conns[1], t.live).lead).toBe(true);
+    t.send(conns[1], { t: "start" });
+    expect(autoSeats(t)).toEqual([false, false]); // nobody is played for before the deal's clock runs out
+    t.send(conns[0], { t: "auto", on: true });
+    while (t.room.data.game?.phase !== "gameOver") {
+      if (t.room.data.game?.phase === "roundOver") {
+        t.send(conns[1], { t: "act", action: { type: "nextRound" } });
+      } else stepAny(t, conns);
+    }
+    t.send(conns[1], { t: "rematch" });
+    expect(t.room.data.game).toBeNull();
+    // Still away in the lobby: the others may start without the host.
+    expect(t.room.view(conns[1], t.live).lead).toBe(true);
+  });
+
+  it("M8: ticking Auto-play on and off gives a fresh clock once per move, so it can't hold a turn open", () => {
+    const t = setup();
+    const conns = startedGame(t, 2);
+    pastFlips(t, conns);
+    const current = t.room.data.game?.current ?? 0;
+    // From the turn's start, on and off faster than auto-play's first step (1.5 s): when every
+    // untick restarted the clock, nothing was ever played.
+    let toggles = 0;
+    while (t.room.data.game?.current === current && toggles < 200) {
+      t.send(conns[current], { t: "auto", on: toggles++ % 2 === 0 });
+      t.advance(400);
+      t.room.tick(t.live);
+    }
+    expect(t.room.data.game?.current).toBe(1 - current);
+    expect(toggles * 400).toBeLessThan(TURN_MS);
   });
 });
 
-describe("offline wait", () => {
-  it("tells everyone which awaited seat is offline and when it will be moved for", () => {
-    const t = setup();
-    const conns = startedGame(t, 2);
-    pastFlips(t, conns);
-    const current = t.room.data.game?.current ?? 0;
-    const other = conns[1 - current];
-    expect(t.room.view(other, t.live).wait).toBeNull();
-    t.drop(conns[current]);
-    t.advance(20_000, [other]);
-    expect(t.room.view(other, t.live).wait).toEqual({ seat: current, inMs: STALL_MS - 20_000 });
+/** Seat 0 of a 2-player game placing `drawn`: its grid, with the positions in `up` face up. */
+function placing(grid: number[], up: number[], drawn: number, from: "deck" | "discard" = "deck") {
+  const g = createGame(["A", "B"], [1, 0, 0, 0]);
+  g.phase = "place";
+  g.current = 0;
+  g.drawn = drawn;
+  g.drawnFrom = from;
+  g.players[0].grid = grid.map((card, i) => ({ card, up: up.includes(i) }));
+  return g;
+}
+const GRID = [5, 5, 5, 9, 5, 5, 5, 11, 5, 5, 5, 5];
+const ALL_BUT_LAST = Array.from({ length: 11 }, (_, i) => i);
+
+describe("autoMove (M8)", () => {
+  it("M8: swaps a lower drawn card into the highest face-up card", () => {
+    expect(autoMove(placing(GRID, [0, 3, 7], 4), 0)).toEqual({ type: "swap", seat: 0, pos: 7 });
   });
 
-  it("during the opening flip, an offline seat shows up as awaited", () => {
-    const t = setup();
-    const conns = startedGame(t, 3);
-    t.drop(conns[2]);
-    expect(t.room.view(conns[0], t.live).wait?.seat).toBe(2);
+  it("M8: otherwise discards it and flips the first face-down card", () => {
+    expect(autoMove(placing(GRID, [0, 3, 7], 12), 0)).toEqual({
+      type: "discardAndFlip",
+      seat: 0,
+      pos: 1,
+    });
   });
 
-  it("a phone going silent mid-turn gets a broadcast when it turns stale", () => {
-    const t = setup();
-    const conns = startedGame(t, 2);
-    pastFlips(t, conns);
-    const current = t.room.data.game?.current ?? 0;
-    expect(t.room.nextAlarm(t.live)).toBe(conns[current].seenAt + STALE_MS);
+  it("M8: never flips the last face-down card while a swap is legal, unless the round is ending anyway", () => {
+    expect(autoMove(placing(GRID, ALL_BUT_LAST, 12), 0)).toEqual({ type: "swap", seat: 0, pos: 7 });
+    // On a last turn revealing it ends nothing, and R11 reveals it anyway: swapping a 12 in would cost.
+    expect(autoMove({ ...placing(GRID, ALL_BUT_LAST, 12), ender: 1 }, 0)).toEqual({
+      type: "discardAndFlip",
+      seat: 0,
+      pos: 11,
+    });
+    expect(autoMove(placing(GRID, ALL_BUT_LAST, 12, "discard"), 0)).toEqual({
+      type: "swap",
+      seat: 0,
+      pos: 7,
+    });
+  });
+
+  it("M8: a card taken from the discard (time ran out after taking it) replaces the first face-down card unless it beats a face-up one", () => {
+    expect(autoMove(placing(GRID, [0, 3, 7], 12, "discard"), 0)).toEqual({
+      type: "swap",
+      seat: 0,
+      pos: 1,
+    });
+    expect(autoMove(placing(GRID, [0, 3, 7], 6, "discard"), 0)).toEqual({
+      type: "swap",
+      seat: 0,
+      pos: 7,
+    });
+  });
+
+  it("M8: draws from the deck, and in the opening flip flips the first face-down card", () => {
+    const g: GameState = createGame(["A", "B"], [1, 0, 0, 0]);
+    expect(autoMove(g, 1)).toEqual({ type: "flip", seat: 1, pos: 0 });
+    expect(autoMove({ ...g, phase: "draw", current: 1 }, 1)).toEqual({
+      type: "draw",
+      seat: 1,
+      source: "deck",
+    });
+  });
+
+  it("M8: in 1,000 seeded games with one seat always on autoMove and the others random, every game ends", () => {
+    for (let seed = 0; seed < 1000; seed++) {
+      const players = 2 + (seed % 7);
+      const bot = seed % players;
+      let g = createGame(
+        Array.from({ length: players }, (_, i) => `P${i}`),
+        [seed, 0, 0, 0],
+      );
+      let rng: Rng = [seed, 7, 7, 7];
+      for (let moves = 0; g.phase !== "gameOver"; moves++) {
+        if (moves > 20_000) throw new Error(`seed ${seed} did not finish`);
+        const legal = legalActions(g);
+        const botsTurn =
+          g.phase === "flip"
+            ? legal.some((a) => "seat" in a && a.seat === bot)
+            : g.phase !== "roundOver" && g.current === bot;
+        let pick: number;
+        [pick, rng] = nextRandom(rng);
+        g = apply(g, botsTurn ? autoMove(g, bot) : legal[Math.floor(pick * legal.length)]);
+      }
+    }
   });
 });
 
@@ -399,7 +649,7 @@ describe("scheduling", () => {
     const t = setup();
     const conns = startedGame(t, 3);
     for (let i = 0; t.room.data.game?.phase !== "gameOver" && i < 20_000; i++) {
-      if (i % 7 === 0) t.advance(STALL_MS, conns.slice(1)); // seat 0 drifts in and out
+      if (i % 7 === 0) t.advance(TURN_MS, conns.slice(1)); // seat 0 drifts in and out
       t.room.tick(t.live);
       expect(t.room.nextAlarm(t.live)).toBeGreaterThan(t.now());
       // tick() may have ended the round or the game, so read the phase fresh.
@@ -572,6 +822,9 @@ describe("protocol", () => {
       '{"t":"act","action":null}',
       '{"t":"act","action":{"type":"swap"}}',
       '{"t":"act","action":{"type":"draw","source":"hand"}}',
+      '{"t":"auto"}',
+      '{"t":"auto","on":"yes"}',
+      '{"t":"auto","on":1}',
       `{"t":"join","name":"${"x".repeat(2000)}"}`,
     ]) {
       expect(parseClientMsg(raw)).toBeNull();

@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
+import type { RoomView } from "../src/protocol";
 import { botStep, createRoom, join, phones, playToEnd, seatedRoom, startGame } from "./helpers";
 
 test("two phones create, join, and play a full game to 100", async ({ browser }, info) => {
@@ -60,7 +61,85 @@ test("everyone sees who is offline and when the server will move for them", asyn
   const { pages } = await seatedRoom(browser, info, ["Ana", "Ben"]);
   await startGame(pages[0]);
   await pages[1].context().close(); // Ben's phone dies during the opening flip
-  await expect(pages[0].getByText(/^Ben is offline · auto-move in \d+ s$/)).toBeVisible();
+  // Ana's own flips come first in her prompt line; then it says who the table waits for.
+  while (await botStep(pages[0]));
+  await expect(pages[0].getByText(/^Ben is offline · auto-play in \d+ s$/)).toBeVisible();
+});
+
+/** Plays the opening flip on every phone; returns the phone to move first, then the others. */
+async function pastFlips(pages: Page[]) {
+  while ((await pages[0].getByTestId("table").getAttribute("data-phase")) === "flip") {
+    for (const page of pages) await botStep(page);
+  }
+  const current = Number(await pages[0].getByTestId("table").getAttribute("data-current"));
+  return [pages[current], ...pages.filter((_, i) => i !== current)];
+}
+
+test("M8: a player who ticks Auto-play is played for, a step at a time, until they untick it", async ({
+  browser,
+}, info) => {
+  const all = await phones(browser, info, 2);
+  /** Every message each phone sends, and every room state it gets, with when. */
+  const sent = new Map(all.map((page) => [page, [] as { at: number; msg: string }[]]));
+  const states = new Map(all.map((page) => [page, [] as { at: number; room: RoomView }[]]));
+  for (const page of all) {
+    page.on("websocket", (ws) => {
+      ws.on("framesent", (f) => sent.get(page)?.push({ at: Date.now(), msg: String(f.payload) }));
+      ws.on("framereceived", (f) => {
+        const msg = String(f.payload).startsWith("{") ? JSON.parse(String(f.payload)) : null;
+        if (msg?.t === "state") states.get(page)?.push({ at: Date.now(), room: msg.room });
+      });
+    });
+  }
+  const code = await createRoom(all[0]);
+  for (const [i, page] of all.entries()) await join(page, code, ["Ana", "Ben"][i]);
+  await startGame(all[0]);
+  const [a, b] = await pastFlips(all);
+  const name = (await a.getByTestId("mine-head").locator("strong").textContent()) ?? "";
+  const seat = Number(await a.getByTestId("my-grid").getAttribute("data-seat"));
+  const toggle = a.getByRole("checkbox", { name: "Auto-play" });
+  // Taps here are forced: CI's WebKit spends up to a second per click on actionability alone.
+  await toggle.click({ force: true });
+  await expect(toggle).toBeChecked();
+  await expect(a.getByTestId("mine-head")).toHaveText(/^Auto-play (is|was) on/);
+  const ticked = sent.get(a)?.find((m) => m.msg.includes('"t":"auto"'))?.at ?? 0;
+  // B's own states: A's drawn card within 4 s, then the card placed in a later state.
+  const seen = () => {
+    const after = states.get(b)?.filter((s) => s.at >= ticked) ?? [];
+    const drew = after.findIndex(
+      (s) => s.room.game?.current === seat && s.room.game.drawn !== null,
+    );
+    const placed = after.findIndex((s, i) => i > drew && s.room.game?.current !== seat);
+    if (drew === -1) return "waiting";
+    if (after[drew].at - ticked > 4_000) return "late";
+    return placed === -1 ? "drawn" : "placed";
+  };
+  await expect.poll(seen, { timeout: 6_000 }).toBe("placed");
+  await expect(b.getByTestId("table")).toHaveAttribute("data-myturn", "true");
+  await expect(b.getByRole("img", { name: "Auto-play" })).toBeVisible();
+  await expect(b.getByTestId("opponent")).toContainText(name);
+  if (process.env.SHOTS && info.project.name === "iphone") {
+    await b.screenshot({ path: "docs/screenshots/m8/10-others-see-auto-play.jpg", scale: "css" });
+    await a.screenshot({ path: "docs/screenshots/m8/11-auto-play-on.jpg", scale: "css" });
+  }
+  // A's taps on its cards and on the deck point at the switch and send no move.
+  const moves = () => (sent.get(a) ?? []).filter((m) => m.msg.includes('"t":"act"')).length;
+  const before = moves();
+  await a.getByTestId("my-grid").locator("button").first().click({ force: true });
+  await a.getByTestId("deck").click({ force: true });
+  await expect(a.getByTestId("mine-head")).toHaveText(/^Auto-play (is|was) on/);
+  expect(moves()).toBe(before);
+  // Unticked, A's next turn waits for A: its clock is a 30 s timer, not an auto-play step.
+  await toggle.click({ force: true });
+  await expect(toggle).not.toBeChecked();
+  await botStep(b);
+  await botStep(b);
+  await expect(a.getByTestId("table")).toHaveAttribute("data-myturn", "true");
+  const last = states.get(a)?.at(-1)?.room;
+  expect(last?.game?.current).toBe(seat);
+  expect(last?.clocks).toEqual([{ seat, inMs: expect.any(Number), reason: "timer" }]);
+  expect(last?.clocks[0].inMs).toBeGreaterThan(25_000);
+  await expect(b.getByRole("img", { name: "Auto-play" })).toHaveCount(0);
 });
 
 test("a 9th phone can't take a seat and watches instead", async ({ browser }, info) => {
@@ -138,6 +217,7 @@ test("m5 screenshots", async ({ browser }, info) => {
   const { pages } = await seatedRoom(browser, info, ["Ana", "Ben", "Cris"]);
   await startGame(pages[0]);
   await pages[2].context().close();
+  while (await botStep(pages[0])); // Ana's own flips come first in her prompt line
   await expect(pages[0].getByText(/Cris is offline/)).toBeVisible();
   await shot(pages[0], "02-offline-countdown");
 });
@@ -145,6 +225,9 @@ test("m5 screenshots", async ({ browser }, info) => {
 test("a round runs to its summary, then the next round (or the game ends)", async ({
   browser,
 }, info) => {
+  // A whole round at bot speed: about 45 moves, which CI's WebKit can stretch past 25 s when the
+  // other workers are busy (PR #17 probe).
+  test.setTimeout(60_000);
   const { pages } = await seatedRoom(browser, info, ["Ana", "Ben"]);
   await startGame(pages[0]);
   const phase = () => pages[0].getByTestId("table").getAttribute("data-phase");
@@ -168,16 +251,12 @@ test("a round runs to its summary, then the next round (or the game ends)", asyn
   }
 });
 
-test("discard mode can be cancelled and the drawn card swapped in", async ({ browser }, info) => {
+test("discard mode can be cancelled and the drawn card swapped in; then a whole discard-and-flip turn", async ({
+  browser,
+}, info) => {
   const { pages } = await seatedRoom(browser, info, ["Ana", "Ben"]);
   await startGame(pages[0]);
-  while ((await pages[0].getByTestId("table").getAttribute("data-phase")) === "flip") {
-    for (const page of pages) await botStep(page);
-  }
-  const mover =
-    (await pages[0].getByTestId("table").getAttribute("data-myturn")) === "true"
-      ? pages[0]
-      : pages[1];
+  const [mover, other] = await pastFlips(pages);
   await mover.getByTestId("deck").click();
   const drawn = (await mover.getByTestId("drawn").getAttribute("aria-label"))?.split(": ")[1];
   await mover.getByTestId("discard").click();
@@ -188,6 +267,21 @@ test("discard mode can be cancelled and the drawn card swapped in", async ({ bro
   const position = (await target.getAttribute("aria-label"))?.split(":")[0];
   await target.click();
   await expect(mover.getByLabel(`${position}: ${drawn}`, { exact: true })).toBeVisible();
+
+  // The other player draws, throws the card away and flips one (After M6: no other E2E does).
+  const grid = other.getByTestId("my-grid");
+  await expect(other.getByTestId("table")).toHaveAttribute("data-myturn", "true");
+  const down = await grid.locator('[data-face="down"]').count();
+  // Forced taps, as in botStep: each move is confirmed by the expect after it.
+  await other.getByTestId("deck").click({ force: true });
+  const card = (await other.getByTestId("drawn").getAttribute("aria-label"))?.split(": ")[1];
+  await other.getByTestId("discard").click({ force: true });
+  await expect(other.getByTestId("drawn")).toHaveJSProperty("tagName", "BUTTON"); // discard mode
+  await grid.locator('button[data-face="down"]').first().click({ force: true });
+  await expect(grid.locator('[data-face="down"]')).toHaveCount(down - 1);
+  await expect(other.getByTestId("discard")).toHaveAttribute("aria-label", `Discard pile: ${card}`);
+  await expect(other.getByTestId("table")).toHaveAttribute("data-myturn", "false");
+  await expect(mover.getByTestId("table")).toHaveAttribute("data-myturn", "true");
 });
 
 test("an unknown room code says so, including codes that can't exist", async ({ page }) => {
