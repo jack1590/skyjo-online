@@ -1,4 +1,4 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page, test, type WebSocketRoute } from "@playwright/test";
 import type { RoomView } from "../src/protocol";
 import { botStep, createRoom, join, phones, playToEnd, seatedRoom, startGame } from "./helpers";
 
@@ -64,6 +64,38 @@ test("everyone sees who is offline and when the server will move for them", asyn
   // Ana's own flips come first in her prompt line; then it says who the table waits for.
   while (await botStep(pages[0]));
   await expect(pages[0].getByText(/^Ben is offline · auto-play in \d+ s$/)).toBeVisible();
+});
+
+test("SEC-9: a visible phone the room shows offline says hello once, since its pings never reach the room", async ({
+  browser,
+}, info) => {
+  test.skip(info.project.name !== "pixel", "a client rule; one device is enough");
+  const [page] = await phones(browser, info, 1);
+  const sent: string[] = [];
+  const states: string[] = [];
+  let socket: WebSocketRoute | undefined;
+  await page.routeWebSocket(/\/api\/rooms\/[A-Z0-9]+\/ws$/, (ws) => {
+    const server = ws.connectToServer();
+    ws.onMessage((m) => {
+      sent.push(String(m));
+      server.send(m);
+    });
+    server.onMessage((m) => {
+      if (String(m).includes('"t":"state"')) states.push(String(m));
+      ws.send(m);
+    });
+    socket = ws;
+  });
+  await join(page, await createRoom(page), "Ana");
+  const hellos = () => sent.filter((m) => m.includes('"t":"hello"')).length;
+  const [said, heard] = [hellos(), states.length];
+  // The room's view after it missed this phone's pings for 45 s (a stall its socket survived).
+  const away = JSON.parse(states[states.length - 1]);
+  away.room.seats[0].connected = false;
+  socket?.send(JSON.stringify(away));
+  socket?.send(JSON.stringify(away));
+  await expect.poll(() => states.length).toBeGreaterThan(heard); // the room's answer
+  expect(hellos()).toBe(said + 1);
 });
 
 /** Plays the opening flip on every phone; returns the phone to move first, then the others. */
