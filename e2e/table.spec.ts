@@ -354,6 +354,10 @@ test("M17: a knockout game to a winner: one goes out, the next round deals only 
   const summary = page.getByTestId("round-summary");
   await expect(summary.getByTestId("out-tag")).toHaveText(["Out in round 1"]);
   await expect(summary.getByRole("row", { name: /Dani/ })).toContainText("Out in round 1");
+  // Dani still sees the grid she just played, but has no Auto-play switch left to tick.
+  await show(page, { view: firstOut, seat: DANI });
+  await expect(page.getByTestId("my-grid")).toBeAttached();
+  await expect(page.locator('input[type="checkbox"]')).toHaveCount(0);
   // Round 2: Dani's panel has no cards, says why, and opens nothing.
   await show(page, { view: round2, seat: 0 });
   const dani = page.getByTestId("opponent").filter({ hasText: "Dani" });

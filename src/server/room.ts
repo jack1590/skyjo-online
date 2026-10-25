@@ -466,14 +466,13 @@ export class Room {
   }
 
   /**
-   * The host leads; if the host is away, or on auto-play, anyone seated may, so one dropped phone
-   * can't freeze the table.
+   * The host leads; if the host is away, on auto-play, or out of a knockout game (R16: they may
+   * well have stopped watching), anyone seated may, so one dropped phone can't freeze the table.
    */
   private canLead(seat: number | null, live: Conn[]): boolean {
     const { host, seats } = this.data;
-    return (
-      seat !== null && (seat === host || seats[host]?.auto === true || !this.connected(host, live))
-    );
+    const away = seats[host]?.auto === true || this.isOut(host) || !this.connected(host, live);
+    return seat !== null && (seat === host || away);
   }
 
   private needsLead(): boolean {

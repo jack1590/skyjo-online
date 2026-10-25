@@ -464,7 +464,7 @@ describe("RoomDO per-IP message budget", () => {
  * end. They tap once a second, every turn, which is faster than any real table plays. `slow` adds a
  * 5-minute lobby wait (during which one phone silently drops and must show offline), a 3-minute
  * chat over each summary, and 25 s of thinking on every 5th draw. `knockout`: the host ticks "Play
- * until one is left" first (R16), which ends with seven of them out. Returns every socket used,
+ * until one is left" first (R16), which plays on until at most one is left. Returns every socket used,
  * after checking that nobody was put on auto-play.
  */
 async function eightFriends(

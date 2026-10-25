@@ -388,12 +388,18 @@ describe("knockout (M17, R16)", () => {
     expect(loaded.view(conns[0], t.live).knockout).toBe(false);
   });
 
-  it("M17: going out ends a seat's Auto-play, and it can't tick it again; a host who is out still leads", () => {
+  it("M17: going out ends a seat's Auto-play, and it can't tick it again; a host who is out still leads, and so may anyone seated", () => {
     const t = setup();
     const conns = hostOut(t);
+    const watcher = t.connect("token-w-abcdef");
     expect(autoSeats(t)).toEqual([false, false, false]);
-    expect(t.errorOf(() => t.send(conns[1], nextRound))).toBe("not-allowed");
-    expect(t.room.view(conns[0], t.live).lead).toBe(true);
+    // An out host may have put the phone down: the players still in mustn't wait on them.
+    expect([...conns, watcher].map((c) => t.room.view(c, t.live).lead)).toEqual([
+      true,
+      true,
+      true,
+      false,
+    ]);
     t.send(conns[0], nextRound);
     expect(t.room.data.game?.phase).toBe("flip");
     expect(t.errorOf(() => t.send(conns[0], { t: "auto", on: true }))).toBe("not-allowed");

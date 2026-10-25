@@ -351,17 +351,20 @@ export function Table(props: TableProps) {
                 <strong>{me.name}</strong> <span className="pts">{t("pts", { n: me.total })}</span>
               </span>
             )}
-            <label className="auto">
-              {!myAuto && t("autoPlay")}
-              <span className="switch">
-                <input
-                  type="checkbox"
-                  aria-label={t("autoPlay")}
-                  checked={myAuto}
-                  onChange={(e) => onAuto?.(e.target.checked)}
-                />
-              </span>
-            </label>
+            {/* Nothing left to play once you're out (R16), even at that round's summary. */}
+            {me.out === null && (
+              <label className="auto">
+                {!myAuto && t("autoPlay")}
+                <span className="switch">
+                  <input
+                    type="checkbox"
+                    aria-label={t("autoPlay")}
+                    checked={myAuto}
+                    onChange={(e) => onAuto?.(e.target.checked)}
+                  />
+                </span>
+              </label>
+            )}
             {myClock.until !== null && (
               <Drain
                 key={myClock.until}
@@ -397,7 +400,7 @@ export function Table(props: TableProps) {
         </section>
       )}
 
-      {zoom !== null && players[zoom] && (
+      {zoom !== null && players[zoom] && !isOut(players[zoom], view.round) && (
         <Zoom view={view} seat={zoom} onClose={() => setZoom(null)} />
       )}
 
