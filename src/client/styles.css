@@ -743,8 +743,10 @@ dialog.zoom::backdrop {
   box-shadow:
     0 1px 0 rgb(255 255 255 / 0.25) inset,
     0 3px 8px rgb(0 0 0 / 0.4);
-  /* transform is left to the move animations (motion); only shadows transition in CSS. */
-  transition: box-shadow 0.15s;
+  /* transform is left to the move animations (motion); only shadows and opacity transition here. */
+  transition:
+    box-shadow 0.15s,
+    opacity 0.15s;
 }
 
 .card.lg {
@@ -795,6 +797,45 @@ dialog.zoom::backdrop {
   box-shadow:
     0 0 0 2px rgb(242 193 78 / 0.55),
     0 3px 8px rgb(0 0 0 / 0.4);
+}
+
+/* The card you drew, in hand (UX-4). `translate`, not `transform`: it adds to the flights'
+   transform, so the draw lands lifted instead of jumping 6px at the end. */
+.held .card {
+  translate: 0 -6px;
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 0.25) inset,
+    0 10px 18px rgb(0 0 0 / 0.55);
+}
+
+/* Discard mode (UX-18): your face-down cards glow past the gold rim of the card back; the others
+   step back. */
+.grid.discarding .card.up {
+  opacity: 0.45;
+}
+
+.grid.discarding .card.hl::after {
+  content: "";
+  position: absolute;
+  inset: -5px; /* on the outline: 2px offset + 3px */
+  border-radius: inherit;
+  box-shadow: 0 0 12px 2px var(--accent);
+  pointer-events: none;
+  /* Under every card (the grid's perspective makes it the stacking context), so neighbouring
+     glows never paint over a card. */
+  z-index: -1;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+
+  50% {
+    opacity: 1;
+  }
 }
 
 button.card:active {
@@ -952,9 +993,11 @@ button.card:active {
     transition: none;
   }
 
-  /* The clock holds still; its colours and seconds still change. */
+  /* The clock holds still; its colours and seconds still change. The discard-mode glow holds
+     still too. */
   .clock,
-  .ring {
+  .ring,
+  .grid.discarding .card.hl::after {
     animation: none;
   }
 

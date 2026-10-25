@@ -305,14 +305,14 @@ export function Table(props: TableProps) {
           <span className="pile-label">{t("deckCount", { n: view.deckCount })}</span>
         </div>
         {view.drawn !== null && (
-          <div className="pile">
+          // Held, never highlighted: the highlights are what to tap (UX-4).
+          <div className="pile held">
             <Card
               slot={view.drawn}
               size="md"
               label={t("drawnCard")}
               testId="drawn"
               cardRef={reg("drawn")}
-              highlight={!discardMode}
               onClick={discardMode ? () => setDiscarding(false) : undefined}
             />
             <span className="pile-label">{discardMode ? t("tapToKeep") : t("drawn")}</span>
@@ -324,7 +324,8 @@ export function Table(props: TableProps) {
             size="md"
             label={t("discardPile")}
             testId="discard"
-            highlight={!!onDiscard}
+            // In discard mode tapping it only cancels: your face-down cards are the targets (UX-18).
+            highlight={!!onDiscard && !discardMode}
             onClick={myAuto ? pointAtSwitch : onDiscard}
             cardRef={reg("discard")}
           />
@@ -380,7 +381,7 @@ export function Table(props: TableProps) {
           <div className="grid-wrap">
             <div
               ref={gridRef}
-              className={`grid${myTurn ? " active" : ""}`}
+              className={`grid${myTurn ? " active" : ""}${discardMode ? " discarding" : ""}`}
               data-testid="my-grid"
               data-seat={seat}
             >
@@ -391,6 +392,7 @@ export function Table(props: TableProps) {
                   slot={slot}
                   size="lg"
                   label={`${me.name}, ${where(t, pos)}`}
+                  highlight={discardMode && slot === "down"}
                   onClick={onMyCard(seat, pos, slot)}
                   cardRef={reg(slotKey(seat, pos))}
                 />

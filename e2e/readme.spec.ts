@@ -94,6 +94,7 @@ test("README card-flight GIF", async ({ browser }, info) => {
     await pause();
     if (slot === "discard") {
       await ana.getByTestId("discard").click();
+      await pause(); // discard mode: your face-down cards glow (M18)
       await faceDown.first().click();
     } else {
       await grid.locator("button").nth(slot).click();
