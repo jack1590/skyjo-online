@@ -104,7 +104,8 @@ export function Table(props: TableProps) {
   const offlineLeft = useClock(offline?.inMs, TURN_MS / 1000).left;
 
   const away = useAway(myAuto);
-  // Tapping your cards while Auto-play is on points at the switch instead of being ignored.
+  // Tapping your cards, the deck or the discard while Auto-play is on points at the switch, so no
+  // tap is silently ignored.
   const [nudging, setNudging] = useState(false);
   const pointAtSwitch = () => {
     setNudging(true);
@@ -283,7 +284,7 @@ export function Table(props: TableProps) {
             label={t("deck")}
             testId="deck"
             highlight={!!onDeck}
-            onClick={onDeck}
+            onClick={myAuto ? pointAtSwitch : onDeck}
             cardRef={reg("deck")}
           />
           <span className="pile-label">{t("deckCount", { n: view.deckCount })}</span>
@@ -309,7 +310,7 @@ export function Table(props: TableProps) {
             label={t("discardPile")}
             testId="discard"
             highlight={!!onDiscard}
-            onClick={onDiscard}
+            onClick={myAuto ? pointAtSwitch : onDiscard}
             cardRef={reg("discard")}
           />
           <span className="pile-label">{t("discard")}</span>

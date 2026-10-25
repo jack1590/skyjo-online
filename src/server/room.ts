@@ -85,10 +85,14 @@ export class RoomError extends Error {
 export const STALE_MS = 45_000;
 /** After a draw you always have this long to place it, even past the turn's 30 s (TURN_MS). */
 export const GRACE_MS = 10_000;
-/** An auto-play seat moves this long into its turn (or the opening flip), so everyone sees it... */
-export const AUTO_FIRST_MS = 1_500;
+/**
+ * An auto-play seat moves this long into its turn (or the opening flip), so everyone sees it...
+ * At 3.2 s an auto turn (4 budget units, SEC-11) costs about what a human turn does, so a table
+ * with seats on auto-play stays under 0.75 of an IP's budget (PO, PR #17; 1.5 s / 0.7 s reached 125).
+ */
+export const AUTO_FIRST_MS = 2_000;
 /** ...and makes each next step this long after the last move: every step is its own broadcast. */
-export const AUTO_NEXT_MS = 700;
+export const AUTO_NEXT_MS = 1_200;
 /** No client message for this long and the room is deleted. */
 export const IDLE_MS = 24 * 60 * 60_000;
 /** A room nobody ever joined goes much sooner (abandoned "Create a room" taps, creation bursts). */

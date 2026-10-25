@@ -588,7 +588,12 @@ describe("RoomDO auto-play (M8)", () => {
     expect(faceUp(lastView(phones[1]), 1)).toBe(0);
   });
 
-  it("M8, SEC-11: 8 friends on one IP, 7 of them on auto-play and one tapping once a second, never trip the budget", async () => {
+  /**
+   * 8 phones on one IP: seat 0 plays, tapping every `tap` ms, and the other 7 are on auto-play.
+   * A minute in, each of the 7 comes back from the background and says hello. Returns the
+   * busiest minute of the IP's budget after the setup, and every socket.
+   */
+  async function sevenOnAuto(tap: number) {
     const env = { MESSAGES: messageLimiter() };
     const t = await harness(env);
     const phones = await t.seat(8);
@@ -597,8 +602,15 @@ describe("RoomDO auto-play (M8)", () => {
     for (const ws of phones.slice(1)) await t.send(ws, { t: "auto", on: true });
     const from = Date.now(); // after the seating, the start and the flips, all at once here
     const end = from + 10 * 60_000;
+    let woke = false;
     while (Date.now() < end) {
-      await t.advance(1_000, phones);
+      await t.advance(tap, phones);
+      if (!woke && Date.now() > from + 60_000) {
+        woke = true;
+        for (const [i, ws] of phones.entries()) {
+          if (i > 0) await t.send(ws, { t: "hello", token: token(i) });
+        }
+      }
       const game = t.game();
       if (!game || game.phase === "gameOver") break;
       const legal = legalActions(game);
@@ -610,11 +622,23 @@ describe("RoomDO auto-play (M8)", () => {
         await t.send(phones[0], { t: "act", action });
       }
     }
-    expect(phones.filter((ws) => ws.closed !== null)).toEqual([]);
-    // Each auto turn costs 4 units (2 alarms), every 2.2 s; a lap of 7 and one fast turn is 31
-    // units in about 17 s. The busiest minute is about 110 of the 120.
     const played = env.MESSAGES.calls.filter(([, when]) => when > from);
-    expect(peakMinute(played, HOME)).toBeLessThanOrEqual(IP_MESSAGES_PER_MINUTE);
+    return { peak: peakMinute(played, HOME), phones };
+  }
+
+  it("M8, SEC-11: 8 friends on one IP, 7 of them on auto-play and one tapping once a second, stay under 0.75 of the budget", async () => {
+    // Each auto turn costs 4 units (2 alarms) and takes 3.2 s, about what a human turn costs; at
+    // 1.5 s / 0.7 s this peaked at 119, with the wake hellos (PO, PR #17).
+    const { peak, phones } = await sevenOnAuto(1_000);
+    expect(phones.filter((ws) => ws.closed !== null)).toEqual([]);
+    expect(peak).toBeLessThanOrEqual(0.75 * IP_MESSAGES_PER_MINUTE);
+  });
+
+  it("M8, SEC-11: ... and tapping twice a second, faster than anyone plays, still trip nothing", async () => {
+    // At 1.5 s / 0.7 s this hit 125 and closed all 8 sockets (PO, PR #17).
+    const { peak, phones } = await sevenOnAuto(500);
+    expect(phones.filter((ws) => ws.closed !== null)).toEqual([]);
+    expect(peak).toBeLessThanOrEqual(IP_MESSAGES_PER_MINUTE);
   });
 });
 

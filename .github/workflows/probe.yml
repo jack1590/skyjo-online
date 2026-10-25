@@ -6,15 +6,15 @@ on:
 permissions:
   contents: read
 jobs:
-  round:
-    name: round (${{ matrix.variant }})
+  whole:
+    name: whole (${{ matrix.variant }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
     container: mcr.microsoft.com/playwright:v1.64.1-noble
     strategy:
       fail-fast: false
       matrix:
-        variant: [m8, main, no-ring, no-mask, no-has, no-clock-bar, no-property, no-wakelock]
+        variant: [head, main, no-ring, no-ring-no-bar]
     steps:
       - uses: actions/checkout@v5
         with:
@@ -26,17 +26,13 @@ jobs:
           case "${{ matrix.variant }}" in
             main) git checkout -q 525758899a047165d06e20a6bb3122b360ec5be9 -- src e2e package.json package-lock.json public ;;
             no-ring) printf '\n.ring { display: none !important; }\n' >> src/client/styles.css ;;
-            no-mask) sed -i '/^  mask:$/,/linear-gradient(#000 0 0);$/d' src/client/styles.css ;;
-            no-has) sed -i 's/^\.switch:has(input:focus-visible) {/.switch-off {/' src/client/styles.css ;;
-            no-clock-bar) printf '\n.clock { display: none !important; }\n' >> src/client/styles.css ;;
-            no-property) sed -i '/^@property --left {$/,/^}$/d' src/client/styles.css ;;
-            no-wakelock) sed -i 's/!navigator.wakeLock) return;/!navigator.wakeLock || true) return;/' src/client/Table.tsx ;;
+            no-ring-no-bar) printf '\n.ring, .clock { display: none !important; }\n' >> src/client/styles.css ;;
           esac
           git diff --stat
       - run: npm ci
       - run: npm run build
-      - name: Round test x8 on iPhone
-        run: npx playwright test e2e/online.spec.ts --project=iphone -g "a round runs" --repeat-each=8 --retries=0 --reporter=list
-      - name: Whole iPhone project once
+      - name: Whole iPhone project, run 1
+        run: npx playwright test --project=iphone --retries=0 --reporter=list
+      - name: Whole iPhone project, run 2
         if: always()
-        run: npx playwright test --project=iphone --retries=0 --reporter=list 2>&1 | tail -5
+        run: npx playwright test --project=iphone --retries=0 --reporter=list

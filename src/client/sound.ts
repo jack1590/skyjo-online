@@ -158,19 +158,21 @@ let nudged: string | null = null;
 
 /**
  * The turn-ending nudge (M8): one vibration and one soft tick when this phone's own clock reaches
- * 5 s, once per turn, never when muted. Only the acting player has a clock of its own: their seat's
- * `wait` entry, with reason "timer". `turn` names the turn, so a draw's extra time can't nudge twice.
+ * 5 s, once per turn. Mute silences the tick only: like the turn-start buzz, the vibration warns a
+ * muted player before Auto-play takes the turn. Only the acting player has a clock of its own:
+ * their seat's `wait` entry, with reason "timer". `turn` names the turn, so a draw's extra time
+ * can't nudge twice.
  */
 export function nudge(own: Wait | undefined, left: number | null, turn: string) {
   if (own?.reason !== "timer") {
     nudged = null; // someone else's turn: the same turn key comes round again next lap
     return;
   }
-  if (left === null || left > 5 || muted || nudged === turn) return;
+  if (left === null || left > 5 || nudged === turn) return;
   nudged = turn;
   // Browsers block vibrate before the first tap on the page (e.g. right after a reload).
   if (navigator.userActivation?.hasBeenActive) navigator.vibrate?.(200);
-  play("tick");
+  if (!muted) play("tick");
 }
 
 /** The mute switch, remembered across visits. */

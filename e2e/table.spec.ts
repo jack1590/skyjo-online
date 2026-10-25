@@ -65,6 +65,12 @@ test("2–8 players, with your clock running: fits, every tap target ≥ 44px, o
 
 test.describe("360×740 (common Android width)", () => {
   test.use({ viewport: { width: 360, height: 740 } });
+  // 360 px is an Android width; the iPhone project keeps its own 390×664 checks, and CI's WebKit
+  // is the critical path (PO, PR #17).
+  test.skip(
+    ({ browserName, isMobile }) => browserName !== "chromium" || !isMobile,
+    "an Android width: Pixel only",
+  );
 
   test("M8: 2–8 players with Auto-play on and an opponent's ring: fits, every tap target ≥ 44px, opponents' numbers stay ≥ 12px", async ({
     page,
@@ -216,12 +222,21 @@ test("M8: with Auto-play on, the row above your grid is a bar with a switch ≥ 
   expect(Math.min(box?.width ?? 0, box?.height ?? 0)).toBeGreaterThanOrEqual(44);
   await expect(page.getByRole("checkbox", { name: "Auto-play" })).toBeChecked();
   await expect(page.getByTestId("deck")).not.toHaveClass(/hl/); // nothing offered to tap
-  const nudged = await page.evaluate(async () => {
-    document.querySelector<HTMLElement>('[data-testid="my-grid"] button')?.click();
-    await new Promise((done) => setTimeout(done, 50));
-    return document.querySelector('[data-testid="mine-head"]')?.className;
-  });
-  expect(nudged).toContain("nudge");
+  // A card, the deck or the discard: each tap shakes the bar (the class goes when it ends).
+  for (const target of [
+    '[data-testid="my-grid"] button',
+    '[data-testid="deck"]',
+    '[data-testid="discard"]',
+  ]) {
+    const nudged = await page.evaluate(async (selector) => {
+      document.querySelector<HTMLElement>(selector)?.click();
+      await new Promise((done) => setTimeout(done, 50));
+      const className = document.querySelector('[data-testid="mine-head"]')?.className;
+      await new Promise((done) => setTimeout(done, 500)); // past the shake
+      return className;
+    }, target);
+    expect(nudged).toContain("nudge");
+  }
   await expect(page.getByTestId("prompt")).toHaveText(
     "Auto-play is playing for you. Switch it off to play.",
   );

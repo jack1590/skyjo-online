@@ -212,9 +212,10 @@ describe("nudge (M8)", () => {
     expect(vibrate.mock.calls.length).toBe(2);
   });
 
-  it("M8: never when muted", async () => {
+  it("M8: muted, it still vibrates but makes no tick", async () => {
     const { nudge, vibrate, ticks } = await phone(true);
     nudge(own, 5, "r1-1");
-    expect([vibrate.mock.calls.length, ticks()]).toEqual([0, 0]);
+    nudge(own, 4, "r1-1");
+    expect([vibrate.mock.calls.length, ticks()]).toEqual([1, 0]);
   });
 });
