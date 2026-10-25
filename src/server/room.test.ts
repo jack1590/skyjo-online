@@ -20,6 +20,7 @@ import {
   newConn,
   newRoom,
   peerKey,
+  QUIET_MS,
   Room,
   RoomError,
   STALE_MS,
@@ -185,7 +186,7 @@ describe("lobby", () => {
     expect(t.send(a, { t: "start" })).toBe("data");
   });
 
-  it("SEC-3: a hello changes other views only when it changes who is online", () => {
+  it("SEC-3, SEC-9: a hello changes other views only when it changes who is online, or its seat may have been shown offline", () => {
     const t = setup();
     const [a, b] = t.seated(2);
     expect(t.send(a, { t: "hello", token: "token-0-abcdef" })).toBe("none");
@@ -193,6 +194,10 @@ describe("lobby", () => {
     expect(t.send(secondTab, { t: "hello", token: "token-1-abcdef" })).toBe("none");
     t.advance(STALE_MS, [b, secondTab]); // a's phone went quiet
     expect(t.send(a, { t: "hello", token: "token-0-abcdef" })).toBe("view");
+    // b sent nothing for 45 s, and its pings came back just before its hello.
+    t.advance(STALE_MS);
+    expect(t.send(b, { t: "hello", token: "token-1-abcdef" })).toBe("view");
+    expect(t.send(b, { t: "hello", token: "token-1-abcdef" })).toBe("none");
   });
 
   it("SEC-3: only a seated socket's close needs persisting", () => {
@@ -585,8 +590,29 @@ describe("turn clock (M8)", () => {
     const current = t.room.data.game?.current ?? 0;
     t.drop(conns[1 - current]);
     t.advance(10 * TURN_MS);
-    expect(t.room.tick(t.live)).toBe(false);
+    expect(t.room.tick(t.live)).toBe(true); // nothing is played, but the stopped clock is saved (SEC-9)
+    expect(t.room.data.game?.phase).toBe("draw");
     expect(t.room.view(conns[current], t.live).clocks).toEqual([]);
+  });
+
+  it("M8, SEC-9: a phone back by pings alone restarts the clock its absence stopped, so the next message doesn't auto-play whoever was thinking alone", () => {
+    const t = setup();
+    const conns = startedGame(t, 2);
+    pastFlips(t, conns);
+    const current = t.room.data.game?.current ?? 0;
+    const [me, other] = [conns[current], conns[1 - current]];
+    other.seenAt -= 20_000; // its last ping came 20 s before this turn began; then its network stalled
+    t.advance(TURN_MS, [me]); // stale at 25 s: at 30 s my clock is stopped, not run out
+    t.room.tick(t.live);
+    expect(t.room.view(me, t.live).clocks).toEqual([]);
+    t.advance(TURN_MS, [me]);
+    other.seenAt = t.now(); // its pings get through again; the socket never closed
+    t.send(other, { t: "hello", token: `token-${1 - current}-abcdef` });
+    expect(t.room.tick(t.live)).toBe(false);
+    expect(autoSeats(t)).toEqual([false, false]);
+    expect(t.room.view(me, t.live).clocks).toEqual([
+      { seat: current, inMs: TURN_MS, reason: "timer" },
+    ]);
   });
 
   it("M8: a clock that wasn't running, with nobody else there, starts afresh when someone comes back", () => {
@@ -955,6 +981,34 @@ describe("scheduling", () => {
     expect(t.room.nextAlarm(t.live)).toBe(conns[0].seenAt + STALE_MS);
     t.advance(STALE_MS, [conns[1]]);
     expect(t.room.view(conns[1], t.live).lead).toBe(true);
+  });
+
+  it("SEC-9: presence is checked every ≤ 45 s for 10 min after the last client message, then every 10 min; any message brings back the 45 s", () => {
+    const t = setup();
+    const [host] = t.seated(2);
+    t.advance(QUIET_MS - STALE_MS - 1); // the tabs only ping
+    expect(t.room.nextAlarm(t.live)).toBe(t.now() + STALE_MS);
+    t.advance(1);
+    expect(t.room.nextAlarm(t.live)).toBe(t.now() + QUIET_MS);
+    t.advance(3 * QUIET_MS);
+    expect(t.room.nextAlarm(t.live)).toBe(t.now() + QUIET_MS);
+    t.send(host, { t: "hello", token: "token-0-abcdef" });
+    expect(t.room.nextAlarm(t.live)).toBe(t.now() + STALE_MS);
+  });
+
+  it("SEC-9: only presence checks slow down: in a quiet room, Auto-play steps and clocks come on time", () => {
+    const t = setup();
+    const conns = startedGame(t, 2);
+    pastFlips(t, conns);
+    for (const c of conns) t.send(c, { t: "auto", on: true });
+    // Nobody has sent anything for 10 min: an all-auto table plays on with no messages (BUG-1).
+    t.room.data.updatedAt -= QUIET_MS;
+    for (const c of conns) c.heardAt -= QUIET_MS;
+    expect(t.room.nextAlarm(t.live)).toBe(t.now() + AUTO_FIRST_MS);
+    t.send(conns[t.room.data.game?.current ?? 0], { t: "auto", on: false });
+    t.room.data.updatedAt -= QUIET_MS;
+    for (const c of conns) c.heardAt -= QUIET_MS;
+    expect(t.room.nextAlarm(t.live)).toBe(t.now() + TURN_MS);
   });
 });
 

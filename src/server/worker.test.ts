@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { type Action, legalActions } from "../engine/game";
+import { type Action, type GameState, legalActions } from "../engine/game";
 import {
   CLOSE_ROOM_FULL,
   type ClientMsg,
@@ -16,6 +16,7 @@ import {
   IDLE_MS,
   IP_MESSAGES_PER_MINUTE,
   MAX_SOCKETS,
+  QUIET_MS,
   type Room,
   STALE_MS,
 } from "./room";
@@ -376,6 +377,90 @@ describe("RoomDO alarms", () => {
     await t.advance(1, conns);
     expect(t.exists()).toBe(false);
     expect(conns[1].sent.at(-1)).toEqual({ t: "missing" });
+  });
+});
+
+/** Rows written and DO requests over the rest of the day, up to the room's 24 h expiry, while `tabs` only ping. */
+async function dayLeftOpen(t: Harness, tabs: FakeSocket[], ms = IDLE_MS - 1) {
+  const [rows, requests] = [t.rows(), t.requests];
+  await t.advance(ms, tabs);
+  expect(t.exists()).toBe(true);
+  return { rows: t.rows() - rows, requests: Math.round(t.requests - requests) };
+}
+
+describe("RoomDO quiet rooms (SEC-9)", () => {
+  it("SEC-9: a room left open with 2 seated tabs that only ping costs about 160 rows and DO requests a day, in the lobby, at the round summary, or from an opening flip nobody plays", async () => {
+    const lobby = await harness();
+    const left = await dayLeftOpen(lobby, await lobby.seat(2));
+
+    const summary = await harness();
+    const players = await summary.seat(2);
+    await summary.send(players[0], { t: "start" });
+    for (let g = summary.game(); g?.phase !== "roundOver" && g?.phase !== "gameOver"; ) {
+      const legal = legalActions(g as GameState);
+      const action = legal[g?.phase === "place" ? legal.length - 1 : 0] as Action;
+      await summary.send(players["seat" in action ? action.seat : 0], { t: "act", action });
+      g = summary.game();
+    }
+    const read = await dayLeftOpen(summary, players);
+
+    // Nobody flips: at 30 s both go on Auto-play, which plays the round out (BUG-1), then the summary waits.
+    const flip = await harness();
+    const dealt = await flip.seat(2);
+    await flip.send(dealt[0], { t: "start" });
+    const dealtAt = Date.now();
+    const [rows, requests] = [flip.rows(), flip.requests];
+    while (!/roundOver|gameOver/.test(flip.game()?.phase ?? "")) await flip.advance(1_000, dealt);
+    const steps = Math.round(flip.requests - requests); // an alarm run each, saving the room
+    expect(flip.rows() - rows).toBe(2 * steps);
+    const after = await dayLeftOpen(flip, dealt, dealtAt + IDLE_MS - 1 - Date.now());
+
+    // v2.1.1: 2,159, 2,160, and 2,308 rows (2,232 requests), with a check every ≤ 45 s all day.
+    // Now 157, 158, and 267–329 (211–241): the round Auto-play plays, 2 rows a step, then 158.
+    for (const cost of [left, read, after]) {
+      expect(cost.rows).toBeLessThanOrEqual(170);
+      expect(cost.requests).toBeLessThanOrEqual(170);
+    }
+  });
+
+  it("SEC-9: after 10 quiet minutes presence is checked every 10 min, so a dropped phone shows offline within about 10 min; any message brings back the 45 s checks, across hibernation", async () => {
+    const t = await harness();
+    const tabs = await t.seat(2);
+    await t.advance(QUIET_MS, tabs);
+    let runs = t.requests;
+    await t.advance(60 * 60_000, tabs);
+    expect(Math.round(t.requests - runs)).toBe(6);
+    await t.advance(QUIET_MS + STALE_MS, [tabs[0]]); // seat 1's network stalls, its socket open
+    expect(lastView(tabs[0]).seats[1].connected).toBe(false);
+    t.ping(tabs[1]); // its buffered pings land first, then its hello: everyone sees it back at once
+    await t.send(tabs[1], { t: "hello", token: token(1) });
+    expect(lastView(tabs[0]).seats[1].connected).toBe(true);
+    t.wake(); // the hello wrote no row, but its time survives in the socket's attachment
+    runs = t.requests;
+    await t.advance(QUIET_MS - STALE_MS, tabs);
+    expect(Math.round(t.requests - runs)).toBeGreaterThanOrEqual(12);
+  });
+
+  it("M8, SEC-9: a phone back by pings alone restarts the clock its absence stopped, across hibernation", async () => {
+    const t = await harness();
+    const phones = await t.seat(2);
+    await t.send(phones[0], { t: "start" });
+    await flipAll(t, phones);
+    const seat = t.game()?.current ?? 0;
+    const [me, other] = [phones[seat], phones[1 - seat]];
+    await t.advance(20_000, [me]); // other's network stalls as my turn begins
+    // Auto-play on by mistake draws for me; off again gives me a fresh 30 s, which outlasts other.
+    await t.send(me, { t: "auto", on: true });
+    await t.send(me, { t: "auto", on: false });
+    await t.advance(TURN_MS, [me]); // other went stale at 45 s: at 50 s my clock stops
+    expect(lastView(me).clocks).toEqual([]);
+    expect(t.game()?.phase).toBe("place");
+    t.wake();
+    await t.advance(20_000, [me]);
+    t.ping(other); // its pings get through again: the runtime answers them, the object never wakes
+    await t.send(other, { t: "hello", token: token(1 - seat) });
+    expect(lastView(me).seats.map((s) => s.auto)).toEqual([false, false]);
+    expect(lastView(me).clocks).toEqual([{ seat, inMs: TURN_MS, reason: "timer" }]);
   });
 });
 
@@ -915,14 +1000,36 @@ describe("RoomDO alarm charges (SEC-11)", () => {
     expect(t.rows()).toBe(rows + 1);
   });
 
-  it("SEC-11: one IP at every limit, holding 2-seat lobbies open and spending the rest of its budget, needs over 12 h to use up rows or DO requests", async () => {
-    // Before this fix rows ran out in 1.8–1.9 h holding, 10.2 h spamming first and 7.5 h hitting and
-    // running. Now every way needs at least 14.0 h for the rows and 18.2 h for the DO requests.
-    const ways = ["hold only", "hold, then spam", "spam, then hold", "hit and run"] as const;
+  it("SEC-13: the last socket out pays 2 for an alarm it leaves armed, which runs with nobody to charge; a close that leaves someone pays nothing", async () => {
+    const env = { MESSAGES: messageLimiter() };
+    const t = await harness(env);
+    const [host, guest] = await t.seat(2);
+    let units = spent(env, HOME);
+    await t.close(guest);
+    expect(spent(env, HOME)).toBe(units);
+    units = spent(env, HOME);
+    await t.close(host); // the lobby's presence check is still armed
+    expect(spent(env, HOME)).toBe(units + 2);
+    const [rows, requests] = [t.rows(), t.requests];
+    await t.advance(STALE_MS); // it runs, finds nobody, and re-arms for the room's expiry
+    expect([t.rows() - rows, Math.round(t.requests - requests)]).toEqual([1, 1]);
+  });
+
+  it("SEC-11, SEC-13: one IP at every limit, holding 2-seat rooms open or leaving games mid-turn, and spending the rest of its budget, needs 14 h to use up the rows and 18 h for the DO requests", async () => {
+    // Before SEC-11 rows ran out in 1.8–1.9 h holding, 10.2 h spamming first and 7.5 h hitting and
+    // running. Leaving games mid-turn took 12.2 h before the last socket out paid for its alarm
+    // (SEC-13); now it takes 21.0 h. The least of all: 14.0 h for the rows, 18.2 h for the requests.
+    const ways = [
+      "hold only",
+      "hold, then spam",
+      "spam, then hold",
+      "hit and run",
+      "leave mid-turn",
+    ] as const;
     for (const how of ways) {
       const day = await holdRooms(24, how);
-      expect(day.hoursToRows).toBeGreaterThanOrEqual(12);
-      expect(day.hoursToRequests).toBeGreaterThanOrEqual(12);
+      expect(day.hoursToRows).toBeGreaterThanOrEqual(14);
+      expect(day.hoursToRequests).toBeGreaterThanOrEqual(18);
     }
   });
 });
@@ -934,12 +1041,14 @@ describe("RoomDO alarm charges (SEC-11)", () => {
  * 2 sockets in each; its sockets stay open and ping. Except when holding only, it keeps an upgrade
  * for a join/leave loop (a row a message) that spends the rest of its budget, last or first. "hit
  * and run" closes each socket right after its hello or join, before the room's presence check.
+ * "leave mid-turn" (SEC-13) does the same in games its guests deal before leaving (all but the
+ * loop's room), so each return's hello restarts a turn clock whose alarm then runs with nobody there.
  * Stops at a day's quota or after `hours`; says how long one IP needs to use up the 100,000 rows
  * and the 100,000 DO requests a day.
  */
 async function holdRooms(
   hours: number,
-  how: "hold only" | "hold, then spam" | "spam, then hold" | "hit and run",
+  how: "hold only" | "hold, then spam" | "spam, then hold" | "hit and run" | "leave mid-turn",
 ) {
   const BOT = "192.0.2.66";
   const QUOTA = 100_000;
@@ -1034,7 +1143,7 @@ async function holdRooms(
       const h = rooms.get(r.code) as Harness;
       r.host = ws && (await tell(h, ws, { t: "hello", token: `${r.code}-host` })) ? ws : null;
       if (!r.host) break;
-      if (how === "hit and run") r.host = await leave(h, r.host);
+      if (how === "hit and run" || how === "leave mid-turn") r.host = await leave(h, r.host);
     }
     for (let res = await api("/api/rooms", { method: "POST" }); res.status === 200; ) {
       const { code } = JSON.parse(res.body ?? "{}") as { code: string };
@@ -1045,8 +1154,11 @@ async function holdRooms(
         const ws = await open(code);
         if (!ws || !(await tell(h, ws, { t: "hello", token: `${code}-${who}` }))) break;
         if (!(await tell(h, ws, { t: "join", name: who }))) break;
+        // Every room but the first, where the join/leave loop runs, since a game takes no joins.
+        const deal = how === "leave mid-turn" && who === "guest" && held.length > 1;
+        if (deal && !(await tell(h, ws, { t: "start" }))) break;
         if (who === "host") r.host = ws;
-        if (how === "hit and run") r.host = await leave(h, ws);
+        if (how === "hit and run" || how === "leave mid-turn") r.host = await leave(h, ws);
       }
       res = await api("/api/rooms", { method: "POST" });
     }
