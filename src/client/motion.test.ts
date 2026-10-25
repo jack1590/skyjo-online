@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { type Action, apply, createGame, type GameState } from "../engine/game";
 import { toView } from "../engine/view";
-import { flightsBetween, slotKey } from "./motion";
+import { flightsBetween, revealMs, revealStep, slotKey } from "./motion";
 
 /** 2 players past the flip phase, seat 0 to draw, with a known grid and next deck card. */
 function table(grid: number[], up: number[], nextDraw: number): GameState {
@@ -85,6 +85,48 @@ describe("flightsBetween", () => {
   it("a new deal animates nothing", () => {
     const s = table(GRID, [0, 1], 0);
     const next = { ...toView(s), round: 2 };
-    expect(flightsBetween(toView(s), next)).toEqual({ moves: new Map(), flips: [] });
+    expect(flightsBetween(toView(s), next)).toEqual({ moves: new Map(), flips: [], reveal: false });
+  });
+
+  it("UX-27: the final reveal turns cards in seat order from the ender's left, row by row", () => {
+    // 3 players: B (seat 1) ended; C (seat 2) has played; A (seat 0) takes the last turn.
+    const s = createGame(["A", "B", "C"], [1, 0, 0, 0]);
+    s.phase = "draw";
+    s.current = 0;
+    s.ender = 1;
+    const deal = (down: number[]) => GRID.map((card, i) => ({ card, up: !down.includes(i) }));
+    s.players[0].grid = deal([3, 4, 9]);
+    s.players[1].grid = deal([]);
+    s.players[2].grid = deal([10, 1, 6]);
+    s.deck.push(0);
+    const { flips, reveal } = flights(
+      s,
+      { type: "draw", seat: 0, source: "deck" },
+      { type: "discardAndFlip", seat: 0, pos: 4 },
+    );
+    expect(reveal).toBe(true);
+    const order = [
+      [2, 1],
+      [2, 6],
+      [2, 10],
+      [0, 3],
+      [0, 4],
+      [0, 9],
+    ];
+    expect(flips).toEqual(order.map(([seat, pos]) => slotKey(seat, pos)));
+  });
+
+  it("UX-27: flips are 110 ms apart, closer when there are many (2.5 s at most); the summary waits until 600 ms after the last one ends", () => {
+    expect(revealStep(5)).toBe(110);
+    expect(revealStep(50)).toBe(50);
+    expect(49 * revealStep(50)).toBeLessThanOrEqual(2500);
+    // The last of 5 flips starts at 440 ms and takes 300 ms.
+    expect(revealMs(5)).toBe(440 + 300 + 600);
+    expect(revealMs(1)).toBe(900);
+  });
+
+  it("UX-27: an ordinary turn is not a reveal", () => {
+    const s = apply(table(GRID, [0, 1], 0), { type: "draw", seat: 0, source: "deck" });
+    expect(flights(s, { type: "discardAndFlip", seat: 0, pos: 5 }).reveal).toBe(false);
   });
 });

@@ -221,6 +221,69 @@ test("screenshots: M18 place and discard mode", async ({ page }, info) => {
   }
 });
 
+test("UX-2: the deck and discard never move (±0.5 px): you or another player drawing, from either pile, with 2 and 8 players", async ({
+  page,
+}) => {
+  const boxes = () =>
+    page.evaluate(() =>
+      ["deck", "discard"].map((id) => {
+        const r = document.querySelector(`[data-testid="${id}"]`)?.getBoundingClientRect();
+        return r ? [r.x, r.y, r.width, r.height] : [];
+      }),
+    );
+  for (const players of [2, 8]) {
+    const state = firstTurn(players, 5);
+    const seat = state.current;
+    const views = [
+      state,
+      apply(state, { type: "draw", seat, source: "deck" }),
+      apply(state, { type: "draw", seat, source: "discard" }),
+    ].map(toView);
+    const seen: number[][][] = [];
+    for (const view of views) {
+      for (const as of [seat, (seat + 1) % players]) {
+        await show(page, { view, seat: as });
+        seen.push(await boxes());
+      }
+    }
+    for (const b of seen) {
+      for (const [i, n] of b.flat().entries()) {
+        expect(Math.abs(n - seen[0].flat()[i]), `${players} players: ${seen}`).toBeLessThanOrEqual(
+          0.5,
+        );
+      }
+    }
+  }
+});
+
+test("UX-21: a card taken from the discard is held up over the pile, which dims; the middle slot stays empty; caption and prompt in en, es and pt", async ({
+  page,
+}) => {
+  const state = firstTurn(4, 5);
+  const view = toView(apply(state, { type: "draw", seat: state.current, source: "discard" }));
+  const words = [
+    ["en", "From the discard", "From the discard: tap a grid card to swap it in"],
+    ["es", "Del descarte", "Del descarte: toca una carta de tu cuadrícula para cambiarla"],
+    ["pt", "Do descarte", "Do descarte: toque numa carta da sua grade para trocar"],
+  ];
+  for (const [locale, caption, prompt] of words) {
+    await page.addInitScript((l) => localStorage.setItem("skyjo:locale", l), locale);
+    await show(page, { view, seat: state.current });
+    const held = await page.getByTestId("drawn").boundingBox();
+    const pile = await page.getByTestId("discard").boundingBox();
+    if (!held || !pile) throw new Error("no held card or pile");
+    expect(Math.abs(held.x + held.width / 2 - (pile.x + pile.width / 2))).toBeLessThanOrEqual(1);
+    // Lifted 16 px and 6% larger: its top is 16 px + 3% of the pile's height above the pile's.
+    expect(pile.y - held.y).toBeCloseTo(16 + 0.03 * pile.height, 0);
+    expect(held.width / pile.width).toBeCloseTo(1.06, 2);
+    await expect(page.getByTestId("discard")).toHaveCSS("opacity", "0.45");
+    await expect(page.locator(".piles > .pile").nth(1)).toBeHidden(); // the middle slot
+    await expect(page.locator(".piles > .pile").nth(2).locator(".pile-label")).toHaveText(caption);
+    await expect(page.getByTestId("prompt")).toHaveText(prompt);
+    await expectMobileFriendly(page);
+  }
+});
+
 /** The page's clock stands still from its first load: only page.clock.runFor moves it. */
 async function frozenClock(page: Page) {
   const start = Date.UTC(2026, 9, 24, 12);

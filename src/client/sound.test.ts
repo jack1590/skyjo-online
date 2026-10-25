@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type Action, apply, createGame, type GameState } from "../engine/game";
 import { toView } from "../engine/view";
-import { soundsBetween } from "./sound";
+import { revealMs, revealStep } from "./motion";
+import { type Sound, soundsBetween } from "./sound";
 
 /** A fake AudioContext that records what the unlock does to it. */
 function fakeAudio(state: "suspended" | "running" | "interrupted") {
@@ -104,9 +105,14 @@ function table(grid: number[], up: number[], nextDraw: number): GameState {
   return s;
 }
 
+/** Just the names, in order (each sound comes with its delay). */
+const names = (timed: [Sound, number][]) => timed.map(([name]) => name);
+
 const sounds = (s: GameState, seat: number, ...actions: Action[]) => {
   const before = actions.slice(0, -1).reduce(apply, s);
-  return soundsBetween(toView(before), toView(apply(before, actions.at(-1) as Action)), seat);
+  return names(
+    soundsBetween(toView(before), toView(apply(before, actions.at(-1) as Action)), seat),
+  );
 };
 
 const GRID = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
@@ -115,19 +121,19 @@ const draw: Action = { type: "draw", seat: 0, source: "deck" };
 describe("soundsBetween", () => {
   it("a brand-new game deals with a sound; joining a game in progress is silent", () => {
     const fresh = createGame(["A", "B"], [1, 0, 0, 0]);
-    expect(soundsBetween(null, toView(fresh), 0)).toEqual(["deal"]);
-    expect(soundsBetween(null, toView(table(GRID, [0, 1], 0)), 0)).toEqual([]);
+    expect(names(soundsBetween(null, toView(fresh), 0))).toEqual(["deal"]);
+    expect(names(soundsBetween(null, toView(table(GRID, [0, 1], 0)), 0))).toEqual([]);
   });
 
   it("an update that changes nothing on the table (e.g. presence) is silent", () => {
     const view = toView(table(GRID, [0, 1], 0));
-    expect(soundsBetween(view, { ...view }, 0)).toEqual([]);
+    expect(names(soundsBetween(view, { ...view }, 0))).toEqual([]);
   });
 
   it("a spectator never hears 'your turn' or a win", () => {
     const s = table(GRID, [0, 1], 0);
     const over = { ...toView(s), phase: "gameOver" as const, winners: [1] };
-    expect(soundsBetween(toView(s), over, null)).toEqual(["end"]);
+    expect(names(soundsBetween(toView(s), over, null))).toEqual(["end"]);
     expect(
       sounds(table(GRID, [0, 1], 0), 0, draw, { type: "swap", seat: 0, pos: 5 }),
     ).not.toContain("turn");
@@ -158,7 +164,7 @@ describe("soundsBetween", () => {
 
   it("a new round deals", () => {
     const s = table(GRID, [0, 1], 0);
-    expect(soundsBetween(toView(s), { ...toView(s), round: 2, phase: "flip" }, 0)).toEqual([
+    expect(names(soundsBetween(toView(s), { ...toView(s), round: 2, phase: "flip" }, 0))).toEqual([
       "deal",
     ]);
   });
@@ -166,8 +172,45 @@ describe("soundsBetween", () => {
   it("game over: the winner hears a win, everyone else the end", () => {
     const s = table(GRID, [0, 1], 0);
     const over = { ...toView(s), phase: "gameOver" as const, winners: [1] };
-    expect(soundsBetween(toView(s), over, 1)).toContain("win");
-    expect(soundsBetween(toView(s), over, 0)).toContain("end");
+    expect(names(soundsBetween(toView(s), over, 1))).toContain("win");
+    expect(names(soundsBetween(toView(s), over, 0))).toContain("end");
+  });
+
+  /** A's last turn, after B (seat 1) ended: C's 3 face-down cards turn over, then A's. */
+  function lastTurn() {
+    const s = createGame(["A", "B", "C"], [1, 0, 0, 0]);
+    s.phase = "draw";
+    s.current = 0;
+    s.ender = 1;
+    const deal = (down: number[]) => GRID.map((card, i) => ({ card, up: !down.includes(i) }));
+    s.players[0].grid = deal([3, 4, 9]);
+    s.players[1].grid = deal([]);
+    s.players[2].grid = deal([10, 1, 6]);
+    s.deck.push(0);
+    const before = toView(apply(s, draw));
+    const after = toView(apply(apply(s, draw), { type: "discardAndFlip", seat: 0, pos: 4 }));
+    return { before, after, over: { ...after, phase: "gameOver" as const, winners: [2] } };
+  }
+
+  it("UX-27: with motion, each player's cards turn over with a flip sound as they start, and game over sounds when the summary shows", () => {
+    const { before, after, over } = lastTurn();
+    const step = revealStep(6);
+    expect(soundsBetween(before, after, 0, true)).toEqual([
+      ["discard", 0],
+      ["flip", 0],
+      ["flip", 3 * step],
+    ]);
+    expect(soundsBetween(before, over, 0, true)).toContainEqual(["end", revealMs(6)]);
+    expect(soundsBetween(before, over, 2, true)).toContainEqual(["win", revealMs(6)]);
+  });
+
+  it("UX-27: with reduced motion, nothing is staggered, so everything sounds at once", () => {
+    const { before, over } = lastTurn();
+    expect(soundsBetween(before, over, 0)).toEqual([
+      ["discard", 0],
+      ["flip", 0],
+      ["end", 0],
+    ]);
   });
 });
 
