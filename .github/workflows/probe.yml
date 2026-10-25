@@ -15,5 +15,7 @@ jobs:
         with:
           fetch-depth: 0
       - run: npm ci
-      - name: Round probe x8 on head
-        run: npm run build > /dev/null 2>&1 && npx playwright test e2e/zz-round-probe.spec.ts --project=iphone --repeat-each=8 --workers=2 --reporter=list
+      - name: Whole iPhone project x3 on head, with the instrumented round
+        run: |
+          npm run build > /dev/null 2>&1
+          for i in 1 2 3; do npx playwright test --project=iphone --workers=2 --reporter=list 2>&1 | grep -vE "^\s+✓" ; done
