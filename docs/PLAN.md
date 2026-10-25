@@ -261,7 +261,7 @@ Probe branch `m8-ci-probe`:
 - it has no PR.
 - It is kept unmerged, as the user's rule on branches requires; don't push to it.
 
-### M18 — Discard mode shows where to tap (user report, 2026-10-25) · v2.1.3
+### M18 — Discard mode shows where to tap (user report, 2026-10-25) · v2.1.3 · ✅ shipped
 
 The user found that flipping a grid card after throwing away a drawn card is unintuitive. The second UX audit (2026-10-25) confirmed it in all 6 configurations (WebKit 390 and Chromium 360, in es, en and pt).
 - In discard mode, the only gold `.hl` on screen is the discard pile, and tapping it just cancels.
@@ -582,7 +582,7 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 6   | ✅ M8                              | Turn timer and auto-play (+ UX-6, UX-10, UX-12, the → M8 follow-ups)                                                    | 2.1.0         | the user's first request                                                                                         |
 | 7   | ✅ BUG-1                           | Everyone on Auto-play froze the table: auto seats keep playing while a seated player is connected, and finish the round | 2.1.1         | a live freeze (room 8WTHE); hotfix, effort S, ahead of SEC-9, which had no commits yet                           |
 | 8   | SEC-9                              | Slower presence checks in rooms where nobody has sent anything for 10 min; M8's ping-only return; the CI timeout        | 2.1.2         | medium, effort S; after M8, which rewrites the alarm schedule and ends stuck flips                               |
-| 9   | M18                                | Discard mode shows where to tap: UX-18, UX-20, UX-4 redefined                                                           | 2.1.3         | the user's complaint, hit on every first deck draw; client-only and S; after SEC-9, whose implementer is waiting |
+| 9   | ✅ M18                             | Discard mode shows where to tap: UX-18, UX-20, UX-4 redefined                                                           | 2.1.3         | the user's complaint, hit on every first deck draw; client-only and S; after SEC-9, whose implementer is waiting |
 | 10  | M17                                | Play until one is left (knockout), a lobby option                                                                       | 2.2.0         | the user's request; right after SEC-9 and M18                                                                    |
 | 11  | M9                                 | UX-1, UX-2, UX-21, UX-25, UX-27 (final reveal)                                                                          | 2.2.1         | no jumps, and a card from the discard stays at the pile                                                          |
 | 12  | M11                                | UX-22, UX-23, UX-24 (+ UX-9), UX-7                                                                                      | 2.2.2         | the user asked for natural animations; it needs M9's correct start positions                                     |
