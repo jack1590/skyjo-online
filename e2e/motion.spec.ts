@@ -273,10 +273,6 @@ test.describe("with motion allowed", () => {
     await page.clock.runFor(100);
     await expect(page.locator(".overlay")).toBeVisible();
   });
-});
-
-test.describe("with motion allowed", () => {
-  test.use({ reducedMotion: "no-preference" });
 
   /** Moves on to `view` and saves its flights at each time (fractions, or ms with `ms`) as a strip. */
   async function strip(page: Page, name: string, view: GameView, at: number[], ms = false) {
