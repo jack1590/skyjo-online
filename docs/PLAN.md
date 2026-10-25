@@ -287,6 +287,10 @@ This is a small, client-only patch (`Table.tsx`, `styles.css`, `i18n.tsx`) with 
 
 ### M9 — Smooth animations, part 1: no jumps, and the discard reads right (user request, 2026-10-24) · v2.2.1
 
+**First commit of M9's PR, test only (delivery health, PO PR #24).** The iPhone job is now 2:15–2:45 against a 3-minute PR budget, and the M9–M11 animation work adds more iPhone checks.
+- **The change:** make `e2e/online.spec.ts` "a round runs to its summary, then the next round (or the game ends)" run on Pixel only, like the other long play-throughs (`AGENTS.md`). On iPhone it is about 45 bot moves, and took 25–51 s in PR #24's three runs, the biggest single source of the job's spread. Its iPhone-specific part, the summary's layout, stays covered on all three devices by the `table.spec.ts` round-summary harness test.
+- **Acceptance:** the PR reports the iPhone job and Playwright-step times on 2 runs, next to PR #24's (job 123–166 s, step 71–117 s).
+
 **Diagnosis (UX expert, live site, 2026-10-24).** Frame rate is fine. In Chromium at 4× CPU throttle, 903 frames measured p50 16.7 ms and p99 16.8 ms, with one frame at 33 ms; WebKit p99 was 21 ms. Everything animates on the compositor, and layout p99 is 6.3 ms. The "not smooth" feeling comes from cards starting in the wrong place and stacking wrong, plus slow taps.
 
 So M9, M11, M10 and M19 fix those instead of tuning frame rate. The perf-spec harness planned earlier is dropped: it would be code built for a problem that measured fine. Frame time stays as a regression check that the PO re-measures in M11.
@@ -741,6 +745,24 @@ The user asked for a game option, **"Play until one is left"**, and approved the
 - **Follow-ups (not blocking, game feel):**
   - Going out has no moment of its own: no sound and no line for you. Your summary row has the same small tag as everyone else's, and afterwards you get the stranger's line, "You're watching this game." Something like "You're out · watching" for the out player, plus a short sting at the summary where you go out, would make it feel part of the game. This fits M13's summary work.
   - With 4 players, the out panel takes a full grid's space with only a note in it. That's fine for now; revisit with M12, which reworks the spectator layout that out players get.
+
+**PO review (PR #24, round 2): approved.**
+- **Both fixes are in, and I checked them in a real 4-phone game after SEC-9 and M18 were merged in.**
+  - Everyone crossed 100 in round 2. "¡Gana Dani!" now has no out tag, and the other three keep theirs.
+  - The disabled switch is dimmed for non-leaders.
+  - M18's glow still lights all 10 face-down cards and none of the face-up ones.
+- **The merge is sound.** `room.ts` differs from `main` only by M17's lines. SEC-9's `resume()` builds `stopped` from `awaited()` and `canStall()`, which both skip out seats, so an out seat never lands in `stopped` and never pays.
+- **Delivery.** Measured on `3ad20fd` and on `main`:
+
+  | Measure                    | This PR (`3ad20fd`)                                  | `main`        |
+  | -------------------------- | ---------------------------------------------------- | ------------- |
+  | iPhone job, total          | 166, 151, 123 s (1 run, 2 reruns)                    | 135 and 140 s |
+  | iPhone Playwright step     | 117, 105, 71 s                                       | 88 and 92 s   |
+  | M17's own iPhone test time | 36, 28, 21 s (about 5–9 s of wall time at 4 workers) |               |
+  - So M17 itself stays within the +15 s budget, and most of the spread is runner variance.
+  - The largest single source is `online.spec.ts` "a round runs to its summary…": 51, 25 and 40 s on iPhone in the same three runs.
+  - The PR run took 171 s from push to finish, under 3 min.
+  - Scores: Rules correctness 5, Mobile UX 5, Visual polish 4, Multiplayer stability 5, Security 5, Code health 5, Delivery health 4, Game feel 4.
 
 ### M16 — Launch in the App Store and Google Play (user decision, 2026-10-24) · last
 
