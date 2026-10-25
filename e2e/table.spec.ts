@@ -221,20 +221,23 @@ test("M8: with Auto-play on, the row above your grid is a bar with a switch ≥ 
   expect(Math.min(box?.width ?? 0, box?.height ?? 0)).toBeGreaterThanOrEqual(44);
   await expect(page.getByRole("checkbox", { name: "Auto-play" })).toBeChecked();
   await expect(page.getByTestId("deck")).not.toHaveClass(/hl/); // nothing offered to tap
-  // A card, the deck or the discard: each tap shakes the bar (the class goes when it ends).
+  // A card, the deck or the discard: each tap starts the bar's shake (a flash with reduced motion),
+  // even one that lands as the last shake ends.
   for (const target of [
     '[data-testid="my-grid"] button',
     '[data-testid="deck"]',
     '[data-testid="discard"]',
   ]) {
     const nudged = await page.evaluate(async (selector) => {
+      const bar = document.querySelector('[data-testid="mine-head"]') as HTMLElement;
+      const started = new Promise<boolean>((done) => {
+        bar.addEventListener("animationstart", (e) => e.target === bar && done(true));
+        setTimeout(() => done(false), 3_000);
+      });
       document.querySelector<HTMLElement>(selector)?.click();
-      await new Promise((done) => setTimeout(done, 50));
-      const className = document.querySelector('[data-testid="mine-head"]')?.className;
-      await new Promise((done) => setTimeout(done, 500)); // past the shake
-      return className;
+      return started;
     }, target);
-    expect(nudged).toContain("nudge");
+    expect(nudged).toBe(true);
   }
   await expect(page.getByTestId("prompt")).toHaveText(
     "Auto-play is playing for you. Switch it off to play.",

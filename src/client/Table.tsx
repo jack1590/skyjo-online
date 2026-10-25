@@ -106,9 +106,11 @@ export function Table(props: TableProps) {
   const away = useAway(myAuto);
   // Tapping your cards, the deck or the discard while Auto-play is on points at the switch, so no
   // tap is silently ignored.
-  const [nudging, setNudging] = useState(false);
+  // Each tap alternates the shake's animation name, so it always restarts: re-adding the same
+  // name in the frame the last shake ended starts nothing in Chromium.
+  const [nudges, setNudges] = useState(0);
   const pointAtSwitch = () => {
-    setNudging(true);
+    setNudges((n) => n + 1);
     navigator.vibrate?.([30, 60, 30]);
   };
   const releaseWakeLock = useWakeLock();
@@ -326,9 +328,8 @@ export function Table(props: TableProps) {
         <section className="mine">
           {/* Auto-play lives here: a quiet switch, or while on, a bar holding the same switch. */}
           <div
-            className={`mine-head${myAuto ? " auto-on" : ""}${nudging ? " nudge" : ""}`}
+            className={`mine-head${myAuto ? " auto-on" : ""}${nudges ? ` nudge-${nudges % 2}` : ""}`}
             data-testid="mine-head"
-            onAnimationEnd={() => setNudging(false)}
           >
             {myAuto ? (
               <span className="auto-note">{t(away ? "autoAway" : "autoOn")}</span>

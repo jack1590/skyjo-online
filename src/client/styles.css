@@ -636,12 +636,28 @@ dialog.zoom::backdrop {
   outline-offset: 2px;
 }
 
-/* Tapping your cards while Auto-play is on points at the switch. */
-.mine-head.nudge {
-  animation: shake 0.4s ease-in-out;
+/* Tapping your cards while Auto-play is on points at the switch. Two names, one per tap in
+   turn, so every tap restarts the shake. */
+.mine-head.nudge-0 {
+  animation: shake-0 0.4s ease-in-out;
 }
 
-@keyframes shake {
+.mine-head.nudge-1 {
+  animation: shake-1 0.4s ease-in-out;
+}
+
+@keyframes shake-0 {
+  20%,
+  60% {
+    transform: translateX(-6px);
+  }
+  40%,
+  80% {
+    transform: translateX(6px);
+  }
+}
+
+@keyframes shake-1 {
   20%,
   60% {
     transform: translateX(-6px);
@@ -943,12 +959,22 @@ button.card:active {
   }
 
   /* No shaking: the bar flashes instead. */
-  .mine-head.nudge {
-    animation: flash 0.4s;
+  .mine-head.nudge-0 {
+    animation: flash-0 0.4s;
+  }
+
+  .mine-head.nudge-1 {
+    animation: flash-1 0.4s;
   }
 }
 
-@keyframes flash {
+@keyframes flash-0 {
+  50% {
+    background: rgb(242 193 78 / 0.45);
+  }
+}
+
+@keyframes flash-1 {
   50% {
     background: rgb(242 193 78 / 0.45);
   }
