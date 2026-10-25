@@ -1,4 +1,4 @@
-# Throwaway probe for PR #17 RC2 (not for merge). All variants on one machine, interleaved.
+# Throwaway probe for PR #17 RC2 (not for merge): workers 2 vs 3 vs 4, one machine, interleaved.
 name: Probe
 on:
   push:
@@ -12,14 +12,19 @@ jobs:
     container: mcr.microsoft.com/playwright:v1.64.1-noble
     steps:
       - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
       - run: npm ci
-      - name: Whole iPhone project x2 on head, logging fast alarms
+      - run: npm run build
+      - name: Workers, interleaved
+        shell: bash
         run: |
-          npm run build > /dev/null 2>&1
-          for i in 1 2 3; do
-            npx playwright test --project=iphone --workers=2 --reporter=list > /tmp/run$i.log 2>&1 || true
-            grep -E "ROUNDLOG total|passed|failed" /tmp/run$i.log
-            grep -A10 "ROUNDLOG total" /tmp/run$i.log | cut -c1-700
+          set +e +o pipefail
+          for pass in 1 2 3; do
+            for w in 2 3 4; do
+              start=$(date +%s)
+              npx playwright test --project=iphone --workers=$w --reporter=list > /tmp/w$w-$pass.log 2>&1
+              end=$(date +%s)
+              slow=$(grep -oE '\\(([0-9]{2}\\.[0-9])s\\)$' /tmp/w$w-$pass.log | tr -d '()s' | sort -rn | head -3 | tr '\\n' ' ')
+              echo "RESULT workers=$w pass$pass wall=$((end-start))s slowest=[$slow] $(grep -E ' passed| failed| flaky' /tmp/w$w-$pass.log | tr -s ' ' | tr '\\n' ' ')"
+              grep -E "✘" /tmp/w$w-$pass.log | head -3
+            done
           done

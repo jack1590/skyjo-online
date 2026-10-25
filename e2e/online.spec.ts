@@ -225,77 +225,26 @@ test("m5 screenshots", async ({ browser }, info) => {
 test("a round runs to its summary, then the next round (or the game ends)", async ({
   browser,
 }, info) => {
-  const t0 = Date.now();
-  const log: string[] = [];
-  const mark = (what: string) => log.push(`${((Date.now() - t0) / 1000).toFixed(2)} ${what}`);
-  const all = await phones(browser, info, 2);
-  const stats = all.map(() => ({ states: 0, sent: 0, lat: [] as number[], pending: new Map<number, number>(), last: [] as string[] }));
-  for (const [i, page] of all.entries()) {
-    page.on("websocket", (ws) => {
-      ws.on("framesent", (f) => {
-        const s = String(f.payload);
-        const seq = s.match(/"seq":(\d+)/)?.[1];
-        if (seq) { stats[i].sent++; stats[i].pending.set(Number(seq), Date.now()); }
-      });
-      ws.on("framereceived", (f) => {
-        const s = String(f.payload);
-        if (!s.startsWith("{")) return;
-        const m = JSON.parse(s);
-        if (m.t !== "state") return;
-        stats[i].states++;
-        const t = stats[i].pending.get(m.ack);
-        if (t) { stats[i].lat.push(Date.now() - t); stats[i].pending.delete(m.ack); }
-        const g = m.room.game;
-        stats[i].last.push(`${((Date.now() - t0) / 1000).toFixed(2)} ack=${m.ack} ${g?.phase} cur=${g?.current} clocks=${JSON.stringify(m.room.clocks)}`);
-        if (stats[i].last.length > 6) stats[i].last.shift();
-      });
-    });
-  }
-  const code = await createRoom(all[0]);
-  for (const [i, page] of all.entries()) await join(page, code, ["Ana", "Ben"][i]);
-  const pages = all;
-  mark("seated");
-  for (const [i, page] of pages.entries()) {
-    page.on("console", (m) => mark(`p${i} console ${m.type()} ${m.text().slice(0, 90)}`));
-    page.on("pageerror", (e) => mark(`p${i} pageerror ${String(e).slice(0, 90)}`));
-  }
+  const { pages } = await seatedRoom(browser, info, ["Ana", "Ben"]);
   await startGame(pages[0]);
-  mark("started");
   const phase = () => pages[0].getByTestId("table").getAttribute("data-phase");
-  let moves = 0;
   for (let idle = 0; !["roundOver", "gameOver"].includes((await phase()) ?? ""); ) {
     let moved = false;
-    for (const [i, page] of pages.entries()) {
-      const s0 = Date.now();
-      const did = await botStep(page);
-      if (did) moves++;
-      if (Date.now() - s0 > 600) mark(`p${i} SLOW botStep ${did} ${Date.now() - s0} ms`);
-      moved = did || moved;
-    }
+    for (const page of pages) moved = (await botStep(page)) || moved;
     idle = moved ? 0 : idle + 1;
     if (idle > 100) throw new Error("table stalled");
   }
-  mark(`round over after ${moves} moves`);
-  try {
-    if ((await phase()) === "gameOver") {
-      await expect(pages[0].getByRole("button", { name: "Play again" })).toBeVisible();
-      mark("game over shown");
-      return;
-    }
-    await expect(pages[1].getByTestId("round-summary")).toBeVisible();
-    mark("summary");
-    await expect(pages[1].getByText("Waiting for the host…")).toBeVisible();
-    mark("waiting host");
-    await pages[0].getByRole("button", { name: "Next round" }).click();
-    mark("clicked next");
-    for (const page of pages) {
-      await expect(page.getByTestId("table")).toHaveAttribute("data-phase", "flip");
-      await expect(page.getByText("Round 2")).toBeVisible();
-    }
-    mark("round 2");
-  } finally {
-    const med = (xs: number[]) => xs.sort((x, y) => x - y)[Math.floor(xs.length / 2)] ?? 0;
-    console.log(`ROUNDLOG total ${((Date.now() - t0) / 1000).toFixed(1)} moves ${moves} | ${stats.map((x, i) => `p${i}: sent ${x.sent} states ${x.states} ackLat med ${med(x.lat)} max ${Math.max(0, ...x.lat)}`).join(" | ")}\n${log.slice(-6).join("\n")}\n${stats.map((x, i) => `p${i} last: ${x.last.join(" ; ")}`).join("\n")}`);
+  if ((await phase()) === "gameOver") {
+    // Doubling can end a game in round 1; then the summary must offer a rematch instead.
+    await expect(pages[0].getByRole("button", { name: "Play again" })).toBeVisible();
+    return;
+  }
+  await expect(pages[1].getByTestId("round-summary")).toBeVisible();
+  await expect(pages[1].getByText("Waiting for the host…")).toBeVisible();
+  await pages[0].getByRole("button", { name: "Next round" }).click();
+  for (const page of pages) {
+    await expect(page.getByTestId("table")).toHaveAttribute("data-phase", "flip");
+    await expect(page.getByText("Round 2")).toBeVisible();
   }
 });
 
