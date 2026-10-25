@@ -214,18 +214,26 @@ export function useFlights(view: GameView, tapped?: { current: string | null }) 
   useEffect(() => {
     if (reduced) return;
     let frame = 0;
+    let on = true;
     const remeasure = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
         rects.current = measure(els.current, rects.current);
-        // Cards in flight kept their old place: read them again once they land.
-        if ([...els.current.values()].some(flying)) remeasure();
+        // Cards in flight kept their old place: read them all once more when they've landed (not
+        // every frame, which would be main-thread work during a whole final reveal).
+        const flights = [...els.current.values()].flatMap((el) =>
+          el.getAnimations().filter((a) => a.id === FLIGHT),
+        );
+        if (flights.length) {
+          void Promise.allSettled(flights.map((a) => a.finished)).then(() => on && remeasure());
+        }
       });
     };
     window.addEventListener("scroll", remeasure, true); // capture: .table scrolls, not the window
     window.addEventListener("resize", remeasure);
     measureAgain.current = remeasure;
     return () => {
+      on = false;
       measureAgain.current = () => {};
       cancelAnimationFrame(frame);
       window.removeEventListener("scroll", remeasure, true);
