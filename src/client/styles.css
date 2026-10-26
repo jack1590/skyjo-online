@@ -373,11 +373,14 @@ button {
   width: calc((100% - 24px) / 3.4);
 }
 
-/* Spectators have no grid of their own, so everyone gets half the width. */
+/* Spectators have no grid of their own, so everyone gets half the width. The panels scroll in
+   their own box, which follows whoever is playing, so the piles and the drawn card under it stay
+   on screen at any table size (M12). */
 .opponents.watch {
   flex-wrap: wrap;
   justify-content: center;
-  overflow: visible;
+  min-height: 0;
+  overflow: hidden auto;
 }
 
 .opponents.watch .opp {
@@ -1180,4 +1183,24 @@ button.card[data-pending] {
   font-weight: 700;
   color: var(--muted);
   text-align: center;
+}
+
+/* Watching, a player who is out is one slim line under the players still in, not a grid's worth of
+   space (M12, M17 PO). */
+.opponents.watch .opp.out {
+  order: 1;
+  width: 100%;
+  flex-direction: row;
+  align-items: center;
+  padding: 8px 10px;
+}
+
+.opponents.watch .out .opp-head {
+  gap: 8px;
+  margin: 0;
+}
+
+.opponents.watch .out-note {
+  min-height: 0;
+  justify-items: end;
 }
