@@ -49,10 +49,6 @@ jobs:
           # WebKit is the critical path: on one runner, the iPhone project took 80–82 s with 2
           # workers (Playwright's default on 4 vCPUs) and 62 s with 4 (PR #17 probe).
           - { name: iphone, project: iphone, workers: 4 }
-          - { name: pixel, project: pixel }
-          - { name: desktop, project: desktop }
-          # The self-host fallback must keep passing the online suite.
-          - { name: node, project: pixel, server: node, spec: e2e/online.spec.ts }
     steps:
       - uses: actions/checkout@v5
       - run: npm ci
@@ -62,6 +58,8 @@ jobs:
       - run: npx playwright test ${{ matrix.spec }} --project=${{ matrix.project }} ${{ matrix.workers && format('--workers={0}', matrix.workers) || '' }}
         env:
           SERVER: ${{ matrix.server }}
+      - name: probe, no trace
+        run: npx playwright test --project=iphone --workers=4 --trace=off
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

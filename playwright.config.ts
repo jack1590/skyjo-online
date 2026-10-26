@@ -21,7 +21,7 @@ export default defineConfig({
   retries: CI ? 1 : 0,
   // A retry may rescue a run, but a flaky test still fails CI (delivery health: no flaky jobs).
   failOnFlakyTests: CI,
-  reporter: CI ? [["list"], ["html", { open: "never" }]] : "list",
+  reporter: CI ? [["list"], ["./e2e/probe-reporter.ts"]] : "list",
   use: {
     baseURL: BASE_URL ?? ORIGIN,
     trace: "retain-on-failure",
