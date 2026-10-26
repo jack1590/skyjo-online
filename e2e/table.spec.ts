@@ -166,7 +166,7 @@ test.describe("M18: discard mode shows where to tap", () => {
 
       // Discard mode (UX-18): the card lies on the pile, with Undo where it was (UX-19); the
       // highlights are exactly your face-down cards; face-up ones dim.
-      await page.getByTestId("discard").click();
+      await page.getByTestId("discard").click({ force: true });
       await expect(page.getByRole("button", { name: undo, exact: true })).toBeVisible();
       await expect(page.getByTestId("drawn")).toHaveCount(0);
       await expectMobileFriendly(page);

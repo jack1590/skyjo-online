@@ -24,7 +24,7 @@ export default defineConfig({
   reporter: CI ? [["list"], ["./e2e/probe-reporter.ts"]] : "list",
   use: {
     baseURL: BASE_URL ?? ORIGIN,
-    trace: "retain-on-failure",
+    trace: { mode: "retain-on-failure", screenshots: false },
     locale: "en-US",
     // Card-flight animations would make every click wait for movement to settle; motion.spec.ts
     // opts back in to test them.
