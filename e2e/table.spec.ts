@@ -746,7 +746,9 @@ test("UX-11: the summary is a modal: the first Tab lands inside it and 10 Tabs n
   expect(await focus()).toBe("View table");
   await page.keyboard.press("Escape");
   await expect(summary).toHaveCount(0);
-  await page.getByRole("button", { name: "Show scores" }).click();
+  const showScores = page.getByRole("button", { name: "Show scores" });
+  await expect(showScores).toBeFocused();
+  await showScores.click();
   await expect(summary).toBeVisible();
 });
 
@@ -779,7 +781,7 @@ for (const [locale, win, third, cris, host] of [
   [
     "es",
     "¡Ganaste!",
-    "Quedaste en 3.º lugar",
+    "Quedaste en 3.er lugar",
     "¡Gana Cris!",
     "El anfitrión puede empezar otra partida",
   ],
@@ -860,6 +862,14 @@ test.describe("small phone (375×548)", () => {
       expect(box?.y).toBeGreaterThanOrEqual(0);
       expect((box?.y ?? 0) + (box?.height ?? 0)).toBeLessThanOrEqual(548 + 1); // subpixels
     }).toPass();
+
+  test("M13: an 8-player summary leaves the top 56 px to the toasts (M10's Reconnecting…)", async ({
+    page,
+  }) => {
+    await show(page, { view: toView(roundOver(8, 3)), seat: 0, lead: true });
+    const sheet = await page.locator("dialog .sheet").boundingBox();
+    expect(sheet?.y).toBeGreaterThanOrEqual(56);
+  });
 
   for (const players of [2, 8]) {
     test(`${players} players: your whole grid is on screen when your turn starts`, async ({

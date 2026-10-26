@@ -51,7 +51,7 @@ function readMuted(): boolean {
 }
 let muted = readMuted();
 
-/** Starts downloading the sounds (77 KB, also precached by the service worker). */
+/** Starts downloading the sounds (77 KB; not precached: the game needs the network anyway). */
 export function preloadSounds() {
   files ??= Promise.all(
     NAMES.map(

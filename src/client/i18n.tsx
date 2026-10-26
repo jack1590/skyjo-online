@@ -389,9 +389,9 @@ function detectLocale(): Locale {
 const EN_ORDINAL = new Intl.PluralRules("en", { type: "ordinal" });
 const EN_SUFFIX: Partial<Record<Intl.LDMLPluralRule, string>> = { one: "st", two: "nd", few: "rd" };
 
-/** A place in the final ranking (UX-17): 2nd, 2.º, 2º. */
+/** A place in the final ranking (UX-17), before "lugar" in es and pt: 3rd, 3.er, 3º. */
 export function ordinal(locale: Locale, n: number): string {
-  if (locale === "es") return `${n}.º`;
+  if (locale === "es") return n === 1 || n === 3 ? `${n}.er` : `${n}.º`; // primer, tercer lugar
   if (locale === "pt") return `${n}º`;
   return `${n}${EN_SUFFIX[EN_ORDINAL.select(n)] ?? "th"}`;
 }

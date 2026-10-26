@@ -59,8 +59,11 @@ export async function phones(
     baseURL,
     reducedMotion,
   } = info.project.use;
+  // Numbered as in `pages`, whichever context opens first.
+  const first = phoneCount + 1;
+  phoneCount += n;
   return Promise.all(
-    Array.from({ length: n }, async () => {
+    Array.from({ length: n }, async (_, i) => {
       const context = await browser.newContext({
         viewport,
         userAgent,
@@ -77,7 +80,7 @@ export async function phones(
           delete (window as { AudioContext?: unknown }).AudioContext; // the app then stays silent
         });
       }
-      const phone = ++phoneCount;
+      const phone = first + i;
       // Through a binding, so a close is logged even when its page then reloads or dies.
       await context.exposeBinding("__socketClosed", (_, code: number, reason: string) => {
         const at = ((Date.now() - started) / 1000).toFixed(1);
@@ -173,10 +176,11 @@ export async function playUntil(pages: Page[], done: () => Promise<boolean>) {
   let since = Date.now();
   while (!(await done())) {
     for (const page of pages) await botStep(page);
-    // In the opening flip everyone moves at once; then one seat at a time.
+    // In a turn the table waits on one seat; in the opening flip on everyone, at a summary on the
+    // host.
     const phase = await table.getAttribute("data-phase");
-    const seat =
-      phase === "flip" ? "" : `, waiting on seat ${await table.getAttribute("data-current")}`;
+    const turn = phase === "draw" || phase === "place";
+    const seat = turn ? `, waiting on seat ${await table.getAttribute("data-current")}` : "";
     const now = `${phase}${seat}`;
     if (now !== seen) [seen, since] = [now, Date.now()];
     else if (Date.now() - since > 15_000) {

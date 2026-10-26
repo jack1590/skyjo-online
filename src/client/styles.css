@@ -974,7 +974,8 @@ dialog.overlay:focus {
 .sheet {
   width: 100%;
   max-width: 560px;
-  max-height: 100dvh;
+  /* Clear of the toasts at the top ("Reconnecting…", M10), even with 8 players on a small phone. */
+  max-height: calc(100dvh - 56px - env(safe-area-inset-top));
   overflow-y: auto;
   padding: 20px 16px max(20px, env(safe-area-inset-bottom));
   border-radius: 20px 20px 0 0;

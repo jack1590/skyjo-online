@@ -14,12 +14,13 @@ describe("i18n", () => {
     }
   });
 
-  it("UX-17: places are ordinals in each language (en 1st 2nd 3rd, es 2.º, pt 2º)", () => {
+  it("UX-17: places are ordinals in each language (en 1st 2nd 3rd, es 2.º 3.er, pt 2º)", () => {
     const places = [1, 2, 3, 4, 8, 11, 12, 13, 21, 22, 23];
     expect(places.map((n) => ordinal("en", n))).toEqual(
       "1st 2nd 3rd 4th 8th 11th 12th 13th 21st 22nd 23rd".split(" "),
     );
     expect(translator("es")("youPlaced", { n: ordinal("es", 2) })).toBe("Quedaste en 2.º lugar");
+    expect([1, 3, 4].map((n) => ordinal("es", n))).toEqual(["1.er", "3.er", "4.º"]);
     expect(translator("pt")("youPlaced", { n: ordinal("pt", 3) })).toBe("Você ficou em 3º lugar");
   });
 

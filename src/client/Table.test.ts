@@ -51,7 +51,7 @@ describe("overTitle (UX-17)", () => {
 
   it("in Spanish and Portuguese, with their ordinals", () => {
     const view = over([104, 61, 88], [1]);
-    expect(overTitle(translator("es"), "es", view, 0)).toBe("Quedaste en 3.º lugar");
+    expect(overTitle(translator("es"), "es", view, 0)).toBe("Quedaste en 3.er lugar");
     expect(overTitle(translator("es"), "es", view, 1)).toBe("¡Ganaste!");
     expect(overTitle(translator("pt"), "pt", view, 2)).toBe("Você ficou em 2º lugar");
     expect(overTitle(translator("pt"), "pt", view, 1)).toBe("Você venceu!");

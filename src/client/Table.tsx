@@ -81,6 +81,11 @@ export function Table(props: TableProps) {
   useEffect(() => {
     if (!summary) setPeek(false);
   }, [summary]);
+  // The summary's sheet goes with "View table": a keyboard user's focus moves to "Show scores".
+  const showScores = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (peek) showScores.current?.focus();
+  }, [peek]);
 
   const me = seat === null ? null : players[seat];
   const playing = phase === "draw" || phase === "place";
@@ -297,7 +302,12 @@ export function Table(props: TableProps) {
       <header className="bar">
         <span className="round">{t("round", { n: view.round })}</span>
         {summary && peek ? (
-          <button type="button" className="btn primary" onClick={() => setPeek(false)}>
+          <button
+            ref={showScores}
+            type="button"
+            className="btn primary"
+            onClick={() => setPeek(false)}
+          >
             {t("showScores")}
           </button>
         ) : (
@@ -704,6 +714,7 @@ function Summary({ view, you, lead, auto, onPeek, onNext, onPlayAgain, onExit }:
       className="overlay"
       tabIndex={-1}
       aria-labelledby="summary-title"
+      aria-describedby={sub ? "summary-sub" : undefined}
       data-testid={over ? "game-over" : "round-summary"}
       onClose={onPeek}
     >
@@ -717,7 +728,7 @@ function Summary({ view, you, lead, auto, onPeek, onNext, onPlayAgain, onExit }:
           </button>
         </div>
         {sub && (
-          <p className={`sub${wentOut ? " out" : ""}`} data-testid="summary-sub">
+          <p id="summary-sub" className={`sub${wentOut ? " out" : ""}`} data-testid="summary-sub">
             {sub}
           </p>
         )}
