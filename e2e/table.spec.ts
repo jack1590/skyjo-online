@@ -165,8 +165,9 @@ test.describe("M18: discard mode shows where to tap", () => {
       expect((await top("deck")) - (await top("drawn"))).toBeCloseTo(6, 0);
 
       // Discard mode (UX-18): the card lies on the pile, with Undo where it was (UX-19); the
-      // highlights are exactly your face-down cards; face-up ones dim.
-      await page.getByTestId("discard").click();
+      // highlights are exactly your face-down cards; face-up ones dim. Forced: a page's first
+      // click waits for its first frames: 1.4–5.4 s on CI's WebKit (M20 probe). UX-29 hit-tests it.
+      await page.getByTestId("discard").click({ force: true });
       await expect(page.getByRole("button", { name: undo, exact: true })).toBeVisible();
       await expect(page.getByTestId("drawn")).toHaveCount(0);
       await expectMobileFriendly(page);

@@ -24,7 +24,10 @@ export default defineConfig({
   reporter: CI ? [["list"], ["html", { open: "never" }]] : "list",
   use: {
     baseURL: BASE_URL ?? ORIGIN,
-    trace: "retain-on-failure",
+    // Only on a retry (CI retries once): recording every run, for a trace kept only on failure,
+    // made CI's iPhone job 1.7× slower (M20 probe: Playwright 1.9 min → 1.1 min, and 1.2 min →
+    // 42 s, trace on vs off on the same runner); most of it is the screencast.
+    trace: "on-first-retry",
     locale: "en-US",
     // Card-flight animations would make every click wait for movement to settle; motion.spec.ts
     // opts back in to test them.
