@@ -184,6 +184,8 @@ export function path(from: Rect, to: Rect, { lift = 0, turn = false } = {}) {
   return {
     /** When a card that turns is edge-on: a quarter into its flight after a lift, else halfway. */
     edge: (lift + (lift ? 0.25 : 0.5) * fly) / duration,
+    /** When it hits (ms): the bottom of its settle, 0.06 of its flight from touching down. */
+    hit: lift + 0.94 * fly,
     frames: frames.map((f) => ({
       offset: f.offset,
       x: r(f.x),
@@ -251,8 +253,11 @@ function start(jobs: Job[]) {
   }
 }
 
-/** When each animation of the last change starts and ends (ms), by element key; for its sounds. */
-export type Timing = Map<string, { start: number; end: number }>;
+/**
+ * When each animation of the last change starts, hits home and ends (ms), by element key; for its
+ * sounds and the round summary.
+ */
+export type Timing = Map<string, { start: number; hit: number; end: number }>;
 
 const flying = (el: HTMLElement) => el.getAnimations().some(ours);
 
@@ -310,7 +315,7 @@ export function useFlights(view: GameView, tapped?: { current: string | null }) 
       const lift = from.startsWith("slot-") ? LIFT_MS : 0;
       const delay = from === "drawn" && to !== "discard" ? IN_MS : 0;
       const turn = turns.has(to);
-      const { frames, duration, edge } = path(a, b, { lift, turn });
+      const { frames, duration, edge, hit } = path(a, b, { lift, turn });
       // Around the card's centre, like its own `scale` (the lifted discard, UX-21), so the two
       // compose; that scale also scales the offset.
       const k = Number.parseFloat(getComputedStyle(el).scale) || 1;
@@ -322,7 +327,7 @@ export function useFlights(view: GameView, tapped?: { current: string | null }) 
       }));
       const options = { duration, delay, id: FLIGHT };
       jobs.push({ el, keyframes, options, role: delay ? "in" : "", edge: turn ? edge : undefined });
-      times.set(to, { start: delay, end: delay + duration });
+      times.set(to, { start: delay, hit: delay + hit, end: delay + duration });
     }
     for (const [key, delay] of flipDelays(
       flips,
@@ -335,7 +340,7 @@ export function useFlights(view: GameView, tapped?: { current: string | null }) 
       const size = el.classList.contains("sm") ? "sm" : el.classList.contains("md") ? "md" : "lg";
       const options = { duration: FLIP_MS[size], delay, id: FLIP };
       jobs.push({ el, keyframes: flipFrames(size, w), options, edge: 0.5 });
-      times.set(key, { start: delay, end: delay + FLIP_MS[size] });
+      times.set(key, { start: delay, hit: delay + FLIP_MS[size], end: delay + FLIP_MS[size] });
     }
     start(jobs);
     measureAgain.current(); // and again once they land

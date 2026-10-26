@@ -150,14 +150,16 @@ describe("flightsBetween", () => {
     expect(49 * revealStep(50)).toBeLessThanOrEqual(2500);
     expect(SUMMARY_MS).toBe(600);
     // The last of 5 small flips starts at 440 ms and ends at 700; the last move's flight sooner.
+    const thrown = { start: 0, hit: 324, end: 345 };
     const timing = new Map([
-      ["discard", { start: 0, end: 345 }],
-      ...flipDelays(["a", "b", "c", "d", "e"], revealStep(5)).map(
-        ([key, start]) => [key, { start, end: start + FLIP_MS.sm }] as const,
-      ),
+      ["discard", thrown],
+      ...flipDelays(["a", "b", "c", "d", "e"], revealStep(5)).map(([key, start]) => {
+        const end = start + FLIP_MS.sm;
+        return [key, { start, hit: end, end }] as const;
+      }),
     ]);
     expect(settled(timing)).toBe(440 + 260);
-    expect(settled(new Map([["discard", { start: 0, end: 345 }]])), "nothing to turn").toBe(345);
+    expect(settled(new Map([["discard", thrown]])), "nothing to turn").toBe(345);
     expect(settled(new Map()), "nothing moved").toBe(0);
   });
 
@@ -262,6 +264,10 @@ describe("UX-23: the swap", () => {
     expect(turnAt(0.2)).toBeGreaterThan(90);
     const { edge } = path(box(0, 300, 80), box(90, 0, 58), { lift: LIFT_MS, turn: true });
     expect(at(frames, edge).turn, "edge-on when its back is hidden").toBe(90);
+    const { hit } = path(box(0, 300, 80), box(90, 0, 58), { lift: LIFT_MS, turn: true });
+    expect(at(frames, hit / duration).scale, "it hits at the bottom of its settle").toBeLessThan(
+      at(frames, (80 + 0.88 * flightMs(Math.hypot(90, 300))) / duration).scale,
+    );
     const half = (80 + 0.5 * flightMs(Math.hypot(90, 300))) / duration;
     expect(turnAt(half)).toBe(0);
   });

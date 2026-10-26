@@ -357,7 +357,7 @@ test.describe("with motion allowed", () => {
     const pos = swapTarget(state, 8);
     state = apply(state, { type: "swap", seat: me, pos });
     const read = { ...PILES, slot: `[data-testid="my-grid"] > :nth-child(${pos + 1})` };
-    const swap = await move(page, toView(state), read, [0.1, 0.2, 0.4, 0.5]);
+    const swap = await move(page, toView(state), read, [0.1, 0.2, 0.4, 0.5], false);
     const out = swap.timing.find((t) => t.el === "discard");
     const into = swap.timing.find((t) => t.el === "slot");
     if (!out || !into) throw new Error(`no swap: ${JSON.stringify(swap.timing)}`);
@@ -383,6 +383,29 @@ test.describe("with motion allowed", () => {
     expect(Number(mid.slot?.z)).toBeGreaterThan(Number(mid.discard?.z));
     expect(Number(mid.discard?.z)).toBeGreaterThan(0);
     expectOnlyTransforms(swap.timing);
+    // Where the two cross, the one going in is painted over the one leaving: step the swap's
+    // clock until they overlap and hit-test the overlap.
+    const crossed = await page.evaluate((slot) => {
+      const w = window as unknown as { flights: { a: Animation }[] };
+      const swap = w.flights.map((f) => f.a).filter((a) => a.playState === "paused");
+      const [out, into] = ['[data-testid="discard"]', slot].map((sel) =>
+        document.querySelector(sel),
+      );
+      let found: { t: number; top: string } | null = null;
+      for (let t = 0; t <= 560 && !found && out && into; t += 10) {
+        for (const a of swap) a.currentTime = t;
+        const [o, i] = [out, into].map((el) => el.getBoundingClientRect());
+        const [x0, x1] = [Math.max(o.left, i.left), Math.min(o.right, i.right)];
+        const [y0, y1] = [Math.max(o.top, i.top), Math.min(o.bottom, i.bottom)];
+        if (x1 - x0 < 10 || y1 - y0 < 10) continue;
+        const hit = document.elementFromPoint((x0 + x1) / 2, (y0 + y1) / 2);
+        found = { t, top: into.contains(hit) ? "in" : out.contains(hit) ? "out" : String(hit) };
+      }
+      for (const a of swap) a.finish();
+      return found;
+    }, read.slot);
+    expect(crossed, "the two cards cross").not.toBeNull();
+    expect(crossed?.top, `at ${crossed?.t} ms`).toBe("in");
   });
 
   test("UX-24: a flip turns from its back: under 15% of its width at 50% ± 8% of its time, its back up at 25%, a large card ×1.05 or more halfway; 380 ms in your grid, 260 ms in an opponent's", async ({
@@ -443,7 +466,12 @@ test.describe("with motion allowed", () => {
           delay: Number(a.effect?.getTiming().delay),
           end: Number(a.effect?.getComputedTiming().endTime),
         }));
-      return { atOnce: !!document.querySelector(".overlay"), flips };
+      const animated = w.flights.slice(start).map(({ a }) => ({
+        props: [
+          ...new Set((a.effect as KeyframeEffect).getKeyframes().flatMap((k) => Object.keys(k))),
+        ].filter((k) => !["offset", "computedOffset", "easing", "composite"].includes(k)),
+      }));
+      return { atOnce: !!document.querySelector(".overlay"), flips, animated };
     }, toView(after));
 
     // Seats after the ender's, then row by row (grid positions are row-major).
@@ -465,6 +493,7 @@ test.describe("with motion allowed", () => {
         flips[i - 1].delay,
       );
     }
+    expectOnlyTransforms(shown.animated);
     const lastFlip = Math.max(...flips.map((f) => f.end));
     expect(lastFlip).toBeLessThanOrEqual(2500 + 380);
     expect(shown.atOnce).toBe(false);

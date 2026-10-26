@@ -20,8 +20,8 @@ const NAMES = [
 ] as const;
 export type Sound = (typeof NAMES)[number];
 
-/** Sounds that announce something rather than accompany a card; they land just after the card. */
-const LATE = new Set<Sound>(["column", "turn", "win", "end"]);
+/** Without motion, sounds that announce something rather than go with a card come this much later. */
+const LATE_MS = 250;
 /** How far into its file a card's sound is loudest (ms), so it can peak as the card lands. */
 const PEAK: Partial<Record<Sound, number>> = { draw: 130, place: 160, discard: 210 };
 /** Several sounds can start together (place + discard + flip + column); keep the sum from clipping. */
@@ -115,7 +115,7 @@ function play(name: Sound, ms = 0) {
   const source = ctx.createBufferSource();
   source.buffer = buffer;
   source.connect(master);
-  source.start(ctx.currentTime + ms / 1000 + (LATE.has(name) ? 0.25 : 0));
+  source.start(ctx.currentTime + ms / 1000);
 }
 
 /** A table that has just been dealt: nobody has turned a card yet. */
@@ -142,8 +142,9 @@ export function soundsBetween(
     if (!out.some(([n, t]) => n === name && t === ms)) out.push([name, ms]);
   };
   const { moves, flips, reveal } = flightsBetween(prev, cur);
+  // A card's sound is loudest as it hits home, at the bottom of its settle (UX-22, UX-23).
   const lands = (name: Sound, key: string) =>
-    add(name, Math.max(0, (timing?.get(key)?.end ?? 0) - (PEAK[name] ?? 0)));
+    add(name, Math.max(0, (timing?.get(key)?.hit ?? 0) - (PEAK[name] ?? 0)));
   for (const [to, from] of moves) {
     if (to === "drawn") lands("draw", to);
     else if (to === "discard") lands("discard", to);
@@ -160,14 +161,15 @@ export function soundsBetween(
   const removed = cur.players.some((p, s) =>
     p.grid.some((slot, i) => slot === null && prev.players[s]?.grid[i] !== null),
   );
-  if (removed) add("column");
+  // Announcements come just after the cards: the column's chime as its card reaches the pile,
+  // "your turn" once everything has landed, game over as the summary shows.
+  const late = (ms: number) => (timing ? ms : LATE_MS);
+  if (removed) add("column", late(timing?.get("discard")?.end ?? 0));
   const myTurn = (v: GameView) => seat !== null && v.phase === "draw" && v.current === seat;
-  if (myTurn(cur) && !myTurn(prev)) add("turn");
+  if (myTurn(cur) && !myTurn(prev)) add("turn", late(timing ? settled(timing) : 0));
   if (cur.phase === "gameOver" && prev.phase !== "gameOver") {
-    add(
-      seat !== null && cur.winners.includes(seat) ? "win" : "end",
-      timing && reveal ? settled(timing) + SUMMARY_MS : 0,
-    );
+    const shows = timing && reveal ? settled(timing) + SUMMARY_MS : 0;
+    add(seat !== null && cur.winners.includes(seat) ? "win" : "end", shows + LATE_MS);
   }
   return out;
 }
