@@ -465,6 +465,8 @@ export function useFlights(
   const refs = useRef(new Map<string, (el: HTMLElement | null) => void>());
   const prev = useRef<GameView | null>(null);
   const rects = useRef(new Map<string, Place>());
+  /** Where the window was scrolled when they were read: a scroll that leaves it there moved nothing. */
+  const scrolled = useRef([0, 0]);
   const timing = useRef<Timing>(new Map());
   const measureAgain = useRef(() => {});
   /** Stand-ins on the page (`standIn`), gone with the table. */
@@ -496,6 +498,24 @@ export function useFlights(
     },
     [],
   );
+  // A card of yours rendered anew mid-deal (your 2nd opening flip turns your buttons into spans)
+  // waits hidden too, until its stand-in lands (PO, PR #29). A landed card's deal is over.
+  useLayoutEffect(() => {
+    for (const [key, animations] of dealt.current) {
+      const left = Math.max(
+        ...animations.map(
+          (a) => Number(a.effect?.getComputedTiming().endTime) - Number(a.currentTime ?? 0),
+        ),
+      );
+      if (!(left > 0)) {
+        dealt.current.delete(key);
+        continue;
+      }
+      const el = els.current.get(key);
+      const hidden = animations.some((a) => (a.effect as KeyframeEffect | null)?.target === el);
+      if (el && !hidden) animations.push(...start([hide(el, left)]));
+    }
+  });
   useLayoutEffect(() => {
     const before = prev.current;
     prev.current = view;
@@ -519,6 +539,7 @@ export function useFlights(
     const was = rects.current;
     const now = measure(els.current, was);
     rects.current = now;
+    scrolled.current = [scrollX, scrollY];
     // A new game's deal (UX-28), once the page has loaded: earlier, positions may be an unstyled
     // page's (`settle`, below).
     const deal = isDeal(before, view) && (before !== null || document.readyState === "complete");
@@ -775,7 +796,11 @@ export function useFlights(
     settle();
     window.addEventListener("load", settle);
     // Stand-ins are fixed to the page, so a scroll or a resize ends them first.
-    const moved = () => {
+    const moved = (e: Event) => {
+      // The page's scroll clamped as the table replaced a taller lobby, before the cards were read:
+      // nothing moved (PO, PR #29: the deal was lost on a scrolled lobby).
+      const [x, y] = scrolled.current;
+      if (e.target === document && scrollX === x && scrollY === y) return;
       endStandIns.current();
       remeasure();
     };

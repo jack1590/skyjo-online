@@ -1102,13 +1102,11 @@ test.describe("with motion allowed", () => {
     await expect(page.getByTestId("clock")).toBeVisible();
 
     // Ben's flip, mid-deal, leaves yours on their way: only your cards hide under them.
-    const left = await page.evaluate(
-      (view) => {
-        dispatchEvent(new CustomEvent("skyjo:table", { detail: { view } }));
-        return document.querySelectorAll('.card[data-copy=""]').length;
-      },
-      toView(apply(game[end + 1], { type: "flip", seat: 1, pos: 0 })),
-    );
+    const ben = apply(game[end + 1], { type: "flip", seat: 1, pos: 0 });
+    const left = await page.evaluate((view) => {
+      dispatchEvent(new CustomEvent("skyjo:table", { detail: { view } }));
+      return document.querySelectorAll('.card[data-copy=""]').length;
+    }, toView(ben));
     expect(left).toBe(12);
     // At 100 ms (paused there), a tap on a card of yours not yet landed turns it over: it shows,
     // lifted, while the rest of the deal goes on.
@@ -1117,6 +1115,63 @@ test.describe("with motion allowed", () => {
     await expect(card).toHaveAttribute("data-pending", "true");
     await expect(card).toHaveCSS("opacity", "1");
     await expect(page.locator('.card[data-copy=""]')).toHaveCount(11);
+    // Your 2 opening flips, answered mid-deal (PO, PR #29): your cards render anew, as spans, and
+    // those still being dealt stay hidden under their stand-ins.
+    const one = apply(ben, { type: "flip", seat: 0, pos: 0 });
+    const two = apply(one, { type: "flip", seat: 0, pos: 1 });
+    const after = await page.evaluate(
+      (views) => {
+        for (const view of views) {
+          dispatchEvent(new CustomEvent("skyjo:table", { detail: { view } }));
+        }
+        const cards = [...(document.querySelector('[data-testid="my-grid"]')?.children ?? [])];
+        return {
+          tags: [...new Set(cards.map((el) => el.tagName))],
+          opacity: cards.map((el) => getComputedStyle(el).opacity),
+          copies: document.querySelectorAll('.card[data-copy=""]').length,
+        };
+      },
+      [toView(one), toView(two)],
+    );
+    expect(after).toEqual({
+      tags: ["SPAN"],
+      opacity: [...Array(12).keys()].map((pos) => (pos === 2 ? "1" : "0")),
+      copies: 11,
+    });
+  });
+
+  test("UX-28 (PO, PR #29): a page scrolled down when the table replaces a taller one (the lobby) still sees the deal: the scroll clamping back moves nothing", async ({
+    page,
+  }) => {
+    await recordFlights(page);
+    const game = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 1);
+    const end = game.findIndex((s) => s.phase === "roundOver");
+    await show(page, { view: toView(game[end]), seat: 0 });
+    const frames = () =>
+      page.evaluate(
+        () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))),
+      );
+    await page.evaluate(() => {
+      const spacer = document.createElement("div");
+      spacer.id = "spacer";
+      spacer.style.height = "3000px";
+      document.body.append(spacer);
+      scrollTo(0, document.documentElement.scrollHeight);
+    });
+    await frames();
+    expect(await page.evaluate(() => scrollY)).toBeGreaterThan(0);
+    await page.evaluate(
+      (view) => {
+        const w = window as unknown as { flights: { a: Animation }[] };
+        document.getElementById("spacer")?.remove();
+        const mark = w.flights.length;
+        dispatchEvent(new CustomEvent("skyjo:table", { detail: { view } }));
+        for (const { a } of w.flights.slice(mark)) a.pause(); // the animations' clock, not the wall's
+      },
+      toView(game[end + 1]),
+    );
+    await frames(); // the clamped scroll's event has come
+    expect(await page.locator('.card[data-copy=""]').count()).toBe(12);
   });
 
   /**
