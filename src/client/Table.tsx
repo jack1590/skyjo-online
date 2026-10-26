@@ -34,6 +34,8 @@ const hurry = (left: number | null) => (left === null ? "" : left <= 5 ? " dange
 /** Out (R16) before this round: no cards and no turns. */
 const isOut = (p: PlayerView | undefined, round: number) =>
   p !== undefined && p.out !== null && p.out < round;
+/** This round's score, once the round is over; none for a player out before it (R16). */
+const lastScore = (p: PlayerView, round: number) => (isOut(p, round) ? 0 : (p.scores.at(-1) ?? 0));
 
 export function Table(props: TableProps) {
   const { view, onAction, onAuto, onPlayAgain, onExit, lead, connected, auto } = props;
@@ -74,6 +76,9 @@ export function Table(props: TableProps) {
 
   const reg = useFlights(view, tapped);
   const revealing = useRevealing(view);
+  // While the final reveal plays, totals stay as they were, so the cards tell the result first;
+  // the summary then counts them up (UX-27).
+  const total = (p: PlayerView) => (revealing ? p.total - lastScore(p, view.round) : p.total);
   useSounds(view, seat);
   const [muted, toggleMuted] = useMuted();
   // Tapping an opponent opens their grid full size; your own turn closes it.
@@ -268,7 +273,7 @@ export function Table(props: TableProps) {
               }}
               className={`opp${active ? " active" : ""}${gone ? " away" : ""}${clock ? " timed" : ""}${out ? " out" : ""}`}
               data-testid="opponent"
-              aria-label={`${gone ? `${t("offline")}: ` : ""}${auto?.[i] ? `${t("autoPlay")}: ` : ""}${out ? `${p.name}, ${t("outWatching")}` : t("showCards", { name: p.name })}, ${t("pts", { n: p.total })}`}
+              aria-label={`${gone ? `${t("offline")}: ` : ""}${auto?.[i] ? `${t("autoPlay")}: ` : ""}${out ? `${p.name}, ${t("outWatching")}` : t("showCards", { name: p.name })}, ${t("pts", { n: total(p) })}`}
               // No cards to show.
               disabled={out}
               onClick={() => setZoom(i)}
@@ -279,7 +284,7 @@ export function Table(props: TableProps) {
                   {p.name}
                 </span>
                 {clock && <Ring inMs={clock.inMs} />}
-                <span className="opp-total">{p.total}</span>
+                <span className="opp-total">{total(p)}</span>
               </span>
               {out ? (
                 <span className="out-note">{t("outWatching")}</span>
@@ -352,7 +357,7 @@ export function Table(props: TableProps) {
               <Card
                 slot={view.drawn}
                 size="md"
-                label={t("drawnCard")}
+                label={t("fromDiscard")}
                 testId="drawn"
                 cardRef={reg("drawn")}
               />
@@ -378,7 +383,7 @@ export function Table(props: TableProps) {
               <span className="auto-note">{t(away ? "autoAway" : "autoOn")}</span>
             ) : (
               <span className="me">
-                <strong>{me.name}</strong> <span className="pts">{t("pts", { n: me.total })}</span>
+                <strong>{me.name}</strong> <span className="pts">{t("pts", { n: total(me) })}</span>
               </span>
             )}
             {/* Nothing left to play once you're out (R16), even at that round's summary. */}
@@ -432,7 +437,7 @@ export function Table(props: TableProps) {
       )}
 
       {zoom !== null && players[zoom] && !isOut(players[zoom], view.round) && (
-        <Zoom view={view} seat={zoom} onClose={() => setZoom(null)} />
+        <Zoom view={view} seat={zoom} total={total(players[zoom])} onClose={() => setZoom(null)} />
       )}
 
       {/* The summary waits for the final reveal (UX-27). */}
@@ -476,7 +481,15 @@ function prompt(t: T, view: GameView, seat: number, myTurn: boolean, discardMode
  * One opponent's grid at full size, opened by tapping their panel; follows the live view. A native
  * modal <dialog> gives focus handling, Escape and an inert background; tapping outside closes it.
  */
-function Zoom({ view, seat, onClose }: { view: GameView; seat: number; onClose: () => void }) {
+interface ZoomProps {
+  view: GameView;
+  seat: number;
+  /** Their total as the table shows it (held during the final reveal). */
+  total: number;
+  onClose: () => void;
+}
+
+function Zoom({ view, seat, total, onClose }: ZoomProps) {
   const { t } = useI18n();
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -496,7 +509,7 @@ function Zoom({ view, seat, onClose }: { view: GameView; seat: number; onClose: 
       <div className="sheet">
         <div className="sheet-head">
           <h2 id="zoom-title">
-            {p.name} · {t("pts", { n: p.total })}
+            {p.name} · {t("pts", { n: total })}
           </h2>
           <button type="button" className="btn" onClick={onClose}>
             {t("close")}
@@ -567,7 +580,7 @@ function Summary({ view, lead, auto, onPeek, onNext, onPlayAgain, onExit }: Summ
             {rows.map((p) => {
               // Players out before this round (R16) have no score in it.
               const played = !isOut(p, view.round);
-              const last = played ? (p.scores.at(-1) ?? 0) : 0;
+              const last = lastScore(p, view.round);
               return (
                 <tr key={p.seat} className={view.winners.includes(p.seat) ? "win" : undefined}>
                   <td>

@@ -3,7 +3,7 @@ import { mkdirSync } from "node:fs";
 import { expect, type Page, test } from "@playwright/test";
 import { apply, type GameState } from "../src/engine/game";
 import { type GameView, toView } from "../src/engine/view";
-import { firstTurn, show } from "./harness";
+import { firstTurn, knockoutGame, show } from "./harness";
 import { seatedRoom, startGame } from "./helpers";
 
 /** Counts Element.animate calls (deterministic across engines, unlike sampling getAnimations()). */
@@ -302,6 +302,46 @@ test.describe("with motion allowed", () => {
     await expect(page.locator(".overlay")).toHaveCount(0);
     await page.clock.runFor(100);
     await expect(page.locator(".overlay")).toBeVisible();
+  });
+
+  test("UX-27: while the final reveal plays, every total is still the one from before the round, then the new one; in knockout too", async ({
+    page,
+  }) => {
+    await page.clock.install({ time: Date.UTC(2026, 9, 25, 12) });
+    await page.clock.pauseAt(Date.UTC(2026, 9, 25, 12, 0, 1));
+    // Knockout seed 1: Dani went out in round 1; Ana and Ben go out as round 2 ends.
+    const knockout = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 1);
+    const end = knockout.findIndex((s) => s.round === 2 && s.phase === "gameOver");
+    const games = [
+      { ...race(3, 5), seat: 0 },
+      { before: knockout[end - 1], after: knockout[end], seat: 2 },
+    ];
+    const totals = () =>
+      page.evaluate(() => ({
+        panels: [...document.querySelectorAll('[data-testid="opponent"] .opp-total')].map(
+          (el) => el.textContent,
+        ),
+        mine: document.querySelector(".mine-head .pts")?.textContent,
+      }));
+    for (const { before, after, seat } of games) {
+      const n = after.players.length;
+      const others = Array.from({ length: n - 1 }, (_, i) => (seat + 1 + i) % n);
+      await show(page, { view: toView(before), seat, lead: true });
+      const was = await totals();
+      expect(was.panels).toEqual(others.map((i) => String(before.players[i].total)));
+      await page.evaluate((view) => {
+        dispatchEvent(new CustomEvent("skyjo:table", { detail: { view } }));
+      }, toView(after));
+      expect(await totals(), "the reveal's first frame").toEqual(was);
+      await page.clock.runFor(400); // every hold is ≥ 900 ms
+      expect(await totals(), "mid-reveal").toEqual(was);
+      await page.clock.runFor(3500);
+      await expect(page.locator(".overlay")).toBeVisible();
+      expect(await totals()).toEqual({
+        panels: others.map((i) => String(after.players[i].total)),
+        mine: `${after.players[seat].total} pts`,
+      });
+    }
   });
 
   test("UX-27: the card you tap to end the round turns at once, then the reveal", async ({
