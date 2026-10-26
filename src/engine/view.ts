@@ -24,6 +24,8 @@ export interface GameView {
   discardTop: Card | null;
   drawn: Card | null;
   drawnFrom: GameState["drawnFrom"];
+  /** Turns finished this round: 0 at the start player's first draw (R4). */
+  turn: number;
   /** R16: play until one is left. */
   knockout: boolean;
 }
@@ -48,6 +50,7 @@ export function toView(s: GameState): GameView {
     discardTop: s.discard.at(-1) ?? null,
     drawn: s.drawn,
     drawnFrom: s.drawnFrom,
+    turn: s.turn,
     knockout: s.knockout,
   };
 }

@@ -125,6 +125,19 @@ describe("turns", () => {
     expect(s.phase).toBe("draw");
   });
 
+  it("R4/R5: `turn` counts the round's finished turns, so the start player's first draw is turn 0", () => {
+    let s = createGame(names(3), seed(1));
+    while (s.phase === "flip") s = apply(s, legalActions(s)[0]);
+    expect(s.turn).toBe(0);
+    s = apply(s, { type: "draw", seat: s.current, source: "discard" });
+    expect(s.turn).toBe(0);
+    s = apply(s, { type: "swap", seat: s.current, pos: 0 });
+    expect(s.turn).toBe(1);
+    s = apply(s, { type: "draw", seat: s.current, source: "deck" });
+    s = apply(s, legalActions(s).at(-1) as Action); // throws it away and flips
+    expect(s.turn).toBe(2);
+  });
+
   it("R6: drawing from the deck sets drawn/drawnFrom and phase 'place'", () => {
     const s0 = inPlay(2);
     s0.deck.push(7);
@@ -394,6 +407,7 @@ describe("game end and next round", () => {
     expect(s.round).toBe(2);
     expect(s.phase).toBe("flip");
     expect(s.ender).toBeNull();
+    expect(s.turn).toBe(0);
     for (const p of s.players) {
       expect(p.grid.every((slot) => slot && !slot.up)).toBe(true);
     }
@@ -414,6 +428,7 @@ describe("game end and next round", () => {
       { type: "flip", seat: 1, pos: 1 },
     );
     expect(flipped.current).toBe(1);
+    expect(flipped.turn).toBe(0);
   });
 
   it("R14: with knockout off, 3+ players: one player crossing 100 ends the game", () => {

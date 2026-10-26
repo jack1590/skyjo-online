@@ -10,7 +10,7 @@ import {
 import { type Action, places } from "../engine/game";
 import type { GameView, PlayerView, ViewSlot } from "../engine/view";
 import { TURN_MS, type Wait } from "../protocol";
-import { Card } from "./Card";
+import { Card, formatCard } from "./Card";
 import { type Locale, ordinal, type T, useI18n } from "./i18n";
 import {
   settled,
@@ -51,6 +51,9 @@ interface TableProps {
 const where = (t: T, pos: number) =>
   t("where", { row: Math.floor(pos / 4) + 1, col: (pos % 4) + 1 });
 const upCount = (grid: ViewSlot[]) => grid.filter((slot) => typeof slot === "number").length;
+/** The sum of a player's face-up cards: their round score so far (UX-15). */
+export const faceUpSum = (grid: ViewSlot[]) =>
+  grid.reduce<number>((sum, slot) => sum + (typeof slot === "number" ? slot : 0), 0);
 /** Orange in a clock's last 10 s, red in its last 5. */
 const hurry = (left: number | null) => (left === null ? "" : left <= 5 ? " danger" : " warn");
 /** Out (R16) before this round: no cards and no turns. */
@@ -273,7 +276,9 @@ export function Table(props: TableProps) {
     else if (auto?.[view.current]) pill = t("autoPill", { name });
     else pill = lastTurns ? t("lastTurnPill", { name }) : name;
   } else if (phase === "flip") {
-    pill = t("flipTwo");
+    // Only someone with cards left to flip is asked to (PO, PR #33): watchers and players done
+    // flipping read what the table waits on.
+    pill = myTurn ? t("flipTwo") : t("everyoneFlips");
   }
   if (myClock.left !== null) pill += ` · ${myClock.left}`;
 
@@ -313,7 +318,7 @@ export function Table(props: TableProps) {
         ) : (
           // Pops once per turn (UX-10): the key changes with the player, not with the phase.
           <span
-            className={`turn${lastTurns ? " final" : ""}${hurry(myClock.left)}`}
+            className={`turn${lastTurns ? " final" : ""}${phase === "flip" && !myTurn ? " idle" : ""}${hurry(myClock.left)}`}
             key={`${view.round}-${view.current}`}
             data-testid="pill"
           >
@@ -360,7 +365,7 @@ export function Table(props: TableProps) {
               }}
               className={`opp${active ? " active" : ""}${gone ? " away" : ""}${clock ? " timed" : ""}${out ? " out" : ""}`}
               data-testid="opponent"
-              aria-label={`${gone ? `${t("offline")}: ` : ""}${auto?.[i] ? `${t("autoPlay")}: ` : ""}${out ? `${p.name}, ${t("outWatching")}` : t("showCards", { name: p.name })}, ${t("pts", { n: total(p) })}`}
+              aria-label={`${gone ? `${t("offline")}: ` : ""}${auto?.[i] ? `${t("autoPlay")}: ` : ""}${out ? `${p.name}, ${t("outWatching")}` : t("showCards", { name: p.name })}, ${t("pts", { n: total(p) })}${out || summary || !upCount(p.grid) ? "" : `, ${signed(faceUpSum(p.grid))} ${t("thisRound")}`}`}
               // No cards to show.
               disabled={out}
               onClick={() => setZoom(i)}
@@ -371,6 +376,7 @@ export function Table(props: TableProps) {
                   {p.name}
                 </span>
                 {clock && <Ring inMs={clock.inMs} />}
+                {!out && !summary && upCount(p.grid) > 0 && <Sum grid={p.grid} />}
                 <span className="opp-total">{total(p)}</span>
               </span>
               {out ? (
@@ -495,7 +501,8 @@ export function Table(props: TableProps) {
               <span className="auto-note">{t(away ? "autoAway" : "autoOn")}</span>
             ) : (
               <span className="me">
-                <strong>{me.name}</strong> <span className="pts">{t("pts", { n: total(me) })}</span>
+                <strong>{me.name}</strong> <span className="pts">{t("pts", { n: total(me) })}</span>{" "}
+                {!summary && upCount(me.grid) > 0 && <Sum grid={me.grid} />}
               </span>
             )}
             {/* Nothing left to play once you're out (R16), even at that round's summary. */}
@@ -574,18 +581,36 @@ export function Table(props: TableProps) {
   );
 }
 
-function prompt(t: T, view: GameView, seat: number, myTurn: boolean, discardMode: boolean) {
+/** Your seat's note under the piles: what to do on your turn, or what the table waits on. */
+export function prompt(t: T, view: GameView, seat: number, myTurn: boolean, discardMode: boolean) {
   const me = view.players[seat];
-  const waiting = t("waiting", { name: view.players[view.current].name });
+  const mover = view.players[view.current];
+  const waiting = t("waiting", { name: mover.name });
+  // R10: revealing it makes you the ender (UX-16).
+  if (myTurn && view.ender === null && me.grid.filter((slot) => slot === "down").length === 1) {
+    return t("lastCard");
+  }
   switch (view.phase) {
     case "flip": {
       const n = 2 - upCount(me.grid);
       if (!myTurn) return t("waitingFlip");
       return n === 1 ? t("flipOnePlain") : t("flipManyPlain", { n });
     }
-    case "draw":
+    case "draw": {
+      if (view.turn === 0) {
+        // Who starts and why (R4, UX-16): the engine picked the highest pair among the players
+        // still in (R16), the first seat on a tie.
+        const pair = faceUpSum(mover.grid);
+        const tied = view.players.some(
+          (p, i) => i !== view.current && !isOut(p, view.round) && faceUpSum(p.grid) === pair,
+        );
+        const n = tied ? `${formatCard(pair)}, ${t("tied")}` : formatCard(pair);
+        if (myTurn) return `${t("youStart", { n })} ${t("drawPlain")}`;
+        return t("starts", { name: mover.name, n });
+      }
       if (!myTurn) return waiting;
       return (view.ender !== null ? t("lastTurn") : "") + t("drawPlain");
+    }
     case "place":
       if (!myTurn) return waiting;
       if (view.drawnFrom === "discard") return t("swapIn");
@@ -894,6 +919,24 @@ function Ring({ inMs }: { inMs: number }) {
       <Drain key={until} until={until} className={`ring${hurry(left)}`} />
       {left !== null && <span className={`opp-left${hurry(left)}`}>{left}</span>}
     </>
+  );
+}
+
+/** "+14", "−3": a signed round score, as it adds to the total. */
+const signed = (n: number) => (n > 0 ? `+${n}` : formatCard(n));
+
+/**
+ * A player's round score so far, beside their total (UX-15): their face-up cards. Only while the
+ * round is played: from the final reveal on, the summary has the round's scores (M9's hold).
+ */
+function Sum({ grid }: { grid: ViewSlot[] }) {
+  const { t } = useI18n();
+  const n = signed(faceUpSum(grid));
+  return (
+    <span className="sum" data-testid="sum">
+      {n}
+      <span className="sr-only"> {t("thisRound")}</span>
+    </span>
   );
 }
 

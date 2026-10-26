@@ -12,7 +12,10 @@ import {
   useReducedMotion,
 } from "./motion";
 
-/** tick.mp3, the 5 s warning, is generated for this project (ffmpeg, two decaying sines). */
+/**
+ * tick.mp3, the 5 s warning, and last.mp3, the last-round chime, are generated for this project
+ * (ffmpeg, decaying sines).
+ */
 const NAMES = [
   "flip",
   "draw",
@@ -24,6 +27,7 @@ const NAMES = [
   "win",
   "end",
   "out",
+  "last",
   "tick",
 ] as const;
 export type Sound = (typeof NAMES)[number];
@@ -51,7 +55,7 @@ function readMuted(): boolean {
 }
 let muted = readMuted();
 
-/** Starts downloading the sounds (77 KB; not precached: the game needs the network anyway). */
+/** Starts downloading the sounds (84 KB; not precached: the game needs the network anyway). */
 export function preloadSounds() {
   files ??= Promise.all(
     NAMES.map(
@@ -180,7 +184,12 @@ export function soundsBetween(
   const late = (ms: number) => (timing ? ms : LATE_MS);
   if (moves.some((m) => m.column)) add("column", late(timing?.get("column")?.start ?? 0));
   const myTurn = (v: GameView) => seat !== null && v.phase === "draw" && v.current === seat;
-  if (myTurn(cur) && !myTurn(prev)) add("turn", late(timing ? settled(timing) : 0));
+  // R10: someone revealed their whole grid, so everyone's next turn is their last (M14). For the
+  // next player it stands in for "your turn".
+  const lastTurns = prev.ender === null && cur.ender !== null;
+  if (lastTurns && (cur.phase === "draw" || cur.phase === "place")) {
+    add("last", late(timing ? settled(timing) : 0));
+  } else if (myTurn(cur) && !myTurn(prev)) add("turn", late(timing ? settled(timing) : 0));
   // Game over, or going out (R16, M17 PO), sounds once: as the phase changes to its summary.
   if (cur.phase !== prev.phase) {
     const shows = (timing && reveal ? settled(timing) + SUMMARY_MS : 0) + LATE_MS;
@@ -210,8 +219,27 @@ export function useSounds(
     const before = prev.current;
     prev.current = view;
     const timed = reduced ? undefined : timing.current;
-    for (const [name, ms] of soundsBetween(before, view, seat, timed, heard)) play(name, ms);
+    for (const [name, ms] of soundsBetween(before, view, seat, timed, heard)) cue(name, ms);
   }, [view, seat, reduced, timing, heard]);
+}
+
+/** What the phone does with a cue, beside its sound (ms on, off, on…): the last round and results. */
+export const BUZZ: Partial<Record<Sound, number[]>> = {
+  last: [80, 80, 80],
+  win: [60, 40, 60, 40, 60, 40, 400],
+  out: [120],
+};
+
+/**
+ * Plays a sound `ms` from now, and its vibration with it. Like the nudge, mute silences the sound
+ * only, and browsers block vibrate before the first tap on the page.
+ */
+export function cue(name: Sound, ms = 0) {
+  play(name, ms);
+  const buzz = BUZZ[name];
+  if (buzz && navigator.userActivation?.hasBeenActive) {
+    setTimeout(() => navigator.vibrate?.(buzz), ms);
+  }
 }
 
 let nudged: string | null = null;

@@ -4,6 +4,21 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.4.0] - 2026-10-26
+
+### Added
+
+- Every player's round score so far. Under each total, a small number such as "+14" is the sum of that player's face-up cards this round, and yours sits next to your points. It counts only cards everyone can see, so you can tell who is low before the round is counted. From the final reveal on, the round summary has the scores instead.
+- When a round starts, the line under the piles says who starts and why, for example "Ben starts: highest pair (17)", or "tied" when two pairs are equal and the first player in turn order goes first. The player who starts reads "You start: highest pair (17)." before what to do. In "Play until one is left", only players still in count.
+- With one face-down card left, your turn reminds you: "Revealing your last card ends the round".
+- When someone reveals their whole grid, every phone plays a short two-note chime and buzzes, since everyone's next turn is now their last. The pill turns orange, as before, and now sends out a ring as each last turn starts (none with reduced motion turned on in your phone's settings).
+- Results have a feel: at game over the winner's phone buzzes longer, and going out in "Play until one is left" gets a short buzz, each with its sound. Like the turn clock's warning, the buzz comes even with sound off.
+
+### Changed
+
+- During the opening flip, the pill says "Flip 2 cards" only to players who still have cards to flip. Anyone watching, players who are out and players who have already flipped both read a quiet "Everyone flips 2" instead of a gold call to act.
+- The opponents' panels above your grid have a second line for the round score, so names keep their full width. On screens where height is tight, your cards are about 4 px narrower for it.
+
 ## [2.3.0] - 2026-10-26
 
 ### Added
