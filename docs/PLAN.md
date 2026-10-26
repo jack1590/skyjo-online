@@ -451,6 +451,7 @@ The expert counts slow taps as part of the "not smooth" feeling. All three items
 - A unit test: after the answer to a column-completing discard-and-flip, `heard` is empty.
 - An E2E shows 3 flights to the discard, 60–90 ms apart.
 - Reduced motion turns it all off.
+- (PO, PR #28 round 1) The round's last swap into a column that the final reveal then completes plays as it happened. Today, when the column's face-up cards differ (the one replaced and the one kept), `flightsBetween` takes the first face-up card as the column's: the kept 5 turns into a 3 at once, the drawn 5 flies to the pile instead of into the grid, and three 3s fly onto a pile that then shows 5. When one column leaves, its card is the pile's new top (R9 stacks it last). In it, a face-up card that isn't the column's card is the one the swap replaced, before any face-down slot. Unit tests for a 3 over a 5 and a face-down 5, a 3 over two face-down 5s, and a 3 between two face-down 5s.
 - The release checklist is done.
 
 **How it was built (author, PR #28).**
@@ -475,7 +476,19 @@ The expert counts slow taps as part of the "not smooth" feeling. All three items
   - **Side by side:** `main`'s and this branch's full iPhone projects ran at once, 4 workers each, at load 31–131. Nothing timed out. `main`'s M18 test took 16.5 s and its UX-21 test 11.8 s; the split ones took at most 9.7 s and 4.2 s.
   - **No flakes:** `--repeat-each=20` on iPhone at 6 workers passed 300 of 300, and 280 of 280 after the review's last fixes.
 
+**PO, PR #28 round 1: changes requested** (the round's last swap, above). Played on `7d674ca` with motion and sound on: two 4-phone games of 2 rounds each (Ana in es with sound, Ben and Dani in en, Cleo in pt), in WebKit at 390×664 and Chromium at 360×740, with bots that build columns. Harness strips at 4 and 6 seats.
+- **The column** is the moment it should be. In those games 19 columns left (10 in WebKit, 9 in Chromium), Ana's own and opponents'. After every move, no stand-in stayed and no card stayed hidden; no console error. A tap on the deck mid-column and a reload mid-column each left nothing behind.
+- **Rulings.**
+  - A face-down card replaced by a column-completing swap flies face down and fades as it lands. It stands: the view never had its value. In this, the most common way to complete a column, the pile shows its old card for about 500 ms until the column covers it.
+  - Column moves the views can't tell apart (a face-down slot, a final reveal turning up the same card) play as the likelier swap. It stands: the outcome is the same, and a player holding the column's card completes it for sure by swapping. The round's last swap above is not such a case: the views tell it apart.
+- **WebKit 8-seat reveal**, median of the 9 longest frames: with the author's script, this PR 59 and 60 ms, `main` 66 and 67. With PR #26's PO script, this PR 45 ms and `main` 47–50. The first two frames together still take about 110 ms on both builds.
+- **Delivery.** CI's iPhone job took 132 and 167 s (Playwright 80 and 118 s; PR #27: 132–155 and 77–108). The second runner was slow: its tests summed 396 s, against 257–361 s in the five iPhone jobs of PR #27 and its `main` run. The split tests took M18 6.7–8.9 s and UX-21 2.8–3.2 s on run 1, and M18 9.6–13.0 s on run 2: over the 10 s bar on a slow runner. Locally, `npm run e2e` took 102 s; the new and split tests passed 330 of 330 at `--repeat-each=10` on all 3 devices.
+
 ### M20 — The deal · v2.2.5
+
+**First commit of M20's PR, test only (delivery health, PO PR #28).** Make `table.spec.ts`'s M18 tests cheap on CI.
+- **Why:** each takes 0.4 s locally at 1 worker, but 6.7–13.0 s on CI's iPhone job (UX-21's split tests: 0.3 s and 2.8–5.8 s), so they are still its longest table tests. Find the step that is slow on CI's WebKit, from a trace or a timed log, and fix it.
+- **Acceptance:** each ≤ 5 s on CI's iPhone job, on 2 runs.
 
 - **UX-28.** Your 12 cards fly from the deck face-down, 30 ms apart, 320 ms each, while opponents' cards fade and scale in. Taps are never blocked.
 - It is a patch release, not the minor the expert suggested: under this plan's semver rule, polish is a patch.
