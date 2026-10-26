@@ -97,7 +97,10 @@ export function flightsBetween(prev: GameView, cur: GameView): Flights {
         before[r.pos] !== held &&
         !(away && before[r.pos] === "down"),
     )?.pos;
-    const pos = changed.find((i) => after[i] === held) ?? into ?? changed[0] ?? -1;
+    // Certain when that slot showed another card; else the final reveal may have turned up the
+    // card elsewhere, which then is where it went.
+    const sure = into !== undefined && typeof before[into] === "number" ? into : undefined;
+    const pos = sure ?? changed.find((i) => after[i] === held) ?? into ?? changed[0] ?? -1;
     const revealedOnly = before[pos] === "down" && cur.discardTop === held;
     const swapped =
       pos === into ||
@@ -310,22 +313,25 @@ interface Job {
  */
 function start(jobs: Job[]) {
   for (const { el, role = "" } of jobs) el.dataset.motion = role;
-  for (const { el, keyframes, options, edge, done: then } of jobs) {
+  return jobs.map(({ el, keyframes, options, edge, done: then }) => {
     const done = () => {
       if (!el.getAnimations().some(ours)) delete el.dataset.motion;
       then?.();
     };
     const timing = { fill: "backwards" as const, ...options };
-    el.animate(keyframes, timing).finished.then(done, done);
-    if (edge === undefined) continue;
-    const shown = [
-      { opacity: 1 },
-      { opacity: 1, offset: edge },
-      { opacity: 0, offset: edge },
-      { opacity: 0 },
-    ];
-    el.animate(shown, { ...timing, id: BACK, pseudoElement: "::before" });
-  }
+    const animation = el.animate(keyframes, timing);
+    animation.finished.then(done, done);
+    if (edge !== undefined) {
+      const shown = [
+        { opacity: 1 },
+        { opacity: 1, offset: edge },
+        { opacity: 0, offset: edge },
+        { opacity: 0 },
+      ];
+      el.animate(shown, { ...timing, id: BACK, pseudoElement: "::before" });
+    }
+    return animation;
+  });
 }
 
 /** A frame (`turn`: with its turn, about a perspective of 6 card widths) as a `transform`. */
@@ -342,26 +348,41 @@ const hide = (el: HTMLElement, ms: number, done?: () => void): Job => ({
   done,
 });
 
+type Size = keyof typeof FLIP_MS;
+const sizeOf = (el: HTMLElement): Size =>
+  el.classList.contains("sm") ? "sm" : el.classList.contains("md") ? "md" : "lg";
+
 /**
  * A stand-in for a card on its way (UX-8, UX-26, UX-30): fixed over the page where `box` is, so no
  * scrolling strip clips it, and never tapped (styles.css). It looks like `look`: a card element, or
- * a medium card like the pile's showing that card.
+ * a card of `size` showing that card (by default a medium one, like the pile's), its number
+ * `num` px tall (else as its size has it). `under`: the one under a card flying onto the pile.
+ * `hidden`: seen only while its animations say so.
  */
-function standIn(look: HTMLElement | ViewSlot, box: Rect, under = false) {
+function standIn(
+  look: HTMLElement | ViewSlot,
+  box: Rect,
+  { size = "md" as Size, num = 0, under = false, hidden = false } = {},
+) {
   const el = document.createElement("span");
   if (look instanceof HTMLElement) {
     el.className = look.className;
     el.style.backgroundImage = look.style.backgroundImage;
     el.innerHTML = look.innerHTML;
     // Its number is sized by the grid it's in (container units), which the stand-in isn't.
-    const [num, copy] = [look, el].map((e) => e.querySelector<HTMLElement>(".num"));
-    if (num && copy) copy.style.fontSize = getComputedStyle(num).fontSize;
+    const text = look.querySelector(".num");
+    num = text ? Number.parseFloat(getComputedStyle(text).fontSize) : 0;
   } else if (look !== null) {
-    el.className = `card md ${look === "down" ? "down" : "up"}`;
+    el.className = `card ${size} ${look === "down" ? "down" : "up"}`;
     el.style.backgroundImage = `url(${art(look)})`;
+    // A large card's width comes from your grid; its number is a share of it.
+    if (size === "lg") el.style.setProperty("--w", `${box.width}px`);
     if (typeof look === "number") el.innerHTML = `<span class="num">${formatCard(look)}</span>`;
   }
+  const text = el.querySelector<HTMLElement>(".num");
+  if (num && text) text.style.fontSize = `${num}px`;
   el.dataset.copy = under ? "under" : "";
+  if (hidden) el.style.opacity = "0";
   el.setAttribute("aria-hidden", "true");
   Object.assign(el.style, {
     left: `${box.x}px`,
@@ -423,6 +444,16 @@ export function useFlights(
   const measureAgain = useRef(() => {});
   /** Stand-ins on the page (`standIn`), gone with the table. */
   const copies = useRef(new Set<HTMLElement>());
+  /** The last change's stand-ins and the cards they hide, which can outlast it (UX-26). */
+  const lingering = useRef<Animation[]>([]);
+  /**
+   * Ends them at once: before the next move's flights, a tap, or a scroll (stand-ins are fixed to
+   * the page), so the table shows its cards again, at rest.
+   */
+  const endStandIns = useRef(() => {
+    for (const a of lingering.current) a.finish();
+    lingering.current = [];
+  });
   const reduced = useReducedMotion();
 
   useLayoutEffect(() => {
@@ -436,13 +467,18 @@ export function useFlights(
       for (const el of [...els.current.values(), ...copies.current]) {
         for (const a of el.getAnimations({ subtree: true })) if (ours(a)) a.cancel();
       }
+      lingering.current = [];
     }
+    const { moves, flips, reveal } = before
+      ? flightsBetween(before, view)
+      : { moves: [], flips: [], reveal: false };
+    // Not for an update that moves nothing (presence, clocks): that would cut a column short.
+    if (moves.length || flips.length) endStandIns.current();
     // Every new position is read before any flight starts, so none holds a first frame (UX-1).
     const was = rects.current;
     const now = measure(els.current, was);
     rects.current = now;
     if (!before) return;
-    const { moves, flips, reveal } = flightsBetween(before, view);
     const jobs: Job[] = [];
     const pile = now.get("discard");
     const column = moves.filter((m) => m.column);
@@ -457,9 +493,14 @@ export function useFlights(
       el.remove();
       copies.current.delete(el);
     };
+    /** Raised over the other stand-ins until its job ends (UX-23: the card in, the one out). */
+    const raise = (el: HTMLElement) => {
+      el.style.zIndex = "4";
+      return () => el.style.removeProperty("z-index");
+    };
     /** How a column's card got to its slot in this change: flown in, or turned over there. */
-    const arrived = new Map<string, { at: Rect; flight: ReturnType<typeof path>; delay: number }>();
-    const turned = new Map<string, { delay: number; size: keyof typeof FLIP_MS }>();
+    const arrived = new Map<string, { flight: ReturnType<typeof path>; delay: number }>();
+    const turned = new Map<string, { delay: number; size: Size }>();
 
     for (const m of moves) {
       if (m.column) continue;
@@ -474,43 +515,40 @@ export function useFlights(
       const { frames, duration, edge, hit } = flight;
       times.set(m.to, { start: delay, hit: delay + hit, end: delay + duration });
       if (leaves(m.to)) {
-        arrived.set(m.to, { at: b, flight, delay }); // its column's stand-in flies it in
+        arrived.set(m.to, { flight, delay }); // its column's stand-in flies it in
         continue;
       }
       const options = { duration, delay, id: FLIGHT };
       const role = delay ? "in" : "";
       const back = m.turn ? edge : undefined;
-      if (m.card !== undefined || el.closest(".opponents")) {
-        // A stand-in, where no element will show this card (it's under a column, UX-26), or where
-        // the scrolling strip would clip it (UX-8).
-        const copy = keep(standIn(m.card === undefined ? el : m.card, b));
-        const keyframes = frames.map((f) => ({
-          offset: f.offset,
-          transform: transform(f, b.width, m.turn),
-        }));
-        if (m.card === undefined) {
-          jobs.push({ el: copy, keyframes, options, role, edge: back, done: drop(copy) });
-          jobs.push(hide(el, delay + duration));
-        } else {
-          made.push(copy);
-          jobs.push({
-            el: copy,
-            keyframes,
-            options: { ...options, fill: "forwards" },
-            role,
-            edge: back,
-          });
-        }
-        continue;
-      }
-      // Around the card's centre, like its own `scale` (the lifted discard, UX-21), so the two
-      // compose; that scale also scales the offset.
-      const k = Number.parseFloat(getComputedStyle(el).scale) || 1;
-      const keyframes = frames.map((f) => ({
+      const keyframes: Keyframe[] = frames.map((f) => ({
         offset: f.offset,
-        transform: transform(f, b.width, m.turn, k),
+        transform: transform(f, b.width, m.turn),
       }));
-      jobs.push({ el, keyframes, options, role, edge: back });
+      if (m.card !== undefined) {
+        // Onto the pile, under a column (UX-26): no element will show this card. One nobody saw
+        // (it left face down) fades as it lands, as no discard lies face down.
+        const copy = keep(standIn(m.card, b));
+        made.push(copy);
+        if (m.card === "down") {
+          const n = keyframes.length;
+          for (const [i, k] of keyframes.entries()) k.opacity = i < n - 2 ? 1 : i < n - 1 ? 0.4 : 0;
+        }
+        const fill = "forwards" as const;
+        jobs.push({ el: copy, keyframes, options: { ...options, fill }, role, done: raise(copy) });
+      } else if (el.closest(".opponents")) {
+        // Into an opponent's grid: their scrolling strip would clip it (UX-8).
+        const copy = keep(standIn(el, b));
+        jobs.push({ el: copy, keyframes, options, role, edge: back, done: drop(copy) });
+        jobs.push(hide(el, delay + duration));
+      } else {
+        // Around the card's centre, like its own `scale` (the lifted discard, UX-21), so the two
+        // compose; that scale also scales the offset.
+        const k = Number.parseFloat(getComputedStyle(el).scale) || 1;
+        for (const [i, f] of frames.entries())
+          keyframes[i].transform = transform(f, b.width, m.turn, k);
+        jobs.push({ el, keyframes, options, role, edge: back });
+      }
     }
     for (const [key, delay] of flipDelays(
       flips,
@@ -520,7 +558,7 @@ export function useFlights(
       const el = els.current.get(key);
       const w = now.get(key)?.width;
       if (!el || !w) continue;
-      const size = el.classList.contains("sm") ? "sm" : el.classList.contains("md") ? "md" : "lg";
+      const size = sizeOf(el);
       times.set(key, { start: delay, hit: delay + FLIP_MS[size], end: delay + FLIP_MS[size] });
       if (leaves(key)) {
         turned.set(key, { delay, size }); // its column's stand-in turns over first
@@ -532,8 +570,8 @@ export function useFlights(
       jobs.push({ el, keyframes: flipFrames(size, w), options, edge: 0.5, role: "flip" });
     }
 
-    // A completed column (UX-26): a beat once the rest has landed, then its cards pulse, and leave
-    // as stand-ins one after another; the pile shows its own card again once they're all on it.
+    // A completed column (UX-26): a beat once the rest has landed, then its cards pulse where they
+    // lie, and leave one after another; the pile shows its own card again once they're all on it.
     const discard = els.current.get("discard");
     const pulse = settled(times) + COLUMN.beat;
     const leave = pulse + COLUMN.pulse;
@@ -545,61 +583,68 @@ export function useFlights(
         const at = now.get(m.from);
         if (!el || !at) return;
         const go = leave + i * COLUMN.gap;
-        // Where it rests, from the pile it is laid out over (`scale` its own size there).
-        const [cx, cy] = [at.x + at.width / 2, at.y + at.height / 2];
-        const [px, py] = [pile.x + pile.width / 2, pile.y + pile.height / 2];
-        const onto = (f: Omit<Frame, "offset">, scale = f.scale) => ({
-          ...f,
-          x: f.x + cx - px,
-          y: f.y + cy - py,
-          scale: (scale * at.width) / pile.width,
-        });
-        const rest = (t: number, scale = 1) => ({
-          t,
-          ...onto({ x: 0, y: 0, rotate: 0, scale, turn: 0 }),
-        });
+        // Until it leaves, a stand-in of its own card where it lies: its size, and its number's
+        // (an opponent's, like styles.css's `.card.sm .num`, from their grid's width).
+        const size = sizeOf(el);
+        const num = size === "sm" ? Math.max(12, 0.15 * (el.parentElement?.clientWidth ?? 0)) : 0;
+        const card = keep(standIn(m.card ?? null, at, { size, num, hidden: true }));
+        const rest = (t: number, scale = 1) => ({ t, x: 0, y: 0, rotate: 0, scale, turn: 0 });
         type Pose = ReturnType<typeof rest> & { easing?: string };
+        const pose = (t: number, { x, y, rotate, scale, turn }: Frame): Pose => ({
+          t,
+          x,
+          y,
+          rotate,
+          scale,
+          turn,
+        });
         let poses: Pose[] = [rest(0)];
         let edge: number | undefined;
+        let done: (() => void) | undefined;
         const into = arrived.get(m.from);
         const flip = turned.get(m.from);
         if (into) {
           const { flight, delay } = into;
           poses = [
-            { t: 0, ...onto(flight.frames[0]) },
-            ...flight.frames.map((f) => ({ t: delay + f.offset * flight.duration, ...onto(f) })),
+            pose(0, flight.frames[0]),
+            ...flight.frames.map((f) => pose(delay + f.offset * flight.duration, f)),
           ];
+          done = raise(card); // the card flown in passes over the column's others
         } else if (flip) {
           const ms = FLIP_MS[flip.size];
           const up = flip.size !== "sm";
-          const mid = rest(flip.delay + ms / 2, up ? 1.08 : 1);
           poses = [
             { ...rest(0), turn: 180 },
             { ...rest(flip.delay), turn: 180, easing: FLIP_EASE },
-            { ...mid, y: mid.y - (up ? 4 : 0), turn: 90, easing: FLIP_EASE },
+            {
+              ...rest(flip.delay + ms / 2, up ? 1.08 : 1),
+              y: up ? -4 : 0,
+              turn: 90,
+              easing: FLIP_EASE,
+            },
             rest(flip.delay + ms),
           ];
           edge = (flip.delay + ms / 2) / go;
         }
         poses.push(rest(pulse), rest(pulse + COLUMN.pulse / 2, 1.1), rest(leave), rest(go));
-        const copy = keep(standIn(m.card ?? null, pile));
-        made.push(copy);
         const lead = poses.map(({ t, easing, ...f }) => ({
           offset: t / go,
-          transform: transform(f, pile.width, true),
+          transform: transform(f, at.width, true),
+          opacity: 1,
           ...(easing && { easing }),
         }));
-        // The card flown in passes over the column's others (UX-23), then stacks in turn.
-        if (into) copy.style.zIndex = "4";
-        const done = () => copy.style.removeProperty("z-index");
-        jobs.push({ el: copy, keyframes: lead, options: { duration: go, id: FLIGHT }, edge, done });
+        jobs.push({ el: card, keyframes: lead, options: { duration: go, id: FLIGHT }, edge, done });
+        // Then one like the pile's flies there, from where it lay.
+        const flyer = keep(standIn(m.card ?? null, pile, { hidden: true }));
+        made.push(card, flyer);
         const { frames } = path(at, pile, { ms: COLUMN.fly });
         const keyframes = frames.map((f) => ({
           offset: f.offset,
           transform: transform(f, pile.width, false),
+          opacity: 1,
         }));
         const options = { delay: go, duration: COLUMN.fly, id: LEAVE, fill: "forwards" as const };
-        jobs.push({ el: copy, keyframes, options });
+        jobs.push({ el: flyer, keyframes, options });
         jobs.push(hide(el, go));
       });
       jobs.push(
@@ -612,18 +657,23 @@ export function useFlights(
     // The pile shows the card a flight will cover until it lands (UX-30), or the column does.
     const lands = column.length ? end : times.get("discard")?.end;
     if (pile && lands && before.discardTop !== null && !moves.some((m) => m.from === "discard")) {
-      const under = keep(standIn(before.discardTop, pile, true));
+      const under = keep(standIn(before.discardTop, pile, { under: true }));
       if (column.length) made.push(under);
       const options = { duration: lands, id: FLIGHT };
       const done = column.length ? undefined : drop(under);
       jobs.push({ el: under, keyframes: [{ opacity: 1 }, { opacity: 1 }], options, done });
     }
-    start(jobs);
+    const started = start(jobs);
+    lingering.current = started.filter(
+      (_, i) => jobs[i].el.dataset.copy !== undefined || jobs[i].role === "hide",
+    );
     measureAgain.current(); // and again once they land
   }, [view, reduced, tapped]);
 
   useLayoutEffect(() => {
-    if (pending && !reduced) rects.current = measure(els.current, rects.current);
+    if (!pending || reduced) return;
+    endStandIns.current(); // the card you tapped shows, lifted, where it lies
+    rects.current = measure(els.current, rects.current);
   }, [pending, reduced]);
 
   useEffect(() => {
@@ -649,8 +699,13 @@ export function useFlights(
     };
     settle();
     window.addEventListener("load", settle);
-    window.addEventListener("scroll", remeasure, true); // capture: .table scrolls, not the window
-    window.addEventListener("resize", remeasure);
+    // Stand-ins are fixed to the page, so a scroll or a resize ends them first.
+    const moved = () => {
+      endStandIns.current();
+      remeasure();
+    };
+    window.addEventListener("scroll", moved, true); // capture: .table scrolls, not the window
+    window.addEventListener("resize", moved);
     measureAgain.current = remeasure;
     const left = copies.current;
     return () => {
@@ -659,8 +714,8 @@ export function useFlights(
       measureAgain.current = () => {};
       cancelAnimationFrame(frame);
       window.removeEventListener("load", settle);
-      window.removeEventListener("scroll", remeasure, true);
-      window.removeEventListener("resize", remeasure);
+      window.removeEventListener("scroll", moved, true);
+      window.removeEventListener("resize", moved);
     };
   }, [reduced]);
 

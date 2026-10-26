@@ -218,15 +218,18 @@ function race(players: number, seed: number) {
   return { before, after };
 }
 
-/** Your turn, holding a 7 from the deck; your column 0 shows 7, 7 and a face-down card (UX-26). */
+/**
+ * The player to move holds an 11 from the deck; their column 0 shows 11, 11 and a face-down card,
+ * which the 11 replaces (UX-26). `me` is that player.
+ */
 function columnTurn() {
   const state = firstTurn(2, 5);
   const me = state.current;
   const grid = state.players[me].grid;
-  grid[0] = { card: 7, up: true };
-  grid[4] = { card: 7, up: true };
+  grid[0] = { card: 11, up: true };
+  grid[4] = { card: 11, up: true };
   grid[8] = { card: 3, up: false };
-  state.deck.push(7);
+  state.deck.push(11);
   const held = apply(state, { type: "draw", seat: me, source: "deck" });
   return { held, me, after: apply(held, { type: "swap", seat: me, pos: 8 }) };
 }
@@ -807,6 +810,7 @@ test.describe("with motion allowed", () => {
     const { held, me, after } = columnTurn();
     await show(page, { view: toView(held), seat: me });
     const column = [0, 4, 8].map((pos) => `[data-testid="my-grid"] > :nth-child(${pos + 1})`);
+    const covered = formatCard(held.discard.at(-1) ?? 99);
     const seen = await page.evaluate(
       ({ view, column }) => {
         const w = window as unknown as { flights: { el: Element; a: Animation }[] };
@@ -817,7 +821,7 @@ test.describe("with motion allowed", () => {
         const seek = (t: number) => {
           for (const { a } of started) a.currentTime = t;
         };
-        const box = (el: Element | null) => {
+        const box = (el: Element | null | undefined) => {
           const r = el?.getBoundingClientRect();
           return r ? { x: r.x + r.width / 2, y: r.y + r.height / 2, w: r.width } : null;
         };
@@ -838,14 +842,40 @@ test.describe("with motion allowed", () => {
         const pulse = leave[0].delay - 220;
         const beat = [at(pulse - 120), at(pulse)];
         const slots = column.map((sel) => box(document.querySelector(sel)));
+        // The card seen on each slot as the pulse starts, then at its peak.
         seek(pulse);
-        const rest = leave.map(({ el }) => box(el));
+        const shown = slots.map((s) =>
+          copies.find((c) => {
+            const b = box(c);
+            const seen = Number(getComputedStyle(c).opacity) > 0.99;
+            return seen && b && s && Math.hypot(b.x - s.x, b.y - s.y) < 1;
+          }),
+        );
+        const rest = shown.map(box);
+        /** The cards seen over a box's centre, at full opacity. */
+        const over = (target: Element | null) => {
+          const b = box(target);
+          return [...document.querySelectorAll('.card:not([data-face="gone"])')].flatMap((el) => {
+            const r = el.getBoundingClientRect();
+            const seen = Number(getComputedStyle(el).opacity) > 0.99;
+            const on = b && b.x > r.left && b.x < r.right && b.y > r.top && b.y < r.bottom;
+            return seen && on ? [el.textContent] : [];
+          });
+        };
+        const pileThen = over(document.querySelector(".stack"));
         seek(pulse + 110);
-        const peak = leave.map(({ el }) => box(el));
+        const peak = shown.map(box);
+        // Each flight leaves from a slot, and lands on the pile.
+        const from = leave.map(({ el, delay }) => {
+          seek(delay);
+          return box(el);
+        });
         const landed = leave.map(({ el, delay, duration }) => {
           seek(delay + duration);
           return box(el);
         });
+        // Once they've all left, their slots are empty.
+        const left = column.map((sel) => over(document.querySelector(sel)));
         const pile = box(document.querySelector('[data-testid="discard"]'));
         const props = started.map(({ a }) => ({
           props: [
@@ -853,11 +883,13 @@ test.describe("with motion allowed", () => {
           ].filter((k) => !["offset", "computedOffset", "easing", "composite"].includes(k)),
         }));
         for (const { a } of started) a.finish();
-        return { leave, beat, slots, rest, peak, landed, pile, props };
+        return { leave, beat, slots, rest, pileThen, peak, from, landed, left, pile, props };
       },
       { view: toView(after), column },
     );
-    const { leave, beat, slots, rest, peak, landed, pile } = seen;
+    const { leave, beat, slots, rest, peak, from, landed, pile } = seen;
+    expect(seen.pileThen, "the pile, as the column pulses").toEqual([covered]);
+    expect(seen.left, "the column's slots, once its cards have left").toEqual([[], [], []]);
     expect(leave.map((l) => l.duration)).toEqual([380, 380, 380]);
     for (let i = 1; i < 3; i++) {
       const gap = leave[i].delay - leave[i - 1].delay;
@@ -871,11 +903,12 @@ test.describe("with motion allowed", () => {
       ).toBeLessThan(0.5);
     }
     for (const [i, r] of rest.entries()) {
-      const near = slots.some(
-        (s) => Math.hypot((r?.x ?? 0) - (s?.x ?? 99), (r?.y ?? 0) - (s?.y ?? 99)) < 1,
-      );
-      expect(near, `column card ${i} rests on a slot`).toBe(true);
+      expect(r, `column card ${i} rests on its slot`).toBeTruthy();
       expect((peak[i]?.w ?? 0) / (r?.w ?? 1), `pulse ${i}`).toBeCloseTo(1.1, 1);
+      const near = slots.some(
+        (s) => Math.hypot((from[i]?.x ?? 0) - (s?.x ?? 99), (from[i]?.y ?? 0) - (s?.y ?? 99)) < 1,
+      );
+      expect(near, `flight ${i} leaves from a slot`).toBe(true);
       expect(Math.abs((landed[i]?.x ?? 0) - (pile?.x ?? 99)), `lands ${i}`).toBeLessThanOrEqual(
         0.5,
       );
@@ -883,9 +916,61 @@ test.describe("with motion allowed", () => {
     }
     expectOnlyTransforms(seen.props);
     await expect(page.locator(".card[data-copy]")).toHaveCount(0);
-    await expect(page.getByTestId("discard")).toHaveText("7");
+    await expect(page.getByTestId("discard")).toHaveText("11");
     await expect(page.getByTestId("discard")).toHaveCSS("opacity", "1");
     for (const sel of column) await expect(page.locator(sel)).toHaveAttribute("data-face", "gone");
+  });
+
+  test("UX-26: an opponent's column waits in their grid looking like their cards (box and number size), and a move that comes before it's on the pile ends it at once", async ({
+    page,
+  }) => {
+    await recordFlights(page);
+    const { held, me: them, after } = columnTurn();
+    const me = (them + 1) % 2;
+    await show(page, { view: toView(held), seat: me });
+    const looks = await page.evaluate((view) => {
+      const w = window as unknown as { flights: { a: Animation }[] };
+      const start = w.flights.length;
+      dispatchEvent(new CustomEvent("skyjo:table", { detail: { view } }));
+      for (const { a } of w.flights.slice(start)) {
+        a.pause();
+        a.currentTime = 50;
+      }
+      const mini = document.querySelector('[data-testid="opponent"] .mini');
+      const font = (el: Element | null | undefined) =>
+        el ? Number.parseFloat(getComputedStyle(el).fontSize) : 0;
+      const theirs = font(mini?.querySelector('[data-face="up"] .num'));
+      return [0, 4].map((pos) => {
+        const slot = mini?.children[pos].getBoundingClientRect();
+        const copy = [...document.querySelectorAll('.card[data-copy=""]')].find((c) => {
+          const r = c.getBoundingClientRect();
+          return slot && Math.hypot(r.x - slot.x, r.y - slot.y) < 1;
+        });
+        const r = copy?.getBoundingClientRect();
+        return {
+          w: (r?.width ?? 0) - (slot?.width ?? 99),
+          h: (r?.height ?? 0) - (slot?.height ?? 99),
+          num: font(copy?.querySelector(".num")) - theirs,
+          theirs,
+        };
+      });
+    }, toView(after));
+    for (const [i, look] of looks.entries()) {
+      expect(Math.abs(look.w), `card ${i}: width`).toBeLessThanOrEqual(0.5);
+      expect(Math.abs(look.h), `card ${i}: height`).toBeLessThanOrEqual(0.5);
+      expect(Math.abs(look.num), `card ${i}: number`).toBeLessThanOrEqual(0.5);
+      expect(look.theirs).toBeGreaterThanOrEqual(12);
+    }
+    // You take the discard while their column still waits: it's over, and the pile shows.
+    const take = apply(after, { type: "draw", seat: me, source: "discard" });
+    await page.evaluate((view) => {
+      dispatchEvent(new CustomEvent("skyjo:table", { detail: { view } }));
+    }, toView(take));
+    await expect(page.locator(".card[data-copy]")).toHaveCount(0);
+    await expect(page.getByTestId("discard")).toHaveCSS("opacity", "0.45"); // dimmed under yours
+    const gone = page.getByTestId("opponent").locator('[data-face="gone"]');
+    await expect(gone).toHaveCount(3);
+    for (const card of await gone.all()) await expect(card).toHaveCSS("opacity", "1");
   });
 
   /**

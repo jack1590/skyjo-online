@@ -152,6 +152,31 @@ describe("flightsBetween", () => {
     }
   });
 
+  it("UX-26: the round's last swap into a face-up card that completes a column goes there, though the final reveal turns up the same card elsewhere", () => {
+    // Seat 1 ends with a swap; seat 0, the ender, is done. Seat 1's column 0 shows 5, 5 and a
+    // face-up 9, and a face-down 5 waits at position 1.
+    const s = createGame(["A", "B"], [1, 0, 0, 0]);
+    s.phase = "draw";
+    s.current = 1;
+    s.ender = 0;
+    s.players[0].grid = GRID.map((card) => ({ card, up: true }));
+    s.players[1].grid = [5, 5, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((card, i) => ({
+      card,
+      up: i !== 1,
+    }));
+    s.deck.push(5);
+    const { moves, flips } = flights(
+      s,
+      { type: "draw", seat: 1, source: "deck" },
+      { type: "swap", seat: 1, pos: 8 },
+    );
+    expect(moves.slice(0, 2)).toEqual([
+      { to: slotKey(1, 8), from: "drawn", turn: false, card: 5 },
+      { to: "discard", from: slotKey(1, 8), turn: false, card: 9 },
+    ]);
+    expect(flips).toEqual([slotKey(1, 1)]);
+  });
+
   it("a new deal animates nothing", () => {
     const s = table(GRID, [0, 1], 0);
     const next = { ...toView(s), round: 2 };
