@@ -4,6 +4,19 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.2.4] - 2026-10-26
+
+### Changed
+
+- A completed column is now something you can follow. Once the card that completes it has landed, the column's three cards pulse together with the column chime, then fly to the discard pile one after another. Before, only one of them moved and the others vanished, along with the card you had just put there.
+
+### Fixed
+
+- A card going into an opponent's grid is visible all the way. Before, the strip of opponents hid it for its first moments, so it seemed to appear out of nowhere.
+- The discard pile no longer looks empty while a new card flies onto it: it keeps showing its top card until the new one lands on it.
+- The final reveal starts more smoothly on iPhones at big tables.
+- After a turn that completed a column, the next card turned over for you (Auto-play, or the final reveal) makes its sound again. Before, it was silent once.
+
 ## [2.2.3] - 2026-10-25
 
 ### Changed

@@ -427,7 +427,7 @@ The expert counts slow taps as part of the "not smooth" feeling. All three items
   - The author's local timeouts are real, and on `main` too: see M19's first commit.
 - **Scores:** Rules correctness 5, Mobile UX 5, Visual polish 4 (UX-8 and UX-30 are open in M19), Multiplayer stability 5, Security 5 (client only: no new entry point, no extra message), Code health 5, Delivery health 4, Game feel 5.
 
-### M19 — Column removal you can follow · v2.2.4
+### M19 — Column removal you can follow · v2.2.4 · ✅ shipped (PR #28)
 
 **First commit of M19's PR, test only (delivery health, PO PR #27).** Split `table.spec.ts`'s M18 test and its UX-21 test into one test per locale (en, es, pt).
 - **Why:** each loops the three locales through `show()` in one test. On CI the M18 test is the longest iPhone test (15–23 s; `main` 21 s). On this machine, with `main`'s and PR #27's iPhone projects run side by side at 4 workers (load 6–74), `main`'s M18 test timed out at 31 s, and on the branch M18 and UX-21 timed out at 30 s.
@@ -452,6 +452,28 @@ The expert counts slow taps as part of the "not smooth" feeling. All three items
 - An E2E shows 3 flights to the discard, 60–90 ms apart.
 - Reduced motion turns it all off.
 - The release checklist is done.
+
+**How it was built (author, PR #28).**
+- **A list of moves.** `flightsBetween` returns every card's way, in the order they land, so the pile stacks as the engine does (R9). A swap that completes a column is 5 moves: the card in, the card it replaced, then the column's 3. The card a swap went into is the one slot of the column that didn't show the card. When that slot was face down, it could also have been a discard-and-flip of a card that happened to match; the view can't tell, so it plays as the likelier swap. A column's face-down cards (a discard-and-flip, the final reveal) are flips, so they turn over first, in the reveal's order.
+- **Stand-ins.** Where no element can show a card on its way, a fixed copy over the page flies instead (`standIn` in `motion.ts`), and the real card waits hidden. That covers a card going into an opponent's grid (UX-8), and every card of a column change: the pile will show the column, not what went under it.
+  - A column's card has two stand-ins. One is in its own look where it lies: an opponent's small card keeps its shape and its 12 px number. The other, like the pile's card, flies from where the first one was.
+  - The card a column-completing swap replaced goes under the column. If it was face down, nobody saw it: it flies face down and fades as it lands, since no discard lies face down.
+  - The pile shows its old card under a card flying onto it (UX-30).
+- **Stand-ins don't outlive their change.** The next move's flights, a tap, or a scroll end them at once. A scroll would leave them behind, since they're fixed to the page, so the opponent strip and your grid scroll into view only once the last move's cards have landed.
+- **The sequence.** The column waits until the change's other animations end, then a 120 ms beat. Its cards pulse (1.1 over 220 ms) with the chime, then leave 70 ms apart, 380 ms each. "Your turn" and the round summary wait for the last one, through `timing`.
+- **`heard`** is used up by the answer even when it completes a column, because its placed or turned card is now one of its moves or flips. `Table` also clears it once the answer has rendered, so an answer that plays none of it, an error say, can't silence a later sound.
+- **The reveal's long frame** came from raising every turning card (`z-index: 2`): at 8 seats that is about 70 new stacking contexts in one frame. A card turning over in place stays among its neighbours (`data-motion="flip"`, `z-index: auto`) and keeps its back face. The 8-seat final reveal, WebKit (iPhone 13 project), longest frame after the view arrives, median of 9 runs on the author's machine:
+
+  | Build | Median |
+  | --- | --- |
+  | Pre-M11 (`ddad362`) | 57 ms |
+  | `main` | 70–75 ms |
+  | This PR, three sets | 56, 56 and 58 ms |
+
+- **Delivery.**
+  - **Locally, iPhone, 1 worker:** the six split tests take 0.3–0.5 s each. The four new motion tests and the opponent-column one take 0.3–1.2 s each.
+  - **Side by side:** `main`'s and this branch's full iPhone projects ran at once, 4 workers each, at load 31–131. Nothing timed out. `main`'s M18 test took 16.5 s and its UX-21 test 11.8 s; the split ones took at most 9.7 s and 4.2 s.
+  - **No flakes:** `--repeat-each=20` on iPhone at 6 workers passed 300 of 300.
 
 ### M20 — The deal · v2.2.5
 
@@ -858,7 +880,7 @@ This is an outline; the PO plans the details when M15 merges.
 
 Non-blocking items from the M5 PO review. Do them in one small PR if the project continues.
 - ✅ **Done (follow-ups PR):** `AGENTS.md`'s `public/` row said `sw.js` and `offline.html` live there. The worker template is `src/client/sw.js`, built by `vite.config.ts`, and the offline fallback page is inline in it.
-- **Reopened → M19 (UX-26, 2026-10-25). Was declined (PO accepted, follow-ups review):** column removal flies only one of the three removed cards to the discard. Flying all three needs temporary clone elements, which is more code than the polish is worth (Visual polish already scores 4). `flightsBetween` keeps one source per target, so the other two vanish.
+- ✅ **Done in M19 (v2.2.4, UX-26).** **Reopened → M19 (UX-26, 2026-10-25). Was declined (PO accepted, follow-ups review):** column removal flies only one of the three removed cards to the discard. Flying all three needs temporary clone elements, which is more code than the polish is worth (Visual polish already scores 4). `flightsBetween` keeps one source per target, so the other two vanish.
 - ✅ **Done (follow-ups PR), Pixel only:** small-phone scroll with motion allowed had no E2E. Playwright's headless WebKit never animates `scrollIntoView({ behavior: "smooth" })` inside an overflow container: a 10-line page failed 5 out of 5. So the iPhone project can only check the reduced-motion path. The 375×548 check now runs with `reducedMotion: "no-preference"` on the Pixel project. The PO confirmed its 8-player case fails when the scroll is removed.
 - **Open, needs the user:** the Spanish install hint says "Agregar a inicio". Check the share-sheet label on an iPhone set to Latin American Spanish.
 - **Open, needs the user:** on a real iPhone SE (or any phone about 548 px tall in the browser), check that your whole grid scrolls into view when your turn starts, with motion on. Headless WebKit can't test this.
