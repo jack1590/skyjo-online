@@ -489,7 +489,9 @@ test("8 players: the strip scrolls sideways and keeps whoever is playing in view
 test("tapping an opponent shows their whole grid at full size", async ({ page }) => {
   await show(page, atTurnStart(6));
   const first = page.getByTestId("opponent").first();
-  await first.click();
+  // Forced: a page's first click waits for its first frames on CI's WebKit (M18's, M20 probe). The
+  // second click on the same panel, below, still hit-tests it.
+  await first.click({ force: true });
   const zoom = page.getByTestId("zoom");
   await expect(zoom).toBeVisible();
   await expect(zoom.getByRole("img")).toHaveCount(12);
