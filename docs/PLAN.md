@@ -596,6 +596,11 @@ The user asked for a UX expert agent to find improvements and ship them step by 
 
 Queued UX milestones after M20, each with its acceptance:
 - **M12, spectators keep the piles (v2.2.6).** At 390×664 with 8 players, a spectator sees the deck, the discard pile and the drawn card on every turn of a played round, on all 3 devices.
+  - **First commit, test only (delivery health, PO PR #29).** Close every browser context a test opens.
+    - **Why.** On PR #29's merge to `main` (run 40296504264), the online UX-19 Undo test failed once on iPhone and passed on retry. The failure was that its `moves` read no `draw`. The flake failed the job, so deploy waited for a rerun (about 6 min).
+    - **Its artifacts can't be trusted.** Playwright doesn't close contexts made with `browser.newContext()` (`phones()` in `e2e/helpers.ts`), so they outlive their test for the rest of the worker. A failing test then screenshots every page still open: 7 for this 2-phone test. Its error context showed another test's table, with Ana and Ben both on Auto-play, which is M8/BUG-1's end state. Those leftover phones also stay connected to their rooms.
+    - **Do:** close each test's contexts when it ends (an auto fixture, or an `afterEach` over `browser.contexts()`), and keep the 3 tests that close a phone on purpose.
+    - **Acceptance:** a failing multi-phone test leaves screenshots of its own phones only. The PR reports the iPhone job and Playwright-step times on 2 runs, next to PR #29's (108–138 s, 55 s–1.5 min). If UX-19's flake recurs, its own trace says why.
 - **M13, round summary and game over (v2.3.0).**
   - UX-11: `<dialog>.showModal()`, and Tab stays inside it.
   - UX-14: rows sorted by M17's engine ranking (by total when knockout is off), with your row tagged.
