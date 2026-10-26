@@ -28,7 +28,7 @@ type PhoneOptions = BrowserContextOptions & { audio?: boolean };
 /**
  * Separate browser contexts = separate phones (own storage, own token). Web Audio is hidden by
  * default: headless WebKit has no audio device, and a running AudioContext slowed every click
- * enough to time out a 2-phone round (PR #7).
+ * enough to time out a 2-phone round (PR #7). Use `test` from this file, which closes them.
  */
 export async function phones(
   browser: Browser,

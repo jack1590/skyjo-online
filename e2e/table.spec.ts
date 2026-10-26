@@ -2,7 +2,7 @@
 // the page renders a static table from an injected view instead of playing up to that state.
 import { expect, type Page, test } from "@playwright/test";
 import { apply, type GameState } from "../src/engine/game";
-import { toView } from "../src/engine/view";
+import { type GameView, toView } from "../src/engine/view";
 import {
   atTurnStart,
   firstTurn,
@@ -504,11 +504,15 @@ test("tapping an opponent shows their whole grid at full size", async ({ page })
   await expect(zoom).toBeHidden();
 });
 
-/** Whether each element is wholly on screen and inside every scrolling box around it. */
-const onScreen = (page: Page, testIds: string[]) =>
+/**
+ * Moves the harness table on to `view`, then tells whether each element is wholly on screen and
+ * inside every scrolling box around it: its test id, or why not.
+ */
+const onScreen = (page: Page, view: GameView, testIds: string[]) =>
   page.evaluate(
-    (ids) =>
-      ids.map((id) => {
+    ({ view, ids }) => {
+      dispatchEvent(new CustomEvent("skyjo:table", { detail: { view } }));
+      return ids.map((id) => {
         const el = document.querySelector(`[data-testid="${id}"]`);
         if (!el) return `${id}: missing`;
         const r = el.getBoundingClientRect();
@@ -524,8 +528,9 @@ const onScreen = (page: Page, testIds: string[]) =>
             r.right <= b.right + 1,
         );
         return inside ? id : `${id}: off screen at ${Math.round(r.top)}–${Math.round(r.bottom)}`;
-      }),
-    testIds,
+      });
+    },
+    { view, ids: testIds },
   );
 
 test.describe("M12: spectators keep the piles", () => {
@@ -539,11 +544,8 @@ test.describe("M12: spectators keep the piles", () => {
     let turns = 0;
     for (const state of states.slice(0, -1)) {
       const view = toView(state);
-      await page.evaluate((view) => {
-        dispatchEvent(new CustomEvent("skyjo:table", { detail: { view } }));
-      }, view);
       const ids = ["deck", "discard", ...(view.drawn === null ? [] : ["drawn"])];
-      expect(await onScreen(page, ids), `turn ${turns}, ${state.phase}`).toEqual(ids);
+      expect(await onScreen(page, view, ids), `turn ${turns}, ${state.phase}`).toEqual(ids);
       // The table follows whoever is playing: a full turn of the table is enough.
       if (state.phase === "draw" && turns++ < 8) {
         await expect(page.locator('[data-testid="opponent"].active')).toBeInViewport({
@@ -556,27 +558,26 @@ test.describe("M12: spectators keep the piles", () => {
     expect(turns).toBeGreaterThan(40);
   });
 
-  test("2–8 seats, 360 and 390 px wide: two columns, the piles and the held card in view, nothing to tap but the panels; targets ≥ 44 px, no sideways scroll, numbers ≥ 12 px", async ({
+  test("2–8 seats, at the device's own size and at 360 and 390 px wide: two columns, the piles and the held card in view, nothing to tap but the panels; targets ≥ 44 px, no sideways scroll, numbers ≥ 12 px", async ({
     page,
-  }) => {
+  }, info) => {
     const drew = (players: number) => {
       const state = firstTurn(players, 5);
       return toView(apply(state, { type: "draw", seat: state.current, source: "deck" }));
     };
     await show(page, { view: drew(2), seat: null });
+    const own = info.project.use.viewport ?? { width: 390, height: 664 };
     for (const [width, height] of [
+      [own.width, own.height],
       [360, 740],
       [390, 664],
     ]) {
       await page.setViewportSize({ width, height });
       for (let players = 2; players <= 8; players++) {
-        await page.evaluate((view) => {
-          dispatchEvent(new CustomEvent("skyjo:table", { detail: { view } }));
-        }, drew(players));
         const where = `${players} seats at ${width} px`;
-        await expect(page.getByTestId("opponent"), where).toHaveCount(players);
         const ids = ["deck", "discard", "drawn"];
-        expect(await onScreen(page, ids), where).toEqual(ids);
+        expect(await onScreen(page, drew(players), ids), where).toEqual(ids);
+        await expect(page.getByTestId("opponent"), where).toHaveCount(players);
         // Two panels a row, each half the width.
         const rows = await page.getByTestId("opponent").evaluateAll((els) => {
           const tops = els.map((el) => Math.round(el.getBoundingClientRect().top));

@@ -596,7 +596,7 @@ The user asked for a UX expert agent to find improvements and ship them step by 
 
 Queued UX milestones after M20, each with its acceptance:
 - **M12, spectators keep the piles (v2.2.6) · ✅ shipped (PR #31).** At 390×664 with 8 players, a spectator sees the deck, the discard pile and the drawn card on every turn of a played round, on all 3 devices.
-  - **Done:** for spectators and out players, the two columns of panels scroll in their own box between the header and the piles. The box follows whoever is playing, so the piles and the held card stay on screen at 2–8 seats. The M17 PO's out panel became one slim line ("Dani 172 · Out · watching") under the players still in, in that layout only. The players' strip is unchanged.
+  - **Done:** for spectators and out players, the two columns of panels scroll in their own box between the header and the piles. The box follows whoever is playing, so the piles and the held card stay on screen at 2–8 seats. A card going into a grid scrolled out of sight there (or in the strip) just appears; its stand-in would cross the header or the piles (review). The M17 PO's out panel became one slim line ("Dani 172 · Out · watching") under the players still in, in that layout only. The players' strip is unchanged.
   - **Flake found:** UX-19's `moves` read `[]` because `pastFlips` looped `botStep` until `pages[0]` left the flip. A phone that saw the round start first then drew before the test counted its moves. `pastFlips` now only flips.
   - **First commit, test only (delivery health, PO PR #29).** Close every browser context a test opens.
     - **Why.** On PR #29's merge to `main` (run 40296504264), the online UX-19 Undo test failed once on iPhone and passed on retry. The failure was that its `moves` read no `draw`. The flake failed the job, so deploy waited for a rerun (about 6 min).
@@ -888,7 +888,7 @@ The user asked for a game option, **"Play until one is left"**, and approved the
   2. A player who may not lead sees the lobby switch exactly as the host does, bright and apparently live, but tapping it does nothing. Dim it when it is disabled.
 - **Follow-ups (not blocking, game feel):**
   - Going out has no moment of its own: no sound and no line for you. Your summary row has the same small tag as everyone else's, and afterwards you get the stranger's line, "You're watching this game." Something like "You're out · watching" for the out player, plus a short sting at the summary where you go out, would make it feel part of the game. This fits M13's summary work.
-  - ✅ **Done in M12 (v2.2.6).** With 4 players, the out panel takes a full grid's space with only a note in it. That's fine for now; revisit with M12, which reworks the spectator layout that out players get.
+  - ✅ **Done in M12 (v2.2.6).** With 4 players, the out panel took a full grid's space with only a note in it. In the spectator layout that out players get, it is now one slim line under the players still in; the players' strip keeps the full panel.
 
 **PO review (PR #24, round 2): approved.**
 - **Both fixes are in, and I checked them in a real 4-phone game after SEC-9 and M18 were merged in.**
