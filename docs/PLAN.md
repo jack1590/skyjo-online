@@ -648,7 +648,27 @@ Queued UX milestones after M20, each with its acceptance:
   - **iPhone has no haptics.** Safari has no `navigator.vibrate`, so the last-round, result and turn buzzes are Android-only until M16's native shell.
   - **PO numbers.** Lint, typecheck and 259 unit tests passed (engine coverage 100%). `npm run e2e` passed 271 in 1.4 min (83 s wall with the build), and Node passed 22. The new tests passed 150 of 150 at `--repeat-each=10` on all 3 devices. CI run 40338193464 took 144 s wall with no retries, the iPhone job 140 s (Playwright 94 s), against 134 s for `main`'s M13 run the same day. **Watch:** the iPhone job is at 78% of the 3 min budget and grows about 6 s per minor. The PR that takes it past 150 s also splits it into 2 shards.
   - **PO scores:** Rules correctness 5, Mobile UX 5, Visual polish 5, Multiplayer stability 5, Security 5 (no new entry point: no message type, route, alarm or storage write; `turn` is back-filled on load), Code health 5, Delivery health 5, Game feel 5.
-- **M15, lobby buttons (v2.4.1).** UX-13: "Start game" comes first, and "Leave seat" is a quiet text button (still ≥ 44 px) that isn't directly below Start.
+- **M15, lobby buttons (v2.4.1) · ✅ shipped (PR #35).**
+  - ✅ UX-13: "Start game" comes first, and "Leave seat" is a quiet text button (still ≥ 44 px) that isn't directly below Start. **Done:** under the seat list, the leader (the host, or a stand-in under `canLead`) gets Start game, with "At least 2 players…" under it, and everyone else seated reads "Waiting for the host…" in the same place. Then comes the game option, then Leave seat as an underlined muted text button (`.btn.quiet`: no fill, no border, 48 px tall), centred at the bottom of the panel. An E2E test on all 3 devices checks the order, the quiet style, 44 px targets and no sideways scroll at 360 and 390 px in en, es and pt, for the host, a guest and a stand-in leader, then leaves the seat with it. It fails on `main` (the first button under the seats is Leave seat), and with the new order alone (Leave seat still has a fill).
+  - **PO, PR #35 round 1: approved** on `10e1824`. Rulings:
+    - **The ✕ on an offline last seat stays 11 px above Start.** That's more than Material's 8 dp between targets, and the ✕ is a 44 px square at the right edge while Start's label is mid-panel. `main` had the same 11 px above Leave seat. A slip either way is mild and can be undone: a removed player joins again by name, and a seat left offline at the deal gets the turn clock, then Auto-play.
+    - **Leave seat keeps no confirmation.** It sits 79 px below Start, with the game option between them, and its target is 119–138 px wide and centred under a full-width Start. A dialog would add a tap for everyone who leaves on purpose.
+    - **The M14 copy ("highest 2 cards", "Cada um vira 2") stays the owner's call.** It's not in UX-13's scope.
+    - **"Waiting for the host…" fits guests.** Only a seat that can't start reads it; when the host is offline, every seated phone gets Start and nobody reads it.
+  - **PO played** (WebKit iPhone 13 at 390×664, Chromium Pixel 7 at 360×740) in a room of 8 seats across en, es and pt, plus a ninth phone in pt, and a second room in pt and es.
+    - The host saw "At least 2 players…" under a disabled Start while alone.
+    - Guests read the wait line and had no Start button. The spectator had the room-full line, with no Start, wait line or Leave seat.
+    - The host's knockout switch showed on a guest, checked and disabled.
+    - Removing the offline last seat worked. When the host tapped Leave seat, the next seat became host and got Start. When that phone died, every seat got Start, and a pt stand-in started the game; the spectator then saw the table.
+    - With 8 seats, Start sits at 681–729 px on a 664 px iPhone, so the host scrolls about 65 px to reach it (on `main` it was at 808 px, under Leave seat). It's above the fold up to 7 seats on that phone.
+    - Screenshots are in the PO's scratchpad (`shots/`).
+  - **PO numbers.**
+    - Lint, typecheck and 259 unit tests passed.
+    - `npm run e2e` passed 274 in 1.2 min (72 s wall with the build), and Node passed 23.
+    - The UX-13 test passed 30 of 30 at `--repeat-each=10` on all 3 devices. With `main`'s `Online.tsx` and `styles.css` it fails: "Expected: Start game, Received: Leave seat".
+    - CI on `10e1824`, 2 runs, no retries: 146 s and 150 s wall. The iPhone job took 125 s and 144 s, Pixel 141 s and 124 s, against `main`'s M14 run (iPhone 135 s, Pixel 116 s).
+  - **Sharding (PO decision): not now.** No job passed 150 s, and the same commit's iPhone job varied by 19 s between runs. The rule now covers both phone jobs: the first PR whose PR run takes the iPhone or the Pixel job past 150 s shards that job into 2 in the same PR, and updates branch protection's required checks to the shard names.
+  - **PO scores:** Rules correctness 5, Mobile UX 5, Visual polish 5, Multiplayer stability 5, Security N/A (client and tests only: no message type, route, alarm or storage write), Code health 5, Delivery health 5, Game feel N/A (no sound, motion or haptics in the change).
 
 ### Security hardening (SEC) (user request, 2026-10-24) · one patch each
 
@@ -777,7 +797,7 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 16  | ✅ M12                             | Spectators keep the piles; the out player's line (M17 PO)                                                               | 2.2.6         | minor                                                                                                            |
 | 17  | ✅ M13                             | UX-11, UX-14, UX-17, game-over cue                                                                                      | 2.3.0         | minor, new                                                                                                       |
 | 18  | ✅ M14                             | UX-15, UX-16, last-round cue                                                                                            | 2.4.0         | minor, new                                                                                                       |
-| 19  | M15                                | UX-13                                                                                                                   | 2.4.1         | minor                                                                                                            |
+| 19  | ✅ M15                             | UX-13                                                                                                                   | 2.4.1         | minor                                                                                                            |
 | 20  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
 
 Deferred: Turnstile (SEC-4), SEC-12 (until M16) and quick reactions (the user's call). Declined: SEC-7. Versions assume this order; a PR that reorders says so.

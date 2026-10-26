@@ -193,6 +193,22 @@ export async function playUntil(pages: Page[], done: () => Promise<boolean>) {
 export const playToEnd = (pages: Page[]) =>
   playUntil(pages, async () => (await pages[0].getByTestId("game-over").count()) > 0);
 
+/** Every enabled control is at least 44 × 44 px, and nothing scrolls sideways. */
+export async function expectMobileFriendly(page: Page) {
+  const { scrollWidth, innerWidth, small } = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    innerWidth: window.innerWidth,
+    small: [...document.querySelectorAll("button:not(:disabled), input, select, summary")]
+      .map((el) => {
+        const r = el.getBoundingClientRect();
+        return { label: el.getAttribute("aria-label") ?? el.textContent, w: r.width, h: r.height };
+      })
+      .filter((t) => t.w > 0 && (t.w < 44 || t.h < 44)),
+  }));
+  expect(scrollWidth).toBeLessThanOrEqual(innerWidth);
+  expect(small).toEqual([]);
+}
+
 export const startGame = async (host: Page) => {
   await host.getByRole("button", { name: "Start game" }).click();
   await expect(host.getByTestId("table")).toHaveAttribute("data-phase", "flip");
