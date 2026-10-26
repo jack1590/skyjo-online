@@ -245,6 +245,8 @@ export class Room {
     // A game saved before 2.2.0 (R16).
     if (data.game) data.game.knockout ??= false;
     for (const p of data.game?.players ?? []) p.out ??= null;
+    // A game saved before 2.4.0: past the flip, its turn count is lost, and 1 claims no first draw.
+    if (data.game) data.game.turn ??= data.game.phase === "flip" ? 0 : 1;
   }
 
   seatOf(conn: Conn): number | null {

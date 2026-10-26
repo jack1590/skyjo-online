@@ -938,6 +938,30 @@ test("UX-15: at 2, 5 and 8 seats, everyone's round score so far is by their tota
   await expect(page.getByTestId("sum")).toHaveCount(0);
 });
 
+test("UX-15: with a 16-character name in Portuguese, your row stays one line: your round score sits beside your points, inside the row", async ({
+  page,
+}) => {
+  const state = lastTurnGame(4, 3);
+  state.players[state.current].name = "Valentina Rodrig";
+  await page.addInitScript(() => localStorage.setItem("skyjo:locale", "pt"));
+  const box = (selector: string) =>
+    page
+      .locator(`[data-testid="mine-head"] ${selector}`)
+      .first()
+      .evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        return { top: r.top, bottom: r.bottom, middle: (r.top + r.bottom) / 2 };
+      });
+  for (const width of [0, 360]) {
+    if (width) await page.setViewportSize({ width, height: 740 });
+    await show(page, { view: toView(state), seat: state.current });
+    const [row, pts, sum] = [await box(""), await box(".pts"), await box('[data-testid="sum"]')];
+    expect(Math.abs(sum.middle - pts.middle)).toBeLessThan(3);
+    expect(sum.top).toBeGreaterThanOrEqual(row.top);
+    expect(sum.bottom).toBeLessThanOrEqual(row.bottom);
+  }
+});
+
 test("UX-16: at the first draw everyone reads who starts and why; with one face-down card left, your turn says revealing it ends the round", async ({
   page,
 }) => {

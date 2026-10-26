@@ -609,6 +609,20 @@ dialog.zoom::backdrop {
   font-size: 15px;
 }
 
+/* Your name, points and round score on one line: a long name gives way, never the row's height. */
+.me {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.me strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .mine-head .pts {
   color: var(--accent);
   font-weight: 800;

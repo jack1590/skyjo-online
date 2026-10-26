@@ -393,6 +393,21 @@ describe("knockout (M17, R16)", () => {
     expect(loaded.view(conns[0], t.live).knockout).toBe(false);
   });
 
+  it("M14: a game saved before 2.4.0 loads with a turn count: 0 in the opening flip, and later 1, so no 'who starts' line is claimed", () => {
+    const t = setup();
+    const conns = t.seated(2);
+    t.send(conns[0], { t: "start" });
+    const deps = { now: t.now, seed: (): Rng => [1, 2, 3, 4] };
+    const saved = () => {
+      const old = JSON.parse(JSON.stringify(t.room.data));
+      delete old.game.turn;
+      return new Room(old, deps).data.game;
+    };
+    expect(saved()?.turn).toBe(0);
+    while (t.room.data.game?.phase === "flip") stepAny(t, conns);
+    expect(saved()?.turn).toBe(1);
+  });
+
   it("M17: going out ends a seat's Auto-play, and it can't tick it again; a host who is out still leads, and so may anyone seated", () => {
     const t = setup();
     const conns = hostOut(t);
