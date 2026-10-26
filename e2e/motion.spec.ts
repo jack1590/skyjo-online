@@ -349,7 +349,15 @@ test.describe("with motion allowed", () => {
       const discard = document.querySelector<HTMLElement>('[data-testid="discard"]');
       if (!pile || !discard) return null;
       discard.click();
-      await new Promise((r) => setTimeout(r, 300));
+      await new Promise((r) => setTimeout(r)); // React renders the tap in a microtask
+      // Everything that moves the card (its flight, its tilt) ends by 300 ms: seen there, on the
+      // animations' own clock. Headless WebKit on CI may not paint a frame in 300 ms of wall time.
+      const moving = discard.getAnimations();
+      const ends = moving.map((a) => {
+        const { delay = 0, duration } = a.effect?.getTiming() ?? {};
+        return Number(delay) + Number(duration);
+      });
+      for (const a of moving) a.currentTime = 300;
       // How much of the pile's box the card covers, tilted: what a tap there would hit.
       let over = 0;
       for (let i = 0; i < 20; i++) {
@@ -360,8 +368,11 @@ test.describe("with motion allowed", () => {
         }
       }
       const label = discard.getAttribute("aria-label");
-      return { covered: over / 400, label, rotate: getComputedStyle(discard).rotate };
+      const rotate = getComputedStyle(discard).rotate;
+      return { covered: over / 400, label, rotate, ends, moving: moving.length };
     });
+    expect(thrown?.moving, "a flight and the tilt").toBeGreaterThanOrEqual(2);
+    for (const end of thrown?.ends ?? []) expect(end).toBeLessThanOrEqual(300);
     expect(thrown?.covered).toBeGreaterThanOrEqual(0.9);
     expect(thrown?.label).toBe(`Discard pile: ${formatCard(view.drawn ?? 0)}`);
     expect(thrown?.rotate).toBe("4deg");
@@ -382,12 +393,19 @@ test.describe("with motion allowed", () => {
       "Tap a grid card to swap, or the discard pile to throw it away",
     );
     // Undo while the throw is still in flight: nothing carries the pile's own card in.
-    const caught = await page.evaluate(() => {
+    const caught = await page.evaluate(async () => {
+      const tick = () => new Promise((r) => setTimeout(r));
+      const pile = () => document.querySelector('[data-testid="discard"]');
       document.querySelector<HTMLElement>('[data-testid="discard"]')?.click();
+      await tick();
+      const flying = pile()
+        ?.getAnimations()
+        .some((a) => a.id === "flight");
       document.querySelector<HTMLElement>(".undo")?.click();
-      return document.querySelector('[data-testid="discard"]')?.getAnimations().length;
+      await tick();
+      return { flying, after: pile()?.getAnimations().length };
     });
-    expect(caught).toBe(0);
+    expect(caught).toEqual({ flying: true, after: 0 });
   });
 
   test("UX-22: a flight covers 20–50% of its way at 25% of its time, is lifted ≥ 1.04 halfway, lands within 0.5 px, and lasts clamp(260, 180 + 0.55·d, 460) ms; only transforms move", async ({
