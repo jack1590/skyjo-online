@@ -4,6 +4,22 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.2.2] - 2026-10-25
+
+### Changed
+
+- Cards move more naturally. A card sets off gently, rises a little and leans the way it is going, arcs up on a long trip up or down the table, then slows down and settles into place with a small bump. Before, it jumped most of the way at once and then crawled the rest.
+- A swap happens in order. The card you replace is picked up first, turns face up on its way to the discard pile, and the new card follows a moment later, over it, into its place. Before, both moved at once and the replaced card already showed its face.
+- Turning a card over shows its back first; the card lifts, turns edge-on and comes down face up. Opponents' smaller cards turn a little quicker. A card you draw from the deck turns the same way on its way to your hand.
+- Each move's sounds now play as its cards land. At the end of a round, the card you turned over sounds as it turns, and every other player's cards sound as they start turning, in the order they really turn. Before, those sounds came up to a tenth of a second early on your phone.
+- The scores now appear 0.6 seconds after the last card has turned, whatever its size.
+- With reduced motion on, nothing moves, as before.
+
+### Fixed
+
+- A card leaving your grid no longer slides under your other cards on its way to the discard pile.
+- When you throw a card away, the gold outlines around your top row no longer run into the bar of your turn clock.
+
 ## [2.2.1] - 2026-10-25
 
 ### Fixed

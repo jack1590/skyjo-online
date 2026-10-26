@@ -324,7 +324,7 @@ The second audit (2026-10-25) added the user's third complaint: a card taken fro
 - No flaky test (PO, PR #25 round 1): the new motion tests pass `--repeat-each=20` on iPhone at 4 or more workers. The first flight after the table mounts starts from where the card really is, even when the stylesheet loaded after the first render.
 - CI grows by ≤ 10 s. The release checklist is done. The PO plays with motion on and sees no jump.
 
-### M11 — Smooth animations, part 2: motion that feels natural (user request, 2026-10-24) · v2.2.2
+### M11 — Smooth animations, part 2: motion that feels natural (user request, 2026-10-24) · v2.2.2 · ✅ shipped (PR #26)
 
 The user asked for natural animations, so this comes right after M9, ahead of M10. All specs animate only `transform` and `opacity`, and all are off with reduced motion. Today's flights take 380 ms on a straight line with `cubic-bezier(0.2,0.8,0.2,1)`: they cover 40% of the distance in 38 ms, so they snap and then crawl.
 - **UX-22, the flight curve.**
@@ -362,6 +362,15 @@ The user asked for natural animations, so this comes right after M9, ahead of M1
 - Reduced motion still disables every animation.
 - The PO re-measures frame timing the way the expert did: Chromium at 4× CPU needs p99 ≤ 20 ms with no frame over 50 ms, and WebKit needs p99 ≤ 25 ms. The PO reports the numbers.
 - Playing with motion on, the PO scores Visual polish 5, or adds to this plan whatever keeps it from a 5.
+
+**How it was built (author, PR #26).**
+- **The curve.** `path()` in `motion.ts` is pure and unit-tested. It samples the flight at fixed times, with the travel following `cubic-bezier(0.3,0,0.2,1)`, so the lift, lean, arc and settle sit at the times in the spec. The acceptance's "at 50%" is then 50% of the time. Each frame is one `transform`.
+- **A deck draw** turns while it flies, edge-on halfway. It lasts at least as long as a medium card's flip (340 ms), because the formula alone gives 260 ms for the 102 px trip.
+- **The back face** is a `::before` with the card back. It is shown while the card is turned away and hidden at the frame where the card is edge-on, by an opacity animation on the pseudo-element. `backface-visibility` alone wasn't enough: Playwright's WebKit painted the back face in every variant tried, while Chromium culled it. That would have shown a back during every flight on the iPhone project. M9's picture swap animated `background-image`, which the transform-only guard rejects.
+- **The flip's halves each ease**, so the card holds edge-on around 50%: at 50% ± 8% of its time it is under 15% of its width.
+- **Stacking.** A card in motion gets `data-motion` (z-index 2), and the card going in gets "in" (z-index 3). The grid and the opponents' minis lost their `perspective: 700px`, which made them stacking contexts that trapped their cards under the piles. Each turn now carries its own `perspective(6w)`. Discard mode isolates the grid for its glows (UX-18).
+- **Sounds** use the timing of the animations that actually started: `useFlights` returns it, by element key. A card's sound is placed so that its loudest moment (draw 130 ms, place 160, discard 210 into the file) falls on the card's landing. Flip sounds follow the order the cards really turn. The summary hold and the game-over sound also come from that timing: 600 ms after the last animation ends, instead of a guessed flip length.
+- **Every card is marked before any animation starts.** Animating a pseudo-element reads styles, so marking cards in between recomputed them once per card. At 8 seats in Chromium at 4× CPU, the reveal's first frame took 300–470 ms (`main`: 50 ms); marking first brought it back to 50 ms.
 
 ### M10 — Responsive taps, honest connection state, a visible throw-away · v2.2.3
 
@@ -594,7 +603,7 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 9   | ✅ M18                             | Discard mode shows where to tap: UX-18, UX-20, UX-4 redefined                                                           | 2.1.3         | the user's complaint, hit on every first deck draw; client-only and S; after SEC-9, whose implementer is waiting |
 | 10  | ✅ M17                             | Play until one is left (knockout), a lobby option                                                                       | 2.2.0         | the user's request; right after SEC-9 and M18                                                                    |
 | 11  | ✅ M9                              | UX-1, UX-2, UX-21, UX-25, UX-27 (final reveal)                                                                          | 2.2.1         | no jumps, and a card from the discard stays at the pile                                                          |
-| 12  | M11                                | UX-22, UX-23, UX-24 (+ UX-9), UX-7                                                                                      | 2.2.2         | the user asked for natural animations; it needs M9's correct start positions                                     |
+| 12  | ✅ M11                             | UX-22, UX-23, UX-24 (+ UX-9), UX-7                                                                                      | 2.2.2         | the user asked for natural animations; it needs M9's correct start positions                                     |
 | 13  | M10                                | UX-3, UX-5, UX-19                                                                                                       | 2.2.3         | feedback before the server answers                                                                               |
 | 14  | M19                                | UX-8, UX-26                                                                                                             | 2.2.4         | column removal you can follow                                                                                    |
 | 15  | M20                                | UX-28, the deal                                                                                                         | 2.2.5         | polish                                                                                                           |
