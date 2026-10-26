@@ -47,13 +47,13 @@ export function useRoom(code: string) {
   const seq = useRef(0);
   /** The one message awaiting the server's ack; further taps are dropped until it lands. */
   const awaiting = useRef<number | null>(null);
-  /** Whether a message awaits its ack (a tapped card stays lifted, UX-3), and for over LATE_MS. */
-  const [waiting, setWaiting] = useState(false);
+  /** The same, as state (a tapped card stays lifted until its ack, UX-3), and whether it's late. */
+  const [waiting, setWaiting] = useState<number | null>(null);
   const [late, setLate] = useState(false);
   /** The wait is over: answered, or the socket that would answer is gone. */
   const answered = useCallback(() => {
     awaiting.current = null;
-    setWaiting(false);
+    setWaiting(null);
     setLate(false);
   }, []);
 
@@ -161,15 +161,15 @@ export function useRoom(code: string) {
 
   /**
    * Sends one message at a time: taps before the server acks the last one are dropped (double
-   * taps). Returns whether it was sent.
+   * taps). Returns its seq, or null when it wasn't sent.
    */
   const send = useCallback(
     (msg: ClientMsg) => {
       const ws = socket.current;
-      if (ws?.readyState !== WebSocket.OPEN || awaiting.current !== null) return false;
+      if (ws?.readyState !== WebSocket.OPEN || awaiting.current !== null) return null;
       const n = ++seq.current;
       awaiting.current = n;
-      setWaiting(true);
+      setWaiting(n);
       ws.send(JSON.stringify({ ...msg, seq: n }));
       setTimeout(() => awaiting.current === n && setLate(true), LATE_MS);
       setTimeout(() => {
@@ -177,7 +177,7 @@ export function useRoom(code: string) {
         answered();
         reconnect.current(); // no answer: the socket is half-open
       }, ACK_MS);
-      return true;
+      return n;
     },
     [answered],
   );

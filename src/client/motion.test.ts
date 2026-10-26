@@ -203,6 +203,18 @@ describe("flightsBetween", () => {
       reveal: false,
     });
   });
+
+  it("UX-19: when the clock runs out on a thrown card and the server swaps it in instead, it flies from the pile into the grid, and the card it replaces to the pile", () => {
+    const s = apply(table(GRID, [0, 1], 0), { type: "draw", seat: 0, source: "deck" });
+    const swapped = toView(apply(s, { type: "swap", seat: 0, pos: 5 }));
+    expect(flightsBetween(thrown(toView(s)), swapped)).toMatchObject({
+      moves: new Map([
+        [slotKey(0, 5), "discard"],
+        ["discard", slotKey(0, 5)],
+      ]),
+      turns: new Set(["discard"]),
+    });
+  });
 });
 
 /** A card-sized box centred on (x, y). */

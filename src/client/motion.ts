@@ -41,30 +41,33 @@ export function flightsBetween(prev: GameView, cur: GameView): Flights {
   if (prev.round !== cur.round || prev.players.length !== n) {
     return { moves, turns, flips, reveal: false }; // a fresh deal: nothing travels
   }
+  // A card thrown away on this phone (`thrown`, the only place phase with no card in hand) is
+  // still held until the server answers, but it lies on the discard pile.
+  const away = prev.phase === "place" && prev.drawn === null;
+  const held = away ? prev.discardTop : prev.drawn;
   if (prev.drawn === null && cur.drawn !== null) {
-    // From a pile, or back from the discard pile after a throw (`thrown`, the only place phase
-    // with no card in hand): Undo, face up.
-    const back = prev.phase === "place";
-    moves.set("drawn", cur.drawnFrom === "discard" || back ? "discard" : "deck");
-    if (cur.drawnFrom !== "discard" && !back) turns.add("drawn");
+    // From a pile, or back from the discard pile (Undo), face up.
+    moves.set("drawn", cur.drawnFrom === "discard" || away ? "discard" : "deck");
+    if (cur.drawnFrom !== "discard" && !away) turns.add("drawn");
   }
-  if (prev.drawn !== null && cur.drawn === null) {
+  if (held !== null && cur.drawn === null) {
     // The turn ended: the held card went into the grid (swap) or onto the discard pile. At round
     // end the final reveal changes other slots too, so prefer the slot that now holds the card.
     const seat = prev.current;
     const before = prev.players[seat].grid;
     const after = cur.players[seat].grid;
     const changed = after.flatMap((slot, i) => (slot !== null && slot !== before[i] ? [i] : []));
-    const pos = changed.find((i) => after[i] === prev.drawn) ?? changed[0] ?? -1;
-    const revealedOnly = before[pos] === "down" && cur.discardTop === prev.drawn;
+    const pos = changed.find((i) => after[i] === held) ?? changed[0] ?? -1;
+    const revealedOnly = before[pos] === "down" && cur.discardTop === held;
     const swapped =
-      pos !== -1 && (prev.drawnFrom === "discard" || (after[pos] === prev.drawn && !revealedOnly));
+      pos !== -1 && (prev.drawnFrom === "discard" || (after[pos] === held && !revealedOnly));
     if (swapped) {
-      moves.set(slotKey(seat, pos), "drawn");
+      // A thrown card the server swapped in (your clock ran out) leaves from the pile.
+      moves.set(slotKey(seat, pos), away ? "discard" : "drawn");
       moves.set("discard", slotKey(seat, pos));
       if (before[pos] === "down") turns.add("discard");
-    } else {
-      moves.set("discard", "drawn");
+    } else if (!away) {
+      moves.set("discard", "drawn"); // a thrown card is already there
     }
   }
   // Seat order from the ender's left, then row by row: the final reveal's order (UX-27).

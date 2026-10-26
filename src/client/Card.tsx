@@ -33,8 +33,17 @@ interface CardProps {
   tilt?: number;
 }
 
-export function Card(props: CardProps) {
-  const { slot, size, label, onClick, highlight, testId, cardRef, pending, tilt } = props;
+export function Card({
+  slot,
+  size,
+  label,
+  onClick,
+  highlight,
+  testId,
+  cardRef,
+  pending,
+  tilt,
+}: CardProps) {
   const { t } = useI18n();
   const face = slot === null ? "gone" : slot === "down" ? "down" : "up";
   const description =

@@ -366,14 +366,28 @@ test.describe("with motion allowed", () => {
     expect(thrown?.label).toBe(`Discard pile: ${formatCard(view.drawn ?? 0)}`);
     expect(thrown?.rotate).toBe("4deg");
     await expect(page.getByTestId("drawn")).toHaveCount(0);
-    await page.getByRole("button", { name: "Undo", exact: true }).click();
+    // Undo from the keyboard: focus stays on the pile, whose own card shows at once, straight.
+    await page.getByRole("button", { name: "Undo", exact: true }).focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("discard")).toBeFocused();
+    const pile = page.getByTestId("discard");
+    expect(
+      await pile.evaluate((el) => [getComputedStyle(el).rotate, el.getAnimations().length]),
+    ).toEqual(["none", 0]);
     const back = `Drawn card: ${formatCard(view.drawn ?? 0)}`;
     await expect(page.getByTestId("drawn")).toHaveAttribute("aria-label", back);
     const top = `Discard pile: ${formatCard(view.discardTop ?? 0)}`;
-    await expect(page.getByTestId("discard")).toHaveAttribute("aria-label", top);
+    await expect(pile).toHaveAttribute("aria-label", top);
     await expect(page.getByTestId("prompt")).toHaveText(
       "Tap a grid card to swap, or the discard pile to throw it away",
     );
+    // Undo while the throw is still in flight: nothing carries the pile's own card in.
+    const caught = await page.evaluate(() => {
+      document.querySelector<HTMLElement>('[data-testid="discard"]')?.click();
+      document.querySelector<HTMLElement>(".undo")?.click();
+      return document.querySelector('[data-testid="discard"]')?.getAnimations().length;
+    });
+    expect(caught).toBe(0);
   });
 
   test("UX-22: a flight covers 20–50% of its way at 25% of its time, is lifted ≥ 1.04 halfway, lands within 0.5 px, and lasts clamp(260, 180 + 0.55·d, 460) ms; only transforms move", async ({

@@ -20,12 +20,12 @@ interface TableProps {
   /** The seats the table waits on whose clock runs (RoomView.clocks). */
   wait?: Wait[];
   /**
-   * Whether a message of yours awaits the server's answer (useRoom). Unset in the harness, which
-   * has no server: there a tap is answered by the next view.
+   * The seq of your message awaiting the server's answer (useRoom), if any. Unset in the harness,
+   * which has no server: there a tap is answered by the next view.
    */
-  waiting?: boolean;
-  /** Returns false when it couldn't send the action (no connection, or another awaits its answer). */
-  onAction: (action: Action) => unknown;
+  waiting?: number | null;
+  /** Sends a move: returns its seq, or null when it couldn't (the harness returns nothing). */
+  onAction: (action: Action) => number | null | undefined;
   /** Ticks or unticks Auto-play for your own seat. */
   onAuto?: (on: boolean) => void;
   onPlayAgain: () => void;
@@ -82,20 +82,30 @@ export function Table(props: TableProps) {
   // Thrown away, the drawn card lies on the discard pile until you flip a card (UX-19).
   const shown = useMemo(() => (discardMode ? thrown(view) : view), [view, discardMode]);
 
-  // The tap the server is answering (UX-3): its card stays lifted until the answer, and its sound,
-  // played at the tap, isn't played again then.
-  const [tap, setTap] = useState<{ key: string; sound: Sound; view: GameView } | null>(null);
-  const pending = tap && (props.waiting ?? tap.view === view) ? tap.key : null;
+  // The tap the server is answering (UX-3): its card stays lifted until the answer to its message,
+  // and its sound, played at the tap, isn't played again with it (`heard`, which the answer uses up).
+  const [tap, setTap] = useState<{ key: string; seq?: number; view: GameView } | null>(null);
+  const pending =
+    tap && (tap.seq === undefined ? tap.view === view : props.waiting === tap.seq) ? tap.key : null;
+  const heard = useRef<Sound | null>(null);
+  // Undo puts a fresh card on the pile: the one under the thrown card shows at once, straight, and
+  // no throw still in flight carries it (UX-19).
+  const [undos, setUndos] = useState(0);
+  // Undo's button goes with it: a keyboard user's focus moves to the pile instead of dropping.
+  const stack = useRef<HTMLSpanElement>(null);
+  const refocus = useRef(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs after each Undo
   useEffect(() => {
-    if (props.waiting === false) setTap(null);
-  }, [props.waiting]);
+    if (refocus.current) stack.current?.querySelector("button")?.focus();
+    refocus.current = false;
+  }, [undos]);
 
   const { reg, timing } = useFlights(shown, tapped, pending);
   const revealing = useRevealing(shown, timing);
   // While the final reveal plays, totals stay as they were, so the cards tell the result first;
   // the summary then counts them up (UX-27).
   const total = (p: PlayerView) => (revealing ? p.total - lastScore(p, view.round) : p.total);
-  useSounds(shown, seat, timing, tap?.sound);
+  useSounds(shown, seat, timing, heard);
   const [muted, toggleMuted] = useMuted();
   // Tapping an opponent opens their grid full size; your own turn closes it.
   const [zoom, setZoom] = useState<number | null>(null);
@@ -167,10 +177,13 @@ export function Table(props: TableProps) {
    * the answer comes. One at a time (no extra messages): the lifted card shows it's on its way.
    */
   const ask = (key: string, sound: Sound, action: Action) => () => {
-    if (pending || onAction(action) === false) return;
+    if (pending) return;
+    const seq = onAction(action);
+    if (seq === null) return; // not sent: no connection
     tapped.current = key;
-    setTap({ key, sound, view });
-    play(sound);
+    setTap({ key, seq, view });
+    // Only a sound that started is skipped later (none before the first one has decoded).
+    heard.current = play(sound) ? sound : null;
     navigator.vibrate?.(10);
   };
 
@@ -198,7 +211,9 @@ export function Table(props: TableProps) {
   } else if (myTurn && phase === "place" && view.drawnFrom === "deck") {
     // Throws the drawn card away, or takes it back: nothing is sent until you flip a card (UX-19).
     onDiscard = () => {
-      if (!pending) setDiscarding(!discarding);
+      if (pending) return;
+      if (discarding) setUndos((n) => n + 1);
+      setDiscarding(!discarding);
     };
   }
   const discardTap = myAuto ? pointAtSwitch : onDiscard;
@@ -365,7 +380,14 @@ export function Table(props: TableProps) {
             <span className="card md">
               {/* Where the thrown card came from: take it back (UX-19). */}
               {discardMode && (
-                <button type="button" className="btn undo" onClick={onDiscard}>
+                <button
+                  type="button"
+                  className="btn undo"
+                  onClick={(e) => {
+                    refocus.current = document.activeElement === e.currentTarget;
+                    onDiscard?.();
+                  }}
+                >
                   <span aria-hidden="true">↶ </span>
                   {t("undo")}
                 </button>
@@ -379,10 +401,12 @@ export function Table(props: TableProps) {
               pile's place takes a tap while its card is still flying in, away from it (M9 PO). */}
           {/* biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noStaticElementInteractions: the card is the button; this only catches taps the card isn't under yet */}
           <span
+            ref={stack}
             className={`stack${fromDiscard ? " taken" : ""}`}
             onClick={(e) => e.target === e.currentTarget && discardTap?.()}
           >
             <Card
+              key={undos}
               slot={shown.discardTop}
               size="md"
               label={t("discardPile")}

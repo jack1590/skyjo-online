@@ -16,7 +16,7 @@ type Harness = Partial<ComponentProps<typeof Table>>;
  * reach.
  */
 const harness = (window as Window & { __SKYJO_TABLE__?: Harness }).__SKYJO_TABLE__;
-const noop = () => {};
+const noop = () => undefined;
 
 export function App() {
   const [table, setTable] = useState(harness);
