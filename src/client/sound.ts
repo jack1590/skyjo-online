@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { GameView } from "../engine/view";
 import type { Wait } from "../protocol";
-import { flightsBetween, revealMs, revealStep, useReducedMotion } from "./motion";
+import { flightsBetween, SUMMARY_MS, settled, type Timing, useReducedMotion } from "./motion";
 
 /** tick.mp3, the 5 s warning, is generated for this project (ffmpeg, two decaying sines). */
 const NAMES = [
@@ -22,6 +22,8 @@ export type Sound = (typeof NAMES)[number];
 
 /** Sounds that announce something rather than accompany a card; they land just after the card. */
 const LATE = new Set<Sound>(["column", "turn", "win", "end"]);
+/** How far into its file a card's sound is loudest (ms), so it can peak as the card lands. */
+const PEAK: Partial<Record<Sound, number>> = { draw: 130, place: 160, discard: 210 };
 /** Several sounds can start together (place + discard + flip + column); keep the sum from clipping. */
 const VOLUME = 0.6;
 
@@ -122,14 +124,16 @@ const freshDeal = (v: GameView) =>
 
 /**
  * What to play between two views of the same table, as seen from `seat` (null = watching), each
- * with its delay in ms. With `motion`, the final reveal is staggered (UX-27): each player's cards
- * sound as they start turning, and game over sounds when the summary shows.
+ * with its delay in ms. With motion, `timing` says when each card's animation starts and ends
+ * (useFlights): a card's sound peaks as it lands (UX-22, UX-23), each player's cards sound as they
+ * start turning, in the order they turn (UX-27), and game over sounds when the summary shows.
+ * Without it, everything sounds at once.
  */
 export function soundsBetween(
   prev: GameView | null,
   cur: GameView,
   seat: number | null,
-  motion = false,
+  timing?: Timing,
 ): [Sound, number][] {
   if (!prev) return freshDeal(cur) ? [["deal", 0]] : []; // first view: only a brand-new game sounds
   if (prev.round !== cur.round) return cur.phase === "flip" ? [["deal", 0]] : [];
@@ -138,18 +142,21 @@ export function soundsBetween(
     if (!out.some(([n, t]) => n === name && t === ms)) out.push([name, ms]);
   };
   const { moves, flips, reveal } = flightsBetween(prev, cur);
-  const staggered = motion && reveal;
+  const lands = (name: Sound, key: string) =>
+    add(name, Math.max(0, (timing?.get(key)?.end ?? 0) - (PEAK[name] ?? 0)));
   for (const [to, from] of moves) {
-    if (to === "drawn") add("draw");
-    else if (to === "discard") add("discard");
-    else if (from === "drawn") add("place");
+    if (to === "drawn") lands("draw", to);
+    else if (to === "discard") lands("discard", to);
+    else if (from === "drawn") lands("place", to);
   }
-  // flips are slot keys ("slot-<seat>-<pos>") in reveal order.
-  const step = revealStep(flips.length);
-  flips.forEach((key, i) => {
-    if (!staggered) add("flip");
-    else if (key.split("-")[1] !== flips[i - 1]?.split("-")[1]) add("flip", i * step);
-  });
+  // flips are slot keys ("slot-<seat>-<pos>").
+  const start = (key: string) => timing?.get(key)?.start ?? 0;
+  const seatOf = (key?: string) => key?.split("-")[1];
+  [...flips]
+    .sort((a, b) => start(a) - start(b))
+    .forEach((key, i, order) => {
+      if (seatOf(key) !== seatOf(order[i - 1])) add("flip", start(key));
+    });
   const removed = cur.players.some((p, s) =>
     p.grid.some((slot, i) => slot === null && prev.players[s]?.grid[i] !== null),
   );
@@ -159,21 +166,25 @@ export function soundsBetween(
   if (cur.phase === "gameOver" && prev.phase !== "gameOver") {
     add(
       seat !== null && cur.winners.includes(seat) ? "win" : "end",
-      staggered ? revealMs(flips.length) : 0,
+      timing && reveal ? settled(timing) + SUMMARY_MS : 0,
     );
   }
   return out;
 }
 
-/** Plays the sounds for each change of `view`, including the deal when a new game appears. */
-export function useSounds(view: GameView, seat: number | null) {
+/**
+ * Plays the sounds for each change of `view`, including the deal when a new game appears, timed
+ * by that change's animations (useFlights' `timing`, set in its layout effect, before this runs).
+ */
+export function useSounds(view: GameView, seat: number | null, timing: { current: Timing }) {
   const prev = useRef<GameView | null>(null);
   const reduced = useReducedMotion();
   useEffect(() => {
     const before = prev.current;
     prev.current = view;
-    for (const [name, ms] of soundsBetween(before, view, seat, !reduced)) play(name, ms);
-  }, [view, seat, reduced]);
+    const timed = reduced ? undefined : timing.current;
+    for (const [name, ms] of soundsBetween(before, view, seat, timed)) play(name, ms);
+  }, [view, seat, reduced, timing]);
 }
 
 let nudged: string | null = null;
