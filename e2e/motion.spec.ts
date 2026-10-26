@@ -1,10 +1,10 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { apply, type GameState } from "../src/engine/game";
 import { type GameView, toView } from "../src/engine/view";
 import { firstTurn, knockoutGame, show } from "./harness";
-import { seatedRoom, startGame } from "./helpers";
+import { seatedRoom, startGame, test } from "./helpers";
 
 /** Counts Element.animate calls by id (deterministic across engines, unlike sampling getAnimations()). */
 const countAnimations = (page: Page) =>

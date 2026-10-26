@@ -1,10 +1,26 @@
 import {
   type Browser,
   type BrowserContextOptions,
+  test as base,
   expect,
   type Page,
   type TestInfo,
 } from "@playwright/test";
+
+/**
+ * Playwright's `test`, closing every phone when the test ends. Playwright closes only the contexts
+ * it made, so a phone from `phones()` outlived its test: it stayed in its room, and the next
+ * failing test in the worker screenshot it too (7 shots for a 2-phone test, PO PR #29).
+ */
+export const test = base.extend<{ closePhones: undefined }>({
+  closePhones: [
+    async ({ browser }, use) => {
+      await use(undefined);
+      await Promise.all(browser.contexts().map((context) => context.close()));
+    },
+    { auto: true },
+  ],
+});
 
 /** Context options, plus `audio: true` to keep Web Audio (only e2e/sound.spec.ts needs it). */
 type PhoneOptions = BrowserContextOptions & { audio?: boolean };

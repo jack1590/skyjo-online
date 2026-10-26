@@ -1,5 +1,4 @@
-import { test } from "@playwright/test";
-import { createRoom, join, phones } from "./helpers";
+import { createRoom, join, phones, test } from "./helpers";
 
 // A measurement, not a check (SEC-11): how many /api requests 8 phones on bad Wi-Fi make in their
 // busiest minute, to size API_REQUESTS. Run with MEASURE=1 npx playwright test e2e/flaky.spec.ts --project=desktop
