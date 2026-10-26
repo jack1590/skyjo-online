@@ -372,6 +372,16 @@ The user asked for natural animations, so this comes right after M9, ahead of M1
 - **Sounds** use the timing of the animations that actually started: `useFlights` returns it, by element key. A card's sound is placed so that its loudest moment (draw 130 ms, place 160, discard 210 into the file) falls when the card hits home, at the bottom of its settle (0.94 of its flight). That is within ±30 ms of both touching down (0.88) and the end, whichever "landing" means. Flip sounds follow the order the cards really turn. "Your turn" waits for the last card to land, and a column's chime for its card to reach the pile; before, they had stayed at a fixed 250 ms, ahead of the slower landings (review, PR #26). The summary hold and the game-over sound also come from that timing: 600 ms after the last animation ends, instead of a guessed flip length.
 - **Every card is marked before any animation starts.** Animating a pseudo-element reads styles, so marking cards in between recomputed them once per card. At 8 seats in Chromium at 4× CPU, the reveal's first frame took 300–470 ms (`main`: 50 ms); marking first brought it back to 50 ms.
 
+**PO, PR #26 round 1.** Measured in a real 3-phone game and the 8-seat harness, against `main` built the same way.
+- **Rulings.**
+  - The opacity-switched `::before` back face stands. Frame strips in WebKit at 390×664 and Chromium at 360×740 show the back until the card is edge-on and its face after, and no back on a face-up flight. It keeps the transform/opacity guard.
+  - A deck draw's 340 ms minimum stands: the card also turns over on its 102 px trip. It is edge-on at 130–195 ms and face up by 260 ms, which 260 ms in total would rush.
+- **Frame times**, 3 runs of the moves and 9 of the reveal:
+  - Chromium at 4× CPU: 12 moves p99 16.8 ms, max 16.8; the 8-seat reveal p99 16.8, max 33–50 (`main`: the same). Passes.
+  - WebKit: 12 moves p99 25–36 ms (`main`: 34–36), so on this machine `main` misses the 25 ms bar too. The 8-seat reveal's longest frame is 60–106 ms, median 89 (`main`: 35–69, median 49): one hitch as the reveal starts. M19 rewrites these flights, so the check goes there.
+- **Sounds** (real game, Chromium): every draw, place and discard peaks 16–25 ms after its card touches down, at the bottom of its settle. "Your turn" starts 1–2 ms after the last card lands.
+- **Visual polish 4, not 5.** An opponent's incoming card is invisible for its first ~140 ms, clipped by the strip (UX-8, M19). The discard pile looks empty while its new top card flies in (UX-30, new, M19).
+
 ### M10 — Responsive taps, honest connection state, a visible throw-away · v2.2.3
 
 The expert counts slow taps as part of the "not smooth" feeling. All three items here give feedback before the server answers.
@@ -399,9 +409,12 @@ The expert counts slow taps as part of the "not smooth" feeling. All three items
   - then the 3 column cards pulse (scale 1 → 1.1 → 1 over 220 ms) with the column sound, and fly as copies 70 ms apart, 380 ms each.
 
   This replaces the After-M5 "declined" note: it now has a measured cost and a plan.
+- **UX-30** (PO, PR #26). While a card flies to the discard pile, the pile looks empty: the card it covers is gone for the whole flight, 340–540 ms of every swap. With UX-8's copies, the pile keeps showing that card until the flight lands.
 
 **Acceptance:**
 - At mid-flight, no ancestor clips a flying card; the PR has a screenshot.
+- At 25% of a flight to the discard pile, the pile shows the card that flight will cover.
+- WebKit: the 8-seat final reveal's longest frame, median of 9 runs, is ≤ 60 ms (PO, PR #26: 89 ms; M9: 49 ms).
 - A unit test gets 5 flights from a column-completing swap.
 - An E2E shows 3 flights to the discard, 60–90 ms apart.
 - Reduced motion turns it all off.
@@ -463,6 +476,7 @@ The user asked for a UX expert agent to find improvements and ship them step by 
 | UX-27    | (2nd audit) The final reveal flips everything at once, under the summary                          | minor    | S      | do → M9: replaces the After-M6 final-reveal item                                                                                                               |
 | UX-28    | (2nd audit) The deal has no animation                                                             | minor    | M      | do → M20 (a patch: polish, not a feature)                                                                                                                      |
 | UX-29    | (PO, PR #23) In discard mode the top row's gold outlines run into your gold clock bar             | minor    | S      | fold → M11 (its Visual polish 5): at 390×664 the bar ends where the grid starts (394.8 px) and `.hl` reaches 5 px out. Acceptance: no outline overlaps the bar |
+| UX-30    | (PO, PR #26) The discard pile looks empty while its new top card flies in                         | minor    | S      | fold → M19: UX-8's copies let the pile keep its card until the flight lands                                                                                    |
 | Gesture  | (2nd audit) Drag instead of two taps?                                                             | —        | —      | decline (expert and PO): drag is error-prone on 44 px targets at 360 px, and UX-19 makes the first tap visibly complete                                        |
 | After M6 | Game over sounds like a 0.16 s click                                                              | minor    | S      | do → M13: same moment as UX-17                                                                                                                                 |
 | After M6 | No last-round cue                                                                                 | minor    | S      | do → M14: same moment as UX-16                                                                                                                                 |
@@ -605,7 +619,7 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 11  | ✅ M9                              | UX-1, UX-2, UX-21, UX-25, UX-27 (final reveal)                                                                          | 2.2.1         | no jumps, and a card from the discard stays at the pile                                                          |
 | 12  | ✅ M11                             | UX-22, UX-23, UX-24 (+ UX-9), UX-7                                                                                      | 2.2.2         | the user asked for natural animations; it needs M9's correct start positions                                     |
 | 13  | M10                                | UX-3, UX-5, UX-19                                                                                                       | 2.2.3         | feedback before the server answers                                                                               |
-| 14  | M19                                | UX-8, UX-26                                                                                                             | 2.2.4         | column removal you can follow                                                                                    |
+| 14  | M19                                | UX-8, UX-26, UX-30                                                                                                      | 2.2.4         | column removal you can follow                                                                                    |
 | 15  | M20                                | UX-28, the deal                                                                                                         | 2.2.5         | polish                                                                                                           |
 | 16  | M12                                | Spectators keep the piles                                                                                               | 2.2.6         | minor                                                                                                            |
 | 17  | M13                                | UX-11, UX-14, UX-17, game-over cue                                                                                      | 2.3.0         | minor, new                                                                                                       |
