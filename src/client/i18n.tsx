@@ -111,6 +111,11 @@ const en = {
   knockoutHelp: "After each round, everyone at 100 or more is out. The last one under 100 wins.",
   outWatching: "Out · watching",
   outInRound: "Out in round {n}",
+  youWin: "You win!",
+  youShare: "You share the win!",
+  youPlaced: "You placed {n}",
+  youreOut: "You're out · watching",
+  hostNewGame: "The host can start a new game",
 };
 
 export type Key = keyof typeof en;
@@ -229,6 +234,11 @@ const es: Record<Key, string> = {
     "Después de cada ronda, quien tenga 100 o más queda fuera. Gana el último por debajo de 100.",
   outWatching: "Fuera · mirando",
   outInRound: "Fuera en la ronda {n}",
+  youWin: "¡Ganaste!",
+  youShare: "¡Compartes la victoria!",
+  youPlaced: "Quedaste en {n} lugar",
+  youreOut: "Estás fuera · mirando",
+  hostNewGame: "El anfitrión puede empezar otra partida",
 };
 
 /** Brazilian Portuguese. */
@@ -343,6 +353,11 @@ const pt: Record<Key, string> = {
   knockoutHelp: "Depois de cada rodada, quem tiver 100 ou mais sai. Vence o último abaixo de 100.",
   outWatching: "Fora · assistindo",
   outInRound: "Fora na rodada {n}",
+  youWin: "Você venceu!",
+  youShare: "Você divide a vitória!",
+  youPlaced: "Você ficou em {n} lugar",
+  youreOut: "Você está fora · assistindo",
+  hostNewGame: "O anfitrião pode começar outra partida",
 };
 
 export const LOCALES = {
@@ -369,6 +384,16 @@ function detectLocale(): Locale {
     if (base in LOCALES) return base as Locale;
   }
   return "en";
+}
+
+const EN_ORDINAL = new Intl.PluralRules("en", { type: "ordinal" });
+const EN_SUFFIX: Partial<Record<Intl.LDMLPluralRule, string>> = { one: "st", two: "nd", few: "rd" };
+
+/** A place in the final ranking (UX-17): 2nd, 2.º, 2º. */
+export function ordinal(locale: Locale, n: number): string {
+  if (locale === "es") return `${n}.º`;
+  if (locale === "pt") return `${n}º`;
+  return `${n}${EN_SUFFIX[EN_ORDINAL.select(n)] ?? "th"}`;
 }
 
 export function translator(locale: Locale): T {

@@ -1,7 +1,7 @@
 // Layout checks at exact game states, through the test-only table harness (src/client/App.tsx):
 // the page renders a static table from an injected view instead of playing up to that state.
 import { expect, type Page, test } from "@playwright/test";
-import { apply, type GameState } from "../src/engine/game";
+import { apply, type GameState, places } from "../src/engine/game";
 import { type GameView, toView } from "../src/engine/view";
 import {
   atTurnStart,
@@ -654,7 +654,7 @@ test("M17: a knockout game to a winner: one goes out, the next round deals only 
   await expectMobileFriendly(page);
   expect(over.winners).toEqual([2]);
   await show(page, { view: over, seat: 2 });
-  await expect(page.getByTestId("game-over")).toContainText("Cris wins!");
+  await expect(page.getByTestId("game-over")).toContainText("You win!");
 });
 
 test("M17: a player who is out watches: 'Out · watching' on their seat, the spectator layout, nothing to tap", async ({
@@ -667,7 +667,7 @@ test("M17: a player who is out watches: 'Out · watching' on their seat, the spe
   await expect(page.getByTestId("opponent").nth(DANI)).toContainText("Out · watching");
   await expect(page.locator("button.card")).toHaveCount(0);
   await expect(page.getByRole("checkbox")).toHaveCount(0);
-  await expect(page.getByTestId("prompt")).toHaveText("You're watching this game");
+  await expect(page.getByTestId("prompt")).toHaveText("You're out · watching");
   await expectMobileFriendly(page);
   // M12 (M17 PO): out, Dani is one slim line under the players still in, not a grid's space.
   const boxes = await page
@@ -718,6 +718,137 @@ test("M17: the final ranking: the winner first, then by the round they went out,
     await expect(page.getByTestId("game-over").getByTestId("out-tag")).toHaveCount(3);
     await expectMobileFriendly(page);
   }
+});
+
+/** Moves the harness table on (a seat, a view) without reloading the page. */
+const retable = (page: Page, detail: Partial<Shown>) =>
+  page.evaluate((d) => window.dispatchEvent(new CustomEvent("skyjo:table", { detail: d })), detail);
+
+test("UX-11: the summary is a modal: the first Tab lands inside it and 10 Tabs never leave it; Escape is View table", async ({
+  page,
+}) => {
+  await show(page, { view: toView(roundOver(3, 11)), seat: 0, lead: true });
+  const summary = page.getByTestId("round-summary");
+  await expect(summary).toBeVisible();
+  // Which button has focus, or "outside".
+  const focus = () =>
+    page.evaluate(() => {
+      const el = document.activeElement;
+      return el?.closest("dialog") ? el.textContent : "outside";
+    });
+  const seen = [];
+  for (let tab = 1; tab <= 10; tab++) {
+    await page.keyboard.press("Tab");
+    seen.push(await focus());
+  }
+  expect(seen).toEqual(Array.from({ length: 5 }, () => ["View table", "Next round"]).flat());
+  await page.keyboard.press("Shift+Tab");
+  expect(await focus()).toBe("View table");
+  await page.keyboard.press("Escape");
+  await expect(summary).toHaveCount(0);
+  await page.getByRole("button", { name: "Show scores" }).click();
+  await expect(summary).toBeVisible();
+});
+
+test("UX-14: every summary ranks the players as the engine does, lowest total first, and tags your row 'you'", async ({
+  page,
+}) => {
+  // Seed 4, 4 players: round 1's totals aren't in seat order.
+  const view = toView(roundOver(4, 4));
+  const rank = places(view);
+  const expected = view.players
+    .map((p, seat) => ({ ...p, seat }))
+    .sort((a, b) => rank[a.seat] - rank[b.seat]);
+  expect(expected.map((p) => p.seat)).not.toEqual([0, 1, 2, 3]);
+  const totals = expected.map((p) => p.total);
+  expect(totals).toEqual([...totals].sort((a, b) => a - b));
+  await show(page, { view, seat: 2, lead: true });
+  const rows = page.getByTestId("round-summary").locator("tbody tr");
+  await expect(rows).toHaveText(expected.map((p) => new RegExp(`^${p.name}.*${p.total}$`)));
+  await expect(rows.locator(".tag.you")).toHaveCount(1);
+  await expect(rows.filter({ hasText: "Player 3" }).locator(".tag.you")).toHaveText("you");
+  // Knockout (R16): those still in by total, then whoever went out, as places() ranks them.
+  const { firstOut } = knockout();
+  await retable(page, { view: firstOut, seat: DANI });
+  await expect(rows).toHaveText([/^Cris/, /^Ben/, /^Ana/, /^Dani.*Out in round 1/]);
+  await expect(rows.last().locator(".tag.you")).toHaveText("you");
+});
+
+for (const [locale, win, third, cris, host] of [
+  ["en", "You win!", "You placed 3rd", "Cris wins!", "The host can start a new game"],
+  [
+    "es",
+    "¡Ganaste!",
+    "Quedaste en 3.º lugar",
+    "¡Gana Cris!",
+    "El anfitrión puede empezar otra partida",
+  ],
+  [
+    "pt",
+    "Você venceu!",
+    "Você ficou em 3º lugar",
+    "Cris venceu!",
+    "O anfitrião pode começar outra partida",
+  ],
+]) {
+  test(`UX-17 (${locale}): game over is yours: the winner reads '${win}', 3rd place '${third}' and who won; nobody is told to wait`, async ({
+    page,
+  }) => {
+    await page.addInitScript((l) => localStorage.setItem("skyjo:locale", l), locale);
+    // Cris wins; Ben, then Ana (out in round 2), then Dani.
+    await show(page, { view: knockout().over, seat: 2 });
+    const over = page.getByTestId("game-over");
+    await expect(over.getByRole("heading")).toHaveText(win);
+    await expect(over.getByTestId("summary-sub")).toHaveCount(0);
+    // Reduced motion: no confetti.
+    await expect(over.getByTestId("confetti")).toHaveCount(0);
+    await expect(over.locator(".prompt")).toHaveText(host);
+    await retable(page, { seat: 0 });
+    await expect(over.getByRole("heading")).toHaveText(third);
+    await expect(over.getByTestId("summary-sub")).toHaveText(cris);
+    await retable(page, { seat: null });
+    await expect(over.getByRole("heading")).toHaveText(cris);
+    await expectMobileFriendly(page);
+  });
+}
+
+test("M13 (M17 PO): going out has its own moment: 'You're out · watching' at that summary instead of waiting for the host, and after it", async ({
+  page,
+}) => {
+  const { firstOut, round2 } = knockout();
+  await show(page, { view: firstOut, seat: DANI });
+  const summary = page.getByTestId("round-summary");
+  await expect(summary.getByTestId("summary-sub")).toHaveText("You're out · watching");
+  await expect(summary.getByText("Waiting for the host…")).toHaveCount(0);
+  // The others wait for the next round.
+  await retable(page, { seat: 0 });
+  await expect(summary.getByTestId("summary-sub")).toHaveCount(0);
+  await expect(summary.getByText("Waiting for the host…")).toBeVisible();
+  await retable(page, { view: round2, seat: DANI });
+  await expect(page.getByTestId("prompt")).toHaveText("You're out · watching");
+});
+
+test.describe("UX-17 with motion", () => {
+  test.use({ reducedMotion: "no-preference" });
+
+  test("the winner gets a confetti burst that moves only by transform and opacity; the others get none", async ({
+    page,
+  }) => {
+    await show(page, { view: knockout().over, seat: 2 });
+    const confetti = page.getByTestId("confetti");
+    await expect(confetti).toBeAttached();
+    const animated = await confetti.evaluate((el) =>
+      el
+        .getAnimations({ subtree: true })
+        .flatMap((a) => (a.effect as KeyframeEffect).getKeyframes())
+        .flatMap((k) => Object.keys(k))
+        .filter((key) => !["offset", "computedOffset", "easing", "composite"].includes(key)),
+    );
+    expect(animated.length).toBeGreaterThan(0);
+    expect([...new Set(animated)].sort()).toEqual(["opacity", "transform"]);
+    await retable(page, { seat: 0 });
+    await expect(confetti).toHaveCount(0);
+  });
 });
 
 test.describe("small phone (375×548)", () => {
@@ -823,6 +954,37 @@ test("screenshots: M12 spectators keep the piles", async ({ page }, info) => {
   await page.setViewportSize({ width: 390, height: 664 });
   await show(page, { view: knockout().round2, seat: DANI });
   await shot("05-out-player-panel");
+});
+
+test.describe("M13 with motion allowed", () => {
+  // The winner's shots catch the confetti mid-burst.
+  test.use({ reducedMotion: "no-preference" });
+
+  test("screenshots: M13 summary and game over", async ({ page }, info) => {
+    test.skip(!process.env.SHOTS || info.project.name !== "iphone", "run with SHOTS=1");
+    const shot = async (name: string) => {
+      await page.waitForTimeout(850); // the totals have counted up; the confetti is falling
+      await page.screenshot({
+        path: `docs/screenshots/m13/${name}.jpg`,
+        type: "jpeg",
+        quality: 80,
+      });
+    };
+    const { firstOut, round2, over } = knockout();
+    await show(page, { view: toView(roundOver(4, 4)), seat: 2, lead: true });
+    await shot("01-summary-ranked-with-you");
+    await show(page, { view: firstOut, seat: DANI });
+    await shot("02-you-are-out");
+    await show(page, { view: round2, seat: DANI });
+    await shot("03-out-watching");
+    for (const locale of ["en", "es", "pt"]) {
+      await page.addInitScript((l) => localStorage.setItem("skyjo:locale", l), locale);
+      await show(page, { view: over, seat: 2 });
+      await shot(`04-${locale}-you-win`);
+      await retable(page, { seat: 0 });
+      await shot(`05-${locale}-you-placed-3rd`);
+    }
+  });
 });
 
 test.describe("with motion allowed", () => {

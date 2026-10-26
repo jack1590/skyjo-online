@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type Key, LOCALES, translator } from "./i18n";
+import { type Key, LOCALES, ordinal, translator } from "./i18n";
 
 const placeholders = (text: string) => [...text.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();
 
@@ -12,6 +12,15 @@ describe("i18n", () => {
         expect([key, placeholders(d[key])]).toEqual([key, placeholders(en[key])]);
       }
     }
+  });
+
+  it("UX-17: places are ordinals in each language (en 1st 2nd 3rd, es 2.º, pt 2º)", () => {
+    const places = [1, 2, 3, 4, 8, 11, 12, 13, 21, 22, 23];
+    expect(places.map((n) => ordinal("en", n))).toEqual(
+      "1st 2nd 3rd 4th 8th 11th 12th 13th 21st 22nd 23rd".split(" "),
+    );
+    expect(translator("es")("youPlaced", { n: ordinal("es", 2) })).toBe("Quedaste en 2.º lugar");
+    expect(translator("pt")("youPlaced", { n: ordinal("pt", 3) })).toBe("Você ficou em 3º lugar");
   });
 
   it("fills placeholders", () => {

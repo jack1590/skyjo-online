@@ -336,6 +336,30 @@ describe("soundsBetween", () => {
     expect(names(soundsBetween(toView(s), over, 0))).toContain("end");
   });
 
+  it("M13: the game-over cue fires once: not again on a later view of the same game over, nor on opening a finished game", () => {
+    const s = table(GRID, [0, 1], 0);
+    const over = { ...toView(s), phase: "gameOver" as const, winners: [1] };
+    for (const seat of [0, 1, null]) {
+      expect(names(soundsBetween(toView(s), over, seat))).toHaveLength(1);
+      expect(names(soundsBetween(over, { ...over }, seat))).toEqual([]);
+      expect(names(soundsBetween(null, over, seat))).toEqual([]);
+    }
+  });
+
+  it("M13 (M17 PO): going out (R16) sounds at that round's summary, for that player only, once", () => {
+    const s = table(GRID, [0, 1], 0);
+    const view = toView(s);
+    // Seat 1 reached 100 this round and is out; the game goes on.
+    const players = view.players.map((p, i) => (i === 1 ? { ...p, out: view.round } : p));
+    const summary = { ...view, phase: "roundOver" as const, players };
+    expect(soundsBetween(view, summary, 1)).toEqual([["out", 250]]);
+    for (const seat of [0, null]) expect(names(soundsBetween(view, summary, seat))).toEqual([]);
+    expect(names(soundsBetween(summary, { ...summary }, 1))).toEqual([]);
+    // Out in the game's last round: game over's cue, not the out one.
+    const over = { ...summary, phase: "gameOver" as const, winners: [0] };
+    expect(names(soundsBetween(view, over, 1))).toEqual(["end"]);
+  });
+
   /** A's last turn, after B (seat 1) ended: C's 3 face-down cards turn over, then A's. */
   function lastTurn() {
     // Low cards, no equal column: the round ends well under 100.
@@ -384,6 +408,10 @@ describe("soundsBetween", () => {
     const shows = 5 * step + FLIP_MS.sm + 600 + 250;
     expect(soundsBetween(before, over, 0, timing)).toContainEqual(["end", shows]);
     expect(soundsBetween(before, over, 2, timing)).toContainEqual(["win", shows]);
+    // Going out (M13) sounds as its summary shows, too.
+    const players = after.players.map((p, i) => (i === 0 ? { ...p, out: after.round } : p));
+    const summary = { ...after, phase: "roundOver" as const, players };
+    expect(soundsBetween(before, summary, 0, timing)).toContainEqual(["out", shows]);
   });
 
   it("UX-27 (PO, PR #25): on the phone that tapped the last card, the flip sounds follow the order the cards turn: that card first, everyone else a step later", () => {
