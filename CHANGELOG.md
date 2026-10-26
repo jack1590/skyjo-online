@@ -4,6 +4,18 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.2.3] - 2026-10-25
+
+### Changed
+
+- Taps answer at once. The card you tap lifts, makes its sound and gives a short buzz straight away, and stays lifted until the server's answer arrives. Its sound doesn't play again then. While it waits, tapping again does nothing, so a double tap can never make two moves.
+- Throwing away a drawn card now shows it. The card slides onto the discard pile and lies there slightly tilted, and an "↶ Undo" button ("Deshacer", "Desfazer") takes its place. Nothing is decided until you turn over one of your face-down cards; Undo puts the card back in your hand. The prompt now just says "Now flip one of your face-down cards".
+
+### Fixed
+
+- Losing your connection is no longer silent. "Reconnecting…" shows as soon as your phone goes offline, or when the server takes more than 1.5 seconds to answer, and goes away once you're back.
+- Tapping the discard pile right after another player's turn, while its new top card is still flying in, now takes it. Before, that first tap was often lost.
+
 ## [2.2.2] - 2026-10-25
 
 ### Changed

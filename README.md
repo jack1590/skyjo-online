@@ -21,7 +21,7 @@ The images come from the real app (`npm run shots:readme`) and are refreshed whe
 ## Play
 
 - **Online with friends:** tap **Create a room**, then **Invite friends** to share the link (or read out the 5-letter code). Everyone enters a name and joins. The host taps **Start game**. If you reload or lose signal, you get your seat back automatically. A ninth person, or anyone arriving mid-game, watches until the game ends. A room holds 20 connected phones, players included, and players always get back in.
-- **At the table:** swipe the strip of opponents to see every grid; tap one to see it full size. Whoever is playing scrolls into view. 🔊 in the header mutes sounds (remembered; an iPhone on silent stays silent).
+- **At the table:** swipe the strip of opponents to see every grid; tap one to see it full size. Whoever is playing scrolls into view. 🔊 in the header mutes sounds (remembered; an iPhone on silent stays silent). A card you tap lifts at once and stays up until the server answers. "Reconnecting…" at the top means your phone is offline or the server is slow to answer.
 - **Install it:** on Android, Chrome offers _Install app_. On iPhone, tap **Share → Add to Home Screen**. It then opens full-screen like an app.
 - **Turn clock and Auto-play:** each turn has 30 seconds, and at least 10 to place a card you drew. A bar above your cards drains; at 10 seconds it turns orange and counts down, at 5 it turns red with one buzz and one tick. When time runs out the game plays for you and switches on **Auto-play**, the switch above your cards, which keeps playing your turns until you switch it off. Switch it on yourself before stepping away. Everyone sees 🤖 by your name. The screen stays on during a game.
 - **Play until one is left:** the host can switch this on in the lobby before starting (everyone sees it). After each round, everyone at 100 or more is out: they keep their seat and score and watch the rest of the game. The others play on, down to two head to head, until at most one is left under 100. Rematch puts everyone back in.
@@ -31,7 +31,7 @@ The images come from the real app (`npm run shots:readme`) and are refreshed whe
 
 - Everyone gets 12 face-down cards in a 3 × 4 grid and flips any 2. Whoever's 2 cards add up highest starts.
 - On your turn, draw from the deck or take the top card of the discard pile.
-  - A deck card can replace any card in your grid, or you can throw it away and flip one of your face-down cards instead.
+  - A deck card can replace any card in your grid, or you can throw it away and flip one of your face-down cards instead. To throw it away, tap the discard pile; until you flip a card, **↶ Undo** gives it back.
   - A card from the discard pile must replace a grid card.
   - Whatever you replace goes face up onto the discard pile.
 - Three equal face-up cards in a column disappear.

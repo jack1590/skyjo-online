@@ -382,7 +382,7 @@ The user asked for natural animations, so this comes right after M9, ahead of M1
 - **Sounds** (real game, Chromium): every draw, place and discard peaks 16–25 ms after its card touches down, at the bottom of its settle. "Your turn" starts 1–2 ms after the last card lands.
 - **Visual polish 4, not 5.** An opponent's incoming card is invisible for its first ~140 ms, clipped by the strip (UX-8, M19). The discard pile looks empty while its new top card flies in (UX-30, new, M19).
 
-### M10 — Responsive taps, honest connection state, a visible throw-away · v2.2.3
+### M10 — Responsive taps, honest connection state, a visible throw-away · v2.2.3 · ✅ shipped (PR #27)
 
 The expert counts slow taps as part of the "not smooth" feeling. All three items here give feedback before the server answers.
 - **UX-3.** Time from tap to new state: draw p50 97 ms, p90 181 ms, max 372 ms; discard-and-flip p90 401 ms. Extra taps are dropped silently (`useRoom.ts:134`). On a tap, immediately play the sound, vibrate briefly and lift the tapped card, and keep that until the view arrives.
@@ -399,6 +399,14 @@ The expert counts slow taps as part of the "not smooth" feeling. All three items
 - Throwing away: within 300 ms the drawn card covers ≥ 90% of the discard pile's box. Undo restores place mode. No message is sent before the flip.
 - The reload and reconnect E2E still pass.
 - The release checklist is done.
+
+**How it was built (author, PR #27).**
+- **Pending until the server answers.** `useRoom` says whether a message of yours awaits its ack (`waiting`). The tapped card is lifted 6 px at once (`data-pending`) until then, even when another player's view comes first, as in the opening flip. While it waits, other taps do nothing: one message per move, as before, but no longer silently.
+- **The tap's sound** plays at the tap. `soundsBetween` then skips that sound once, for your own card only, so an opponent's flip at the same moment still sounds. Every other sound keeps M11's landing times: a swap's discard sound still peaks as the old card lands.
+- **A lifted card flies from where it is.** The tap re-measures the cards; a card in flight keeps its resting place (M9's guard), so a tap on a pile whose card is still flying in can't start the next flight mid-air. The card settles back over 150 ms, through `translate`, not the flights' `transform`.
+- **The throw is a local view** (`thrown` in `motion.ts`): the discard pile shows the drawn card, so its flight, its sound and Undo come from `flightsBetween` like any move. It flies on M11's curve, which is 260 ms at its shortest (not 250: UX-22's floor), and rests at a 4° tilt (`rotate`, 250 ms). The flip that sends it moves only the card turned over, and the pile's card straightens. Undo flies it back from the pile, starting from its tilt. A place phase with no card in hand exists only locally, which is how `flightsBetween` tells Undo from a draw.
+- **The lost discard tap.** The pile's slot (`.stack`) takes a tap that lands where its card isn't yet. The card stays the button for keyboards and screen readers.
+- **"Reconnecting…"** shows while `navigator.onLine` is false (the `offline` event), while an ack is over 1.5 s late, and while reconnecting, as before.
 
 ### M19 — Column removal you can follow · v2.2.4
 
@@ -618,7 +626,7 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 10  | ✅ M17                             | Play until one is left (knockout), a lobby option                                                                       | 2.2.0         | the user's request; right after SEC-9 and M18                                                                    |
 | 11  | ✅ M9                              | UX-1, UX-2, UX-21, UX-25, UX-27 (final reveal)                                                                          | 2.2.1         | no jumps, and a card from the discard stays at the pile                                                          |
 | 12  | ✅ M11                             | UX-22, UX-23, UX-24 (+ UX-9), UX-7                                                                                      | 2.2.2         | the user asked for natural animations; it needs M9's correct start positions                                     |
-| 13  | M10                                | UX-3, UX-5, UX-19                                                                                                       | 2.2.3         | feedback before the server answers                                                                               |
+| 13  | ✅ M10                             | UX-3, UX-5, UX-19                                                                                                       | 2.2.3         | feedback before the server answers                                                                               |
 | 14  | M19                                | UX-8, UX-26, UX-30                                                                                                      | 2.2.4         | column removal you can follow                                                                                    |
 | 15  | M20                                | UX-28, the deal                                                                                                         | 2.2.5         | polish                                                                                                           |
 | 16  | M12                                | Spectators keep the piles                                                                                               | 2.2.6         | minor                                                                                                            |
