@@ -459,21 +459,21 @@ The expert counts slow taps as part of the "not smooth" feeling. All three items
   - A column's card has two stand-ins. One is in its own look where it lies: an opponent's small card keeps its shape and its 12 px number. The other, like the pile's card, flies from where the first one was.
   - The card a column-completing swap replaced goes under the column. If it was face down, nobody saw it: it flies face down and fades as it lands, since no discard lies face down.
   - The pile shows its old card under a card flying onto it (UX-30).
-- **Stand-ins don't outlive their change.** The next move's flights, a tap, or a scroll end them at once. A scroll would leave them behind, since they're fixed to the page, so the opponent strip and your grid scroll into view only once the last move's cards have landed.
+- **Stand-ins don't outlive their change.** The next move's flights, a tap, or a scroll end them at once; an update that moves nothing (presence, a clock) leaves them be. A scroll would leave them behind, since they're fixed to the page, so the opponent strip and your grid scroll into view only once the last move's cards have landed.
 - **The sequence.** The column waits until the change's other animations end, then a 120 ms beat. Its cards pulse (1.1 over 220 ms) with the chime, then leave 70 ms apart, 380 ms each. "Your turn" and the round summary wait for the last one, through `timing`.
 - **`heard`** is used up by the answer even when it completes a column, because its placed or turned card is now one of its moves or flips. `Table` also clears it once the answer has rendered, so an answer that plays none of it, an error say, can't silence a later sound.
 - **The reveal's long frame** came from raising every turning card (`z-index: 2`): at 8 seats that is about 70 new stacking contexts in one frame. A card turning over in place stays among its neighbours (`data-motion="flip"`, `z-index: auto`) and keeps its back face. The 8-seat final reveal, WebKit (iPhone 13 project), longest frame after the view arrives, median of 9 runs on the author's machine:
 
-  | Build | Median |
-  | --- | --- |
-  | Pre-M11 (`ddad362`) | 57 ms |
-  | `main` | 70–75 ms |
+  | Build               | Median           |
+  | ------------------- | ---------------- |
+  | Pre-M11 (`ddad362`) | 57 ms            |
+  | `main`              | 70–75 ms         |
   | This PR, three sets | 56, 56 and 58 ms |
 
 - **Delivery.**
   - **Locally, iPhone, 1 worker:** the six split tests take 0.3–0.5 s each. The four new motion tests and the opponent-column one take 0.3–1.2 s each.
   - **Side by side:** `main`'s and this branch's full iPhone projects ran at once, 4 workers each, at load 31–131. Nothing timed out. `main`'s M18 test took 16.5 s and its UX-21 test 11.8 s; the split ones took at most 9.7 s and 4.2 s.
-  - **No flakes:** `--repeat-each=20` on iPhone at 6 workers passed 300 of 300.
+  - **No flakes:** `--repeat-each=20` on iPhone at 6 workers passed 300 of 300, and 280 of 280 after the review's last fixes.
 
 ### M20 — The deal · v2.2.5
 

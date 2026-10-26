@@ -961,11 +961,18 @@ test.describe("with motion allowed", () => {
       expect(Math.abs(look.num), `card ${i}: number`).toBeLessThanOrEqual(0.5);
       expect(look.theirs).toBeGreaterThanOrEqual(12);
     }
-    // You take the discard while their column still waits: it's over, and the pile shows.
+    // An update that moves nothing (presence, a clock) leaves it be; you take the discard while
+    // their column still waits: it's over, and the pile shows.
     const take = apply(after, { type: "draw", seat: me, source: "discard" });
-    await page.evaluate((view) => {
-      dispatchEvent(new CustomEvent("skyjo:table", { detail: { view } }));
-    }, toView(take));
+    await page.evaluate(
+      ([same, take]) => {
+        dispatchEvent(new CustomEvent("skyjo:table", { detail: { view: same } }));
+        const stays = document.querySelectorAll(".card[data-copy]").length;
+        dispatchEvent(new CustomEvent("skyjo:table", { detail: { view: take } }));
+        if (!stays) throw new Error("an update that moves nothing ended the column");
+      },
+      [toView(after), toView(take)],
+    );
     await expect(page.locator(".card[data-copy]")).toHaveCount(0);
     await expect(page.getByTestId("discard")).toHaveCSS("opacity", "0.45"); // dimmed under yours
     const gone = page.getByTestId("opponent").locator('[data-face="gone"]');

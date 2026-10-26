@@ -644,7 +644,8 @@ export function useFlights(
           opacity: 1,
         }));
         const options = { delay: go, duration: COLUMN.fly, id: LEAVE, fill: "forwards" as const };
-        jobs.push({ el: flyer, keyframes, options });
+        // Over the column's other cards as it leaves past them, then stacked as it lands.
+        jobs.push({ el: flyer, keyframes, options, done: raise(flyer) });
         jobs.push(hide(el, go));
       });
       jobs.push(
@@ -663,9 +664,10 @@ export function useFlights(
       const done = column.length ? undefined : drop(under);
       jobs.push({ el: under, keyframes: [{ opacity: 1 }, { opacity: 1 }], options, done });
     }
+    // Added to, so an update that moves nothing (ended nothing) keeps the last change's.
     const started = start(jobs);
-    lingering.current = started.filter(
-      (_, i) => jobs[i].el.dataset.copy !== undefined || jobs[i].role === "hide",
+    lingering.current.push(
+      ...started.filter((_, i) => jobs[i].el.dataset.copy !== undefined || jobs[i].role === "hide"),
     );
     measureAgain.current(); // and again once they land
   }, [view, reduced, tapped]);
@@ -708,7 +710,9 @@ export function useFlights(
     window.addEventListener("resize", moved);
     measureAgain.current = remeasure;
     const left = copies.current;
+    const end = endStandIns.current;
     return () => {
+      end(); // no card stays hidden (reduced motion switched on mid-column)
       for (const el of left) el.remove();
       on = false;
       measureAgain.current = () => {};
