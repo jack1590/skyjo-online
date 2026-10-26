@@ -4,6 +4,20 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.3.0] - 2026-10-26
+
+### Added
+
+- Game over is about you now. The winner reads "You win!" with a small burst of confetti, and everyone else sees where they finished, such as "You placed 2nd", above who won. Equal lowest totals read "You share the win!". It's in English, Spanish and Portuguese, with each language's own ordinals (2nd, 2.º, 2º). With reduced motion turned on in your phone's settings, there's no confetti.
+- Game over has its own music: a short steel-drum tune of about a second and a half, rising for the winner and falling for everyone else. Before, it was a short click.
+- In "Play until one is left", going out is a moment of its own. At the summary of the round where you reach 100, it says "You're out · watching" with a short sound, and while you watch the rest of the game your note says the same, instead of the line strangers get.
+
+### Changed
+
+- Every round summary now lists the players from the lowest total to the highest, the way the game ranks them, and marks your row "you". Before, it was in seat order, and only the final scores were ranked. In "Play until one is left", players who are out come after those still in.
+- After the game, guests read "The host can start a new game" instead of "Waiting for the host…", and a player who has just gone out isn't told to wait.
+- The summary is now a real dialog: with a keyboard, Tab stays on its buttons, and Escape shows the table (like "View table").
+
 ## [2.2.6] - 2026-10-26
 
 ### Changed

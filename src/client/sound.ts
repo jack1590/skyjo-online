@@ -23,6 +23,7 @@ const NAMES = [
   "turn",
   "win",
   "end",
+  "out",
   "tick",
 ] as const;
 export type Sound = (typeof NAMES)[number];
@@ -50,7 +51,7 @@ function readMuted(): boolean {
 }
 let muted = readMuted();
 
-/** Starts downloading the sounds (72 KB, also precached by the service worker). */
+/** Starts downloading the sounds (77 KB; not precached: the game needs the network anyway). */
 export function preloadSounds() {
   files ??= Promise.all(
     NAMES.map(
@@ -131,8 +132,8 @@ export function play(name: Sound, ms = 0): boolean {
  * What to play between two views of the same table, as seen from `seat` (null = watching), each
  * with its delay in ms. With motion, `timing` says when each card's animation starts and ends
  * (useFlights): a card's sound peaks as it lands (UX-22, UX-23), each player's cards sound as they
- * start turning, in the order they turn (UX-27), and game over sounds when the summary shows.
- * Without it, everything sounds at once. `heard` holds the sound this phone played when you tapped
+ * start turning, in the order they turn (UX-27), and game over (or going out, R16) sounds when
+ * the summary shows. Without it, everything sounds at once. `heard` holds the sound this phone played when you tapped
  * (UX-3): the first time your own card makes it here, it isn't played again, and `heard` is
  * cleared.
  */
@@ -180,9 +181,14 @@ export function soundsBetween(
   if (moves.some((m) => m.column)) add("column", late(timing?.get("column")?.start ?? 0));
   const myTurn = (v: GameView) => seat !== null && v.phase === "draw" && v.current === seat;
   if (myTurn(cur) && !myTurn(prev)) add("turn", late(timing ? settled(timing) : 0));
-  if (cur.phase === "gameOver" && prev.phase !== "gameOver") {
-    const shows = timing && reveal ? settled(timing) + SUMMARY_MS : 0;
-    add(seat !== null && cur.winners.includes(seat) ? "win" : "end", shows + LATE_MS);
+  // Game over, or going out (R16, M17 PO), sounds once: as the phase changes to its summary.
+  if (cur.phase !== prev.phase) {
+    const shows = (timing && reveal ? settled(timing) + SUMMARY_MS : 0) + LATE_MS;
+    const won = seat !== null && cur.winners.includes(seat);
+    if (cur.phase === "gameOver") add(won ? "win" : "end", shows);
+    else if (cur.phase === "roundOver" && cur.players[seat ?? -1]?.out === cur.round) {
+      add("out", shows);
+    }
   }
   return out;
 }

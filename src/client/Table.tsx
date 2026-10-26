@@ -1,9 +1,17 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { type Action, places } from "../engine/game";
 import type { GameView, PlayerView, ViewSlot } from "../engine/view";
 import { TURN_MS, type Wait } from "../protocol";
 import { Card } from "./Card";
-import { type T, useI18n } from "./i18n";
+import { type Locale, ordinal, type T, useI18n } from "./i18n";
 import {
   settled,
   slotKey,
@@ -73,6 +81,11 @@ export function Table(props: TableProps) {
   useEffect(() => {
     if (!summary) setPeek(false);
   }, [summary]);
+  // The summary's sheet goes with "View table": a keyboard user's focus moves to "Show scores".
+  const showScores = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (peek) showScores.current?.focus();
+  }, [peek]);
 
   const me = seat === null ? null : players[seat];
   const playing = phase === "draw" || phase === "place";
@@ -264,7 +277,9 @@ export function Table(props: TableProps) {
   }
   if (myClock.left !== null) pill += ` · ${myClock.left}`;
 
-  let note: ReactNode = seat === null ? t("watching") : prompt(t, view, seat, myTurn, discardMode);
+  // A player who is out (R16) isn't a stranger watching (M17 PO).
+  const watching = seat === props.seat ? t("watching") : t("youreOut");
+  let note: ReactNode = seat === null ? watching : prompt(t, view, seat, myTurn, discardMode);
   if (myAuto) note = t("autoPrompt");
   else if (offline && offlineLeft !== null && !myTurn) {
     note = (
@@ -287,7 +302,12 @@ export function Table(props: TableProps) {
       <header className="bar">
         <span className="round">{t("round", { n: view.round })}</span>
         {summary && peek ? (
-          <button type="button" className="btn primary" onClick={() => setPeek(false)}>
+          <button
+            ref={showScores}
+            type="button"
+            className="btn primary"
+            onClick={() => setPeek(false)}
+          >
             {t("showScores")}
           </button>
         ) : (
@@ -535,15 +555,20 @@ export function Table(props: TableProps) {
 
       {/* The summary waits for the final reveal (UX-27). */}
       {summary && !peek && !revealing && (
-        <Summary
-          view={view}
-          lead={lead}
-          auto={auto}
-          onPeek={() => setPeek(true)}
-          onNext={() => onAction({ type: "nextRound" })}
-          onPlayAgain={onPlayAgain}
-          onExit={exit}
-        />
+        <>
+          {/* Its dim: under the toasts (M10's "Reconnecting…"), which a modal's backdrop covers. */}
+          <div className="scrim" />
+          <Summary
+            view={view}
+            you={props.seat}
+            lead={lead}
+            auto={auto}
+            onPeek={() => setPeek(true)}
+            onNext={() => onAction({ type: "nextRound" })}
+            onPlayAgain={onPlayAgain}
+            onExit={exit}
+          />
+        </>
       )}
     </div>
   );
@@ -626,6 +651,8 @@ function Zoom({ view, seat, total, onClose }: ZoomProps) {
 
 interface SummaryProps {
   view: GameView;
+  /** Your seat, out or not; null when watching. */
+  you: number | null;
   lead: boolean;
   auto?: boolean[];
   onPeek: () => void;
@@ -634,33 +661,77 @@ interface SummaryProps {
   onExit: () => void;
 }
 
-function Summary({ view, lead, auto, onPeek, onNext, onPlayAgain, onExit }: SummaryProps) {
-  const { t } = useI18n();
+/** Game over's heading (UX-17): your result when you play, or else who won. */
+export function overTitle(t: T, locale: Locale, view: GameView, you: number | null): string {
+  const names = view.winners.map((i) => view.players[i].name).join(" & ");
+  if (you === null) return t(view.winners.length === 1 ? "winsOne" : "winsMany", { names });
+  // R14: equal lowest totals share the win.
+  if (view.winners.includes(you)) return t(view.winners.length === 1 ? "youWin" : "youShare");
+  return t("youPlaced", { n: ordinal(locale, places(view)[you]) });
+}
+
+/**
+ * The round's or the game's scores, ranked by the engine (R14, R16; UX-14). A native modal
+ * <dialog>, like the zoom, so the table behind it is inert (UX-11); Escape is "View table".
+ */
+function Summary({ view, you, lead, auto, onPeek, onNext, onPlayAgain, onExit }: SummaryProps) {
+  const { t, locale } = useI18n();
+  const reduced = useReducedMotion();
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const dialog = ref.current;
+    dialog?.showModal();
+    // The sheet itself, so a screen reader reads its title, and no button looks chosen for you.
+    dialog?.focus();
+    // Tab goes round the sheet's buttons and never leaves it: a modal still lets it out to the
+    // browser after its last button, and WebKit skips buttons.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Tab" || !dialog) return;
+      const buttons = [...dialog.querySelectorAll("button")];
+      const i = buttons.indexOf(document.activeElement as HTMLButtonElement);
+      e.preventDefault();
+      buttons
+        .at(i === -1 ? (e.shiftKey ? -1 : 0) : (i + (e.shiftKey ? -1 : 1)) % buttons.length)
+        ?.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   const over = view.phase === "gameOver";
-  const winners = view.winners.map((i) => view.players[i].name);
-  const rows = view.players.map((p, seat) => ({ ...p, seat }));
-  // The final ranking (R14, R16) is the engine's.
   const place = places(view);
-  if (over) rows.sort((a, b) => place[a.seat] - place[b.seat]);
+  const rows = view.players
+    .map((p, seat) => ({ ...p, seat }))
+    .sort((a, b) => place[a.seat] - place[b.seat]);
+  const won = you !== null && view.winners.includes(you);
+  // Going out gets its own moment (R16, M17 PO): no "waiting" for a round you won't play.
+  const wentOut = !over && you !== null && view.players[you].out === view.round;
+  let sub: string | null = null;
+  if (wentOut) sub = t("youreOut");
+  else if (over && you !== null && !won) sub = overTitle(t, locale, view, null);
   return (
-    <div
+    <dialog
+      ref={ref}
       className="overlay"
-      role="dialog"
-      aria-modal="true"
+      tabIndex={-1}
       aria-labelledby="summary-title"
+      aria-describedby={sub ? "summary-sub" : undefined}
       data-testid={over ? "game-over" : "round-summary"}
+      onClose={onPeek}
     >
       <div className="sheet">
         <div className="sheet-head">
           <h2 id="summary-title">
-            {over
-              ? t(winners.length === 1 ? "winsOne" : "winsMany", { names: winners.join(" & ") })
-              : t("roundOver", { n: view.round })}
+            {over ? overTitle(t, locale, view, you) : t("roundOver", { n: view.round })}
           </h2>
           <button type="button" className="btn" onClick={onPeek}>
             {t("viewTable")}
           </button>
         </div>
+        {sub && (
+          <p id="summary-sub" className={`sub${wentOut ? " out" : ""}`} data-testid="summary-sub">
+            {sub}
+          </p>
+        )}
         <table className="scores">
           <thead>
             <tr>
@@ -679,6 +750,7 @@ function Summary({ view, lead, auto, onPeek, onNext, onPlayAgain, onExit }: Summ
                   <td>
                     {auto?.[p.seat] && <Bot />}
                     {p.name}
+                    {p.seat === you && <span className="tag you">{t("you")}</span>}
                     {p.seat === view.ender && <span className="tag">{t("ended")}</span>}
                     {/* A winner may have reached 100 too, when nobody was left under it. */}
                     {p.out !== null && !view.winners.includes(p.seat) && (
@@ -708,7 +780,8 @@ function Summary({ view, lead, auto, onPeek, onNext, onPlayAgain, onExit }: Summ
             })}
           </tbody>
         </table>
-        {!lead && <p className="prompt">{t("waitingHost")}</p>}
+        {/* Nothing comes after game over unless the host starts a new one. */}
+        {!lead && !wentOut && <p className="prompt">{t(over ? "hostNewGame" : "waitingHost")}</p>}
         {over ? (
           <div className="actions">
             <button type="button" className="btn" onClick={onExit}>
@@ -728,7 +801,32 @@ function Summary({ view, lead, auto, onPeek, onNext, onPlayAgain, onExit }: Summ
           )
         )}
       </div>
-    </div>
+      {won && !reduced && <Confetti />}
+    </dialog>
+  );
+}
+
+/** 18 pieces from the top of the sheet, out and up, then falling and fading (UX-17). */
+const CONFETTI = Array.from({ length: 18 }, (_, i) => {
+  const angle = -Math.PI * (0.08 + (0.84 * i) / 17); // fanned over the upper half
+  const reach = 90 + ((i * 37) % 70);
+  return {
+    "--x": `${Math.round(Math.cos(angle) * reach)}px`,
+    "--y": `${Math.round(Math.sin(angle) * reach)}px`,
+    "--r": `${((i * 97) % 360) - 180}deg`,
+    background: ["#f2c14e", "#ff7a59", "#5fd0a5", "#7ab8ff", "#f5f1e6"][i % 5],
+    animationDelay: `${(i % 4) * 40}ms`,
+  } as CSSProperties;
+});
+
+function Confetti() {
+  return (
+    <span className="confetti" aria-hidden="true" data-testid="confetti">
+      {CONFETTI.map((style, i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: a fixed set of pieces
+        <i key={i} style={style} />
+      ))}
+    </span>
   );
 }
 

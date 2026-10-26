@@ -388,7 +388,9 @@ button {
   margin: 0;
 }
 
-dialog.zoom {
+/* Modal sheets at the bottom: an opponent's grid, and the summary (UX-11). */
+dialog.zoom,
+dialog.overlay {
   width: 100%;
   max-width: 560px;
   margin: auto auto 0;
@@ -947,18 +949,34 @@ button.card[data-pending] {
 
 /* Round / game summary */
 
-.overlay {
+/* The summary's dim: under the toasts ("Reconnecting…", M10), which a modal backdrop would cover. */
+.scrim {
   position: fixed;
   inset: 0;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
+  z-index: 9;
   background: rgb(5 12 20 / 0.55);
+}
+
+dialog.overlay {
+  max-height: 100dvh;
+  overflow: visible; /* the confetti flies out of it; the sheet scrolls */
+}
+
+dialog.overlay::backdrop {
+  background: transparent;
+}
+
+/* Focused on opening (Table.tsx); the sheet is what shows it. */
+dialog.overlay:focus {
+  outline: none;
 }
 
 .sheet {
   width: 100%;
   max-width: 560px;
+  /* Clear of the toasts at the top ("Reconnecting…", M10), even with 8 players on a small phone. */
+  max-height: calc(100dvh - 56px - env(safe-area-inset-top));
+  overflow-y: auto;
   padding: 20px 16px max(20px, env(safe-area-inset-bottom));
   border-radius: 20px 20px 0 0;
   background: #142a40;
@@ -988,14 +1006,14 @@ button.card[data-pending] {
   font-size: 22px;
 }
 
-.overlay.peek {
-  background: none;
-  pointer-events: none;
+.sheet .sub {
+  margin: -8px 0 0;
+  font-weight: 700;
+  color: var(--muted);
 }
 
-.overlay.peek .sheet {
-  pointer-events: auto;
-  background: rgb(20 42 64 / 0.92);
+.sheet .sub.out {
+  color: #ffb39e;
 }
 
 .scores {
@@ -1040,9 +1058,43 @@ button.card[data-pending] {
   color: var(--muted);
 }
 
+.tag.you {
+  background: rgb(242 193 78 / 0.18);
+  color: var(--accent);
+}
+
 .tag.x2 {
   background: rgb(255 122 89 / 0.25);
   color: #ffb39e;
+}
+
+/* UX-17: a burst from the top of the winner's sheet, out and up, then falling as it fades. */
+.confetti {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  pointer-events: none;
+}
+
+.confetti i {
+  position: absolute;
+  width: 8px;
+  height: 12px;
+  margin: -6px 0 0 -4px;
+  border-radius: 2px;
+  animation: confetti 1.4s cubic-bezier(0.2, 0.6, 0.4, 1) both;
+}
+
+@keyframes confetti {
+  45% {
+    transform: translate(var(--x), var(--y)) rotate(calc(var(--r) / 2));
+    opacity: 1;
+    animation-timing-function: cubic-bezier(0.5, 0, 1, 1);
+  }
+  to {
+    transform: translate(calc(var(--x) * 1.3), calc(var(--y) + 160px)) rotate(var(--r));
+    opacity: 0;
+  }
 }
 
 .actions {
