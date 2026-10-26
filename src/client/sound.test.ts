@@ -134,6 +134,7 @@ const sounds = (s: GameState, seat: number, ...actions: Action[]) => {
 };
 
 const GRID = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+const upExcept = (pos: number) => [...Array(12).keys()].filter((i) => i !== pos);
 const draw: Action = { type: "draw", seat: 0, source: "deck" };
 
 describe("soundsBetween", () => {
@@ -360,6 +361,36 @@ describe("soundsBetween", () => {
     expect(names(soundsBetween(view, over, 1))).toEqual(["end"]);
   });
 
+  it("M14: the round's last turns start with a cue for everyone, once; it stands in for the next player's 'your turn'", () => {
+    // Seat 0 reveals its last face-down card (R10): seat 1's turn is the first of the last turns.
+    const s = apply(table(GRID, upExcept(5), 0), draw);
+    const ended = apply(s, { type: "discardAndFlip", seat: 0, pos: 5 });
+    expect(ended.ender).toBe(0);
+    for (const seat of [0, 1, null]) {
+      expect(names(soundsBetween(toView(s), toView(ended), seat))).toEqual([
+        "discard",
+        "flip",
+        "last",
+      ]);
+    }
+    // Seat 1's last turn: nothing new about the round, so no second cue.
+    const next = apply(apply(ended, { type: "draw", seat: 1, source: "deck" }), {
+      type: "swap",
+      seat: 1,
+      pos: 0,
+    });
+    expect(names(soundsBetween(toView(ended), toView(next), 0))).not.toContain("last");
+    expect(names(soundsBetween(toView(ended), toView(ended), 1))).toEqual([]);
+    expect(names(soundsBetween(null, toView(ended), 1))).toEqual([]);
+  });
+
+  it("M14: with motion, the last-round cue sounds once the ender's cards have landed", () => {
+    const s = apply(table(GRID, upExcept(5), 0), draw);
+    const ended = toView(apply(s, { type: "discardAndFlip", seat: 0, pos: 5 }));
+    const timing = new Map([["discard", { start: 0, hit: 300, end: 420 }]]);
+    expect(soundsBetween(toView(s), ended, null, timing)).toContainEqual(["last", 420]);
+  });
+
   /** A's last turn, after B (seat 1) ended: C's 3 face-down cards turn over, then A's. */
   function lastTurn() {
     // Low cards, no equal column: the round ends well under 100.
@@ -484,5 +515,33 @@ describe("nudge (M8)", () => {
     nudge(own, 5, "r1-1");
     nudge(own, 4, "r1-1");
     expect([vibrate.mock.calls.length, ticks()]).toEqual([1, 0]);
+  });
+
+  const later = () => new Promise((done) => setTimeout(done, 5));
+
+  it("M14: the last-round cue and the results vibrate with their sounds; the winner's pattern is the longest, going out's short", async () => {
+    const { cue, BUZZ, vibrate, ticks } = await phone(false);
+    for (const name of ["last", "win", "out", "end", "flip"] as const) cue(name);
+    await later();
+    expect(ticks()).toBe(5);
+    expect(vibrate.mock.calls).toEqual([[BUZZ.last], [BUZZ.win], [BUZZ.out]]);
+    const length = (name: Sound) => (BUZZ[name] ?? []).reduce((a, b) => a + b, 0);
+    expect(length("win")).toBeGreaterThan(3 * length("out"));
+  });
+
+  it("M14: muted, like the nudge, the cues still vibrate but make no sound", async () => {
+    const { cue, BUZZ, vibrate, ticks } = await phone(true);
+    cue("win");
+    cue("out");
+    await later();
+    expect([vibrate.mock.calls, ticks()]).toEqual([[[BUZZ.win], [BUZZ.out]], 0]);
+  });
+
+  it("M14: no vibration before the first tap on the page (browsers block it)", async () => {
+    const { cue, vibrate } = await phone(false);
+    vi.stubGlobal("navigator", { vibrate, userActivation: { hasBeenActive: false } });
+    cue("win");
+    await later();
+    expect(vibrate).not.toHaveBeenCalled();
   });
 });

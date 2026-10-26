@@ -1,8 +1,8 @@
 // Layout checks at exact game states, through the test-only table harness (src/client/App.tsx):
 // the page renders a static table from an injected view instead of playing up to that state.
 import { expect, type Page, test } from "@playwright/test";
-import { apply, type GameState, places } from "../src/engine/game";
-import { type GameView, toView } from "../src/engine/view";
+import { apply, createGame, type GameState, places } from "../src/engine/game";
+import { type GameView, type PlayerView, toView } from "../src/engine/view";
 import {
   atTurnStart,
   firstTurn,
@@ -50,10 +50,11 @@ const autoBarAt9 = (players: number): Shown => {
   };
 };
 
+/** The smallest number on the opponents' panels: their cards and round scores (UX-15). */
 const smallestOpponentNumber = (page: Page) =>
   page.evaluate(() =>
     Math.min(
-      ...[...document.querySelectorAll('[data-testid="opponent"] .num')].map((n) =>
+      ...[...document.querySelectorAll('[data-testid="opponent"] :is(.num, .sum)')].map((n) =>
         Number.parseFloat(getComputedStyle(n).fontSize),
       ),
     ),
@@ -894,6 +895,190 @@ test.describe("small phone (375×548)", () => {
       });
     }
   });
+});
+
+/** A player's round score so far as the table writes it (UX-15): "+14", "−3", "0". */
+const roundScore = (p: PlayerView) => {
+  const n = p.grid.reduce<number>((sum, slot) => sum + (typeof slot === "number" ? slot : 0), 0);
+  return n > 0 ? `+${n}` : n < 0 ? `−${-n}` : "0";
+};
+
+test("UX-15: at 2, 5 and 8 seats, everyone's round score so far is by their total: the sum of their face-up cards; none from the final reveal on, and your cards keep their size", async ({
+  page,
+}) => {
+  const cardWidth = async () =>
+    (await page.getByTestId("my-grid").locator(".card").first().boundingBox())?.width ?? 0;
+  for (const players of [2, 5, 8]) {
+    const state = lastTurnGame(players, 3);
+    const view = toView(state);
+    const seat = state.current;
+    // Nothing face up yet, so no scores: their line stays, so your cards don't shrink as they come.
+    const deal = createGame(
+      state.players.map((p) => p.name),
+      [3, 0, 0, 0],
+    );
+    await show(page, { view: toView(deal), seat });
+    await expect(page.getByTestId("sum")).toHaveCount(0);
+    const before = await cardWidth();
+    await retable(page, { view });
+    const others = Array.from({ length: players - 1 }, (_, i) => (seat + 1 + i) % players);
+    await expect(page.getByTestId("opponent").getByTestId("sum")).toHaveText(
+      others.map((i) => `${roundScore(view.players[i])} this round`),
+    );
+    await expect(page.getByTestId("mine-head").getByTestId("sum")).toHaveText(
+      `${roundScore(view.players[seat])} this round`,
+    );
+    expect(Math.abs((await cardWidth()) - before)).toBeLessThanOrEqual(1);
+  }
+  // The summary has the round's scores; behind it, the totals hold while the cards are revealed
+  // (M9), so no running score either.
+  await show(page, { view: toView(roundOver(4, 3)), seat: 0 });
+  await page.getByRole("button", { name: "View table" }).click();
+  await expect(page.getByTestId("table")).toBeVisible();
+  await expect(page.getByTestId("sum")).toHaveCount(0);
+});
+
+test("UX-15: with a 16-character name in Portuguese, your row stays one line: your round score sits beside your points, inside the row", async ({
+  page,
+}) => {
+  const state = lastTurnGame(4, 3);
+  state.players[state.current].name = "Valentina Rodrig";
+  await page.addInitScript(() => localStorage.setItem("skyjo:locale", "pt"));
+  const box = (selector: string) =>
+    page
+      .locator(`[data-testid="mine-head"] ${selector}`)
+      .first()
+      .evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        return { top: r.top, bottom: r.bottom, middle: (r.top + r.bottom) / 2 };
+      });
+  for (const width of [0, 360]) {
+    if (width) await page.setViewportSize({ width, height: 740 });
+    await show(page, { view: toView(state), seat: state.current });
+    const [row, pts, sum] = [await box(""), await box(".pts"), await box('[data-testid="sum"]')];
+    expect(Math.abs(sum.middle - pts.middle)).toBeLessThan(3);
+    expect(sum.top).toBeGreaterThanOrEqual(row.top);
+    expect(sum.bottom).toBeLessThanOrEqual(row.bottom);
+  }
+});
+
+test("UX-16: at the first draw everyone reads who starts and why; with one face-down card left, your turn says revealing it ends the round", async ({
+  page,
+}) => {
+  const state = firstTurn(4, 5);
+  const view = toView(state);
+  const starter = view.players[state.current];
+  const pair = roundScore(starter).replace("+", "");
+  const prompt = page.getByTestId("prompt");
+  await show(page, { view, seat: state.current });
+  await expect(prompt).toHaveText(
+    new RegExp(`^You start: highest pair \\(${pair}(, tied)?\\)\\. Draw from the deck`),
+  );
+  await retable(page, { seat: (state.current + 1) % 4 });
+  await expect(prompt).toHaveText(new RegExp(`^${starter.name} starts: highest pair \\(${pair}`));
+  const late = structuredClone(state);
+  late.turn = 9;
+  for (const [pos, slot] of late.players[late.current].grid.entries()) {
+    if (slot) slot.up = pos !== 6;
+  }
+  await retable(page, { view: toView(late), seat: late.current });
+  await expect(prompt).toHaveText("Revealing your last card ends the round");
+});
+
+test("PO, PR #33: in the opening flip only a player with cards to flip is asked to; watchers, out players and anyone done read a neutral 'Everyone flips 2'", async ({
+  page,
+}) => {
+  const deal = createGame(["Ana", "Ben", "Cris", "Dani"], [1, 0, 0, 0]);
+  const pill = page.getByTestId("pill");
+  const gold = () =>
+    pill.evaluate((el) => getComputedStyle(el).backgroundColor === "rgb(242, 193, 78)");
+  await show(page, { view: toView(deal), seat: null });
+  await expect(pill).toHaveText("Everyone flips 2");
+  expect(await gold()).toBe(false);
+  await retable(page, { seat: 0 });
+  await expect(pill).toHaveText("Flip 2 cards");
+  expect(await gold()).toBe(true);
+  const done = [0, 1].reduce((s, pos) => apply(s, { type: "flip", seat: 0, pos }), deal);
+  await retable(page, { view: toView(done) });
+  await expect(pill).toHaveText("Everyone flips 2");
+  const round2 = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 1).find(
+    (s) => s.round === 2 && s.phase === "flip",
+  );
+  if (!round2) throw new Error("seed 1 no longer plays out this way");
+  await retable(page, { view: toView(round2), seat: DANI });
+  await expect(pill).toHaveText("Everyone flips 2");
+  expect(await gold()).toBe(false);
+});
+
+test("M14: when someone reveals their whole grid, the last turns start with one vibration for everyone, and the pill says so", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const buzzes: unknown[] = [];
+    Object.assign(window, { buzzes });
+    navigator.vibrate = (pattern) => buzzes.push(pattern) > 0;
+    Object.defineProperty(navigator, "userActivation", { value: { hasBeenActive: true } });
+  });
+  const buzzes = () => page.evaluate(() => (window as unknown as { buzzes: unknown[] }).buzzes);
+  const states = playedRound(4, 3);
+  const i = states.findIndex((s, j) => s.ender === null && states[j + 1]?.ender !== null);
+  await show(page, { view: toView(states[i]), seat: null });
+  await retable(page, { view: toView(states[i + 1]) });
+  await expect(page.getByTestId("pill")).toHaveClass(/final/);
+  await expect.poll(buzzes).toEqual([[80, 80, 80]]);
+  // The next player's last turn: the round is already ending, so no second cue.
+  await retable(page, { view: toView(states[i + 3]) });
+  await expect(page.getByTestId("table")).toHaveAttribute(
+    "data-current",
+    String(states[i + 3].current),
+  );
+  await page.waitForTimeout(500); // past the cue's 250 ms
+  expect(await buzzes()).toEqual([[80, 80, 80]]);
+});
+
+test("screenshots: M14 round awareness", async ({ page }, info) => {
+  test.skip(!process.env.SHOTS || info.project.name !== "iphone", "run with SHOTS=1");
+  const shot = async (name: string) => {
+    await page.waitForLoadState("networkidle"); // the cards' art
+    await page.screenshot({ path: `docs/screenshots/m14/${name}.jpg`, type: "jpeg", quality: 80 });
+  };
+  const round = playedRound(4, 3);
+  const mid = round[12];
+  await show(page, { view: toView(mid), seat: mid.current });
+  await shot("01-round-scores-4");
+  const eight = playedRound(8, 3)[30];
+  await show(page, { view: toView(eight), seat: (eight.current + 2) % 8 });
+  await shot("02-round-scores-8");
+  const first = firstTurn(4, 5);
+  for (const locale of ["en", "es", "pt"]) {
+    await page.addInitScript((l) => localStorage.setItem("skyjo:locale", l), locale);
+    await show(page, { view: toView(first), seat: first.current });
+    await shot(`03-${locale}-you-start`);
+    await retable(page, { seat: (first.current + 1) % 4 });
+    await shot(`04-${locale}-who-starts`);
+    const late = structuredClone(first);
+    late.turn = 9;
+    for (const [pos, slot] of late.players[late.current].grid.entries()) {
+      if (slot) slot.up = pos !== 6;
+    }
+    await retable(page, { view: toView(late), seat: late.current });
+    await shot(`05-${locale}-last-card`);
+  }
+  await page.addInitScript(() => localStorage.setItem("skyjo:locale", "en"));
+  const i = round.findIndex((s, j) => s.ender === null && round[j + 1]?.ender !== null);
+  await show(page, { view: toView(round[i + 1]), seat: round[i + 1].current });
+  await shot("06-last-turns");
+  await show(page, {
+    view: toView(createGame(["Ana", "Ben", "Cris", "Dani"], [1, 0, 0, 0])),
+    seat: null,
+  });
+  await shot("07-spectator-everyone-flips");
+  const out = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 1).find(
+    (s) => s.round === 2 && s.phase === "flip",
+  );
+  if (!out) throw new Error("seed 1 no longer plays out this way");
+  await show(page, { view: toView(out), seat: DANI });
+  await shot("08-out-player-everyone-flips");
 });
 
 test("screenshots: 2–8 players", async ({ page }, info) => {

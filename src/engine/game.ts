@@ -29,6 +29,8 @@ export interface GameState {
   discard: Card[];
   drawn: Card | null;
   drawnFrom: "deck" | "discard" | null;
+  /** Turns finished this round: 0 until the start player (R4) has moved. */
+  turn: number;
   ender: number | null;
   /** Whether the ender's score was doubled; set at round end, cleared by the next deal. */
   doubled: boolean;
@@ -84,6 +86,7 @@ export function createGame(names: string[], seed: Rng, options: GameOptions = {}
     discard: [],
     drawn: null,
     drawnFrom: null,
+    turn: 0,
     ender: null,
     doubled: false,
     winners: [],
@@ -106,6 +109,7 @@ function deal(s: GameState): void {
   s.current = s.players.findIndex((p) => p.out === null);
   s.drawn = null;
   s.drawnFrom = null;
+  s.turn = 0;
   s.ender = null;
   s.doubled = false;
 }
@@ -267,6 +271,7 @@ function removeColumns(s: GameState, seat: number): void {
 function endTurn(s: GameState, seat: number): void {
   s.drawn = null;
   s.drawnFrom = null;
+  s.turn++;
   removeColumns(s, seat);
   if (s.ender === null && !s.players[seat].grid.some((slot) => slot && !slot.up)) s.ender = seat;
   s.current = seat;

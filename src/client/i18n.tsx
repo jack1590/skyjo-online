@@ -116,6 +116,12 @@ const en = {
   youPlaced: "You placed {n}",
   youreOut: "You're out · watching",
   hostNewGame: "The host can start a new game",
+  starts: "{name} starts: highest pair ({n})",
+  youStart: "You start: highest pair ({n}).",
+  tied: "tied",
+  lastCard: "Revealing your last card ends the round",
+  everyoneFlips: "Everyone flips 2",
+  thisRound: "this round",
 };
 
 export type Key = keyof typeof en;
@@ -239,6 +245,12 @@ const es: Record<Key, string> = {
   youPlaced: "Quedaste en {n} lugar",
   youreOut: "Estás fuera · mirando",
   hostNewGame: "El anfitrión puede empezar otra partida",
+  starts: "{name} empieza: el par más alto ({n})",
+  youStart: "Empiezas tú: el par más alto ({n}).",
+  tied: "empate",
+  lastCard: "Revelar tu última carta termina la ronda",
+  everyoneFlips: "Todos voltean 2",
+  thisRound: "en esta ronda",
 };
 
 /** Brazilian Portuguese. */
@@ -358,6 +370,12 @@ const pt: Record<Key, string> = {
   youPlaced: "Você ficou em {n} lugar",
   youreOut: "Você está fora · assistindo",
   hostNewGame: "O anfitrião pode começar outra partida",
+  starts: "{name} começa: o maior par ({n})",
+  youStart: "Você começa: o maior par ({n}).",
+  tied: "empate",
+  lastCard: "Revelar sua última carta encerra a rodada",
+  everyoneFlips: "Todos viram 2",
+  thisRound: "nesta rodada",
 };
 
 export const LOCALES = {
