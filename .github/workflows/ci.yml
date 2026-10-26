@@ -120,7 +120,9 @@ jobs:
           BASE_URL: ${{ needs.deploy.outputs.url }}
       # Two phones play a round and the next deal, and a reload keeps the seat, against the live site.
       # One runner is one IP under the production limits: a whole game at bot speed (about 25
-      # messages/s) would trip the 120-a-minute message budget; a round is about 50 messages.
+      # messages/s) would trip the 120-a-minute message budget. These two tests spend 70 units in
+      # all (56 the round, 14 the reload; M13, measured locally), whether they run in parallel or
+      # one after the other: both finish within the same minute either way.
       - run: npx playwright test e2e/online.spec.ts --project=pixel -g "a round runs|keeps your seat"
         env:
           BASE_URL: ${{ needs.deploy.outputs.url }}

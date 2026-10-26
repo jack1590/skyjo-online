@@ -6,6 +6,7 @@ import {
   join,
   phones,
   playToEnd,
+  playUntil,
   seatedRoom,
   startGame,
   test,
@@ -440,12 +441,7 @@ test("a round runs to its summary, then the next round (or the game ends)", asyn
   const { pages } = await seatedRoom(browser, info, ["Ana", "Ben"]);
   await startGame(pages[0]);
   const phase = () => pages[0].getByTestId("table").getAttribute("data-phase");
-  for (let idle = 0; !["roundOver", "gameOver"].includes((await phase()) ?? ""); ) {
-    let moved = false;
-    for (const page of pages) moved = (await botStep(page)) || moved;
-    idle = moved ? 0 : idle + 1;
-    if (idle > 100) throw new Error("table stalled");
-  }
+  await playUntil(pages, async () => ["roundOver", "gameOver"].includes((await phase()) ?? ""));
   if ((await phase()) === "gameOver") {
     // Doubling can end a game in round 1; then the summary must offer a rematch instead.
     await expect(pages[0].getByRole("button", { name: "Play again" })).toBeVisible();

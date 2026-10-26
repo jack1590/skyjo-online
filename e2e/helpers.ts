@@ -7,15 +7,28 @@ import {
   type TestInfo,
 } from "@playwright/test";
 
+/** The running test's phones (a worker runs one test at a time) and their sockets' closes. */
+let phoneCount = 0;
+let closes: string[] = [];
+let started = 0;
+
 /**
  * Playwright's `test`, closing every phone when the test ends. Playwright closes only the contexts
  * it made, so a phone from `phones()` outlived its test: it stayed in its room, and the next
- * failing test in the worker screenshot it too (7 shots for a 2-phone test, PO PR #29).
+ * failing test in the worker screenshot it too (7 shots for a 2-phone test, PO PR #29). It also
+ * attaches each phone's socket closes, with their codes (a 1008 is the per-IP message limit), and
+ * prints them when the test fails (M13, PO PR #31: a live smoke flake left no trace of them).
  */
 export const test = base.extend<{ closePhones: undefined }>({
   closePhones: [
-    async ({ browser }, use) => {
+    async ({ browser }, use, info) => {
+      [phoneCount, closes, started] = [0, [], Date.now()];
       await use(undefined);
+      if (phoneCount) {
+        const body = closes.join("\n") || "none";
+        await info.attach("socket closes", { body, contentType: "text/plain" });
+        if (info.status !== info.expectedStatus) console.log(`Socket closes:\n${body}`);
+      }
       await Promise.all(browser.contexts().map((context) => context.close()));
     },
     { auto: true },
@@ -64,6 +77,23 @@ export async function phones(
           delete (window as { AudioContext?: unknown }).AudioContext; // the app then stays silent
         });
       }
+      const phone = ++phoneCount;
+      // Through a binding, so a close is logged even when its page then reloads or dies.
+      await context.exposeBinding("__socketClosed", (_, code: number, reason: string) => {
+        const at = ((Date.now() - started) / 1000).toFixed(1);
+        closes.push(`${at} s · phone ${phone} · ${code}${reason ? ` ${reason}` : ""}`);
+      });
+      await context.addInitScript(() => {
+        type Logged = { __socketClosed?: (code: number, reason: string) => Promise<void> };
+        window.WebSocket = class extends window.WebSocket {
+          constructor(...args: ConstructorParameters<typeof WebSocket>) {
+            super(...args);
+            this.addEventListener("close", (e) => {
+              void (window as Logged).__socketClosed?.(e.code, e.reason);
+            });
+          }
+        };
+      });
       return context.newPage();
     }),
   );
@@ -131,15 +161,33 @@ export async function botStep(page: Page): Promise<boolean> {
   return true;
 }
 
-export async function playToEnd(pages: Page[]) {
-  const over = pages[0].getByTestId("game-over");
-  for (let idle = 0; !(await over.count()); ) {
-    let moved = false;
-    for (const page of pages) moved = (await botStep(page)) || moved;
-    idle = moved ? 0 : idle + 1;
-    if (idle > 200) throw new Error("table stalled");
+/**
+ * Bot moves on every phone until `done()`. The table has stalled when its phase and the seat to
+ * move (as `pages[0]` shows them) stay the same for 15 s; the error names that seat. Time, not a
+ * count of idle loops: those ran out while the server's Auto-play steps (2 s, then 1.2 s) were
+ * still coming (M13, PO PR #31).
+ */
+export async function playUntil(pages: Page[], done: () => Promise<boolean>) {
+  const table = pages[0].getByTestId("table");
+  let seen = "";
+  let since = Date.now();
+  while (!(await done())) {
+    for (const page of pages) await botStep(page);
+    // In the opening flip everyone moves at once; then one seat at a time.
+    const phase = await table.getAttribute("data-phase");
+    const seat =
+      phase === "flip" ? "" : `, waiting on seat ${await table.getAttribute("data-current")}`;
+    const now = `${phase}${seat}`;
+    if (now !== seen) [seen, since] = [now, Date.now()];
+    else if (Date.now() - since > 15_000) {
+      const pill = await pages[0].getByTestId("pill").textContent();
+      throw new Error(`table stalled for 15 s in ${now} (phone 1's pill: "${pill}")`);
+    }
   }
 }
+
+export const playToEnd = (pages: Page[]) =>
+  playUntil(pages, async () => (await pages[0].getByTestId("game-over").count()) > 0);
 
 export const startGame = async (host: Page) => {
   await host.getByRole("button", { name: "Start game" }).click();
