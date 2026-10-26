@@ -58,7 +58,9 @@ export function flightsBetween(prev: GameView, cur: GameView): Flights {
     return { moves, flips, reveal: false }; // a fresh deal: nothing travels
   }
   // Completed columns (R9), the mover's first, as the engine stacks them on the pile. A column's
-  // card is the one its face-up cards share (the view never shows a card that left face down).
+  // card is the one its face-up cards share (the view never shows a card that left face down);
+  // when one leaves alone, the pile's new top, which it is (R9 stacks it last). That one is
+  // certain even when a last swap replaced a face-up card of it (PO, PR #28).
   const removed: { seat: number; pos: number; card: ViewSlot }[] = [];
   for (const seat of new Set([prev.current, ...cur.players.keys()])) {
     const [was, now] = [prev.players[seat].grid, cur.players[seat].grid];
@@ -69,6 +71,9 @@ export function flightsBetween(prev: GameView, cur: GameView): Flights {
       const card = up.find((c) => up.indexOf(c) !== up.lastIndexOf(c)) ?? up[0] ?? cur.discardTop;
       for (const pos of column) removed.push({ seat, pos, card });
     }
+  }
+  if (removed.length === 3 && cur.discardTop !== null) {
+    for (const r of removed) r.card = cur.discardTop;
   }
   // When a column leaves, the pile will show it, not what went there before: those fly as copies.
   const copied = removed.length > 0;
@@ -90,13 +95,15 @@ export function flightsBetween(prev: GameView, cur: GameView): Flights {
     const changed = after.flatMap((slot, i) => (slot !== null && slot !== before[i] ? [i] : []));
     // A swap that completed a column went into the one slot of it that didn't show the card
     // (UX-26). Not a face-down one when the card was thrown here: that's the card you turned over.
-    const into = removed.find(
+    const fits = removed.filter(
       (r) =>
         r.seat === seat &&
         r.card === held &&
         before[r.pos] !== held &&
         !(away && before[r.pos] === "down"),
-    )?.pos;
+    );
+    // A face-up card that isn't the column's is certainly the one replaced (PO, PR #28).
+    const into = (fits.find((r) => typeof before[r.pos] === "number") ?? fits[0])?.pos;
     // Certain when that slot showed another card; else the final reveal may have turned up the
     // card elsewhere, which then is where it went.
     const sure = into !== undefined && typeof before[into] === "number" ? into : undefined;

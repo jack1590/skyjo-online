@@ -65,7 +65,11 @@ describe("flightsBetween", () => {
 
   // Column 0 shows 5, 5 and a face-down 9; seat 0 holds a 5 drawn from the deck.
   const COLUMN = [5, 1, 2, 3, 5, 2, 3, 4, 9, 3, 4, 1];
-  const column = (pos: number) => ({ to: "discard", from: slotKey(0, pos), turn: false });
+  const column = (pos: number, seat = 0) => ({
+    to: "discard",
+    from: slotKey(seat, pos),
+    turn: false,
+  });
 
   it("UX-26: a swap that completes a column is 5 flights: the card in, the one it replaced to the pile (face down: nobody saw it), then the column's 3 cards, as copies", () => {
     const s = apply(table(COLUMN, [0, 4], 5), { type: "draw", seat: 0, source: "deck" });
@@ -176,6 +180,43 @@ describe("flightsBetween", () => {
     ]);
     expect(flips).toEqual([slotKey(1, 1)]);
   });
+
+  // Seat 1 takes the round's last turn, swapping a 5 into column 0, which the final reveal then
+  // completes as 5, 5, 5. `col` is that column, top to bottom (a number face up, "down" a face-down
+  // 5); the swap goes into the 3 (PO, PR #28).
+  for (const col of [
+    [3, 5, "down"],
+    [3, "down", "down"],
+    ["down", 3, "down"],
+  ] as const) {
+    it(`UX-26 (PO, PR #28): the round's last swap into a column the reveal completes (${col.join(", ")}): the 5 goes into the 3, the 3 to the pile, and the column is 5s`, () => {
+      const s = createGame(["A", "B"], [1, 0, 0, 0]);
+      s.phase = "draw";
+      s.current = 1;
+      s.ender = 0;
+      s.players[0].grid = GRID.map((card) => ({ card, up: true }));
+      const rest = [1, 2, 4, 6, 7, 8, 9, 10, 11];
+      s.players[1].grid = Array.from({ length: 12 }, (_, i) => {
+        if (i % 4) return { card: rest.shift() ?? 0, up: true };
+        const c = col[i / 4];
+        return c === "down" ? { card: 5, up: false } : { card: c, up: true };
+      });
+      s.deck.push(5);
+      const pos = col.indexOf(3) * 4;
+      const { moves, flips } = flights(
+        s,
+        { type: "draw", seat: 1, source: "deck" },
+        { type: "swap", seat: 1, pos },
+      );
+      expect(moves).toEqual([
+        { to: slotKey(1, pos), from: "drawn", turn: false, card: 5 },
+        { to: "discard", from: slotKey(1, pos), turn: false, card: 3 },
+        ...[0, 4, 8].map((i) => ({ ...column(i, 1), card: 5, column: true })),
+      ]);
+      const down = [0, 4, 8].filter((i) => col[i / 4] === "down");
+      expect(flips).toEqual(down.map((i) => slotKey(1, i)));
+    });
+  }
 
   it("a new deal animates nothing", () => {
     const s = table(GRID, [0, 1], 0);
