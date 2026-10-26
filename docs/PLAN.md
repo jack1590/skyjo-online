@@ -484,6 +484,15 @@ The expert counts slow taps as part of the "not smooth" feeling. All three items
 - **WebKit 8-seat reveal**, median of the 9 longest frames: with the author's script, this PR 59 and 60 ms, `main` 66 and 67. With PR #26's PO script, this PR 45 ms and `main` 47–50. The first two frames together still take about 110 ms on both builds.
 - **Delivery.** CI's iPhone job took 132 and 167 s (Playwright 80 and 118 s; PR #27: 132–155 and 77–108). The second runner was slow: its tests summed 396 s, against 257–361 s in the five iPhone jobs of PR #27 and its `main` run. The split tests took M18 6.7–8.9 s and UX-21 2.8–3.2 s on run 1, and M18 9.6–13.0 s on run 2: over the 10 s bar on a slow runner. Locally, `npm run e2e` took 102 s; the new and split tests passed 330 of 330 at `--repeat-each=10` on all 3 devices.
 
+**PO, PR #28 round 2: approved** on `83fda86`.
+- **The fix.** When one column leaves, its card is the pile's new top. `into` prefers a face-up card that isn't the column's.
+  - The three new unit tests fail on `7d674ca`, and the other 25 pass there.
+  - The PO's harness strips of the three layouts, in WebKit and Chromium, now show the 5 going into the 3's slot, the 3 landing face up on the pile, the reveal turning up the 5s, and three 5s leaving.
+- **Replayed:** a 4-phone WebKit game, in which 12 columns left with nothing left behind and no console error.
+- **Locally:** `npm run e2e` 211 passed in 107 s; Node 20 passed; the new tests 330 of 330 at `--repeat-each=10`.
+- **On CI:** the iPhone job took 159 s (step 114 s). It ran on a slow runner whose tests summed 387 s, and M18 took 8.8–14.0 s there (M20's first commit).
+- **Scores:** Rules correctness 5, Mobile UX 5, Visual polish 5, Multiplayer stability 5, Security N/A (client only), Code health 5, Delivery health 4 (M18 on slow runners), Game feel 5.
+
 ### M20 — The deal · v2.2.5
 
 **First commit of M20's PR, test only (delivery health, PO PR #28).** Make `table.spec.ts`'s M18 tests cheap on CI.
