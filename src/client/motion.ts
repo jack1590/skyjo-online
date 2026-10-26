@@ -41,27 +41,33 @@ export function flightsBetween(prev: GameView, cur: GameView): Flights {
   if (prev.round !== cur.round || prev.players.length !== n) {
     return { moves, turns, flips, reveal: false }; // a fresh deal: nothing travels
   }
+  // A card thrown away on this phone (`thrown`, the only place phase with no card in hand) is
+  // still held until the server answers, but it lies on the discard pile.
+  const away = prev.phase === "place" && prev.drawn === null;
+  const held = away ? prev.discardTop : prev.drawn;
   if (prev.drawn === null && cur.drawn !== null) {
-    moves.set("drawn", cur.drawnFrom === "discard" ? "discard" : "deck");
-    if (cur.drawnFrom !== "discard") turns.add("drawn");
+    // From a pile, or back from the discard pile (Undo), face up.
+    moves.set("drawn", cur.drawnFrom === "discard" || away ? "discard" : "deck");
+    if (cur.drawnFrom !== "discard" && !away) turns.add("drawn");
   }
-  if (prev.drawn !== null && cur.drawn === null) {
+  if (held !== null && cur.drawn === null) {
     // The turn ended: the held card went into the grid (swap) or onto the discard pile. At round
     // end the final reveal changes other slots too, so prefer the slot that now holds the card.
     const seat = prev.current;
     const before = prev.players[seat].grid;
     const after = cur.players[seat].grid;
     const changed = after.flatMap((slot, i) => (slot !== null && slot !== before[i] ? [i] : []));
-    const pos = changed.find((i) => after[i] === prev.drawn) ?? changed[0] ?? -1;
-    const revealedOnly = before[pos] === "down" && cur.discardTop === prev.drawn;
+    const pos = changed.find((i) => after[i] === held) ?? changed[0] ?? -1;
+    const revealedOnly = before[pos] === "down" && cur.discardTop === held;
     const swapped =
-      pos !== -1 && (prev.drawnFrom === "discard" || (after[pos] === prev.drawn && !revealedOnly));
+      pos !== -1 && (prev.drawnFrom === "discard" || (after[pos] === held && !revealedOnly));
     if (swapped) {
-      moves.set(slotKey(seat, pos), "drawn");
+      // A thrown card the server swapped in (your clock ran out) leaves from the pile.
+      moves.set(slotKey(seat, pos), away ? "discard" : "drawn");
       moves.set("discard", slotKey(seat, pos));
       if (before[pos] === "down") turns.add("discard");
-    } else {
-      moves.set("discard", "drawn");
+    } else if (!away) {
+      moves.set("discard", "drawn"); // a thrown card is already there
     }
   }
   // Seat order from the ender's left, then row by row: the final reveal's order (UX-27).
@@ -80,6 +86,16 @@ export function flightsBetween(prev: GameView, cur: GameView): Flights {
   }
   return { moves, turns, flips, reveal };
 }
+
+/**
+ * The table while you throw the drawn card away (UX-19): it already lies on the discard pile, on
+ * this phone only, until you turn a card over, which sends the one discard-and-flip.
+ */
+export const thrown = (view: GameView): GameView => ({
+  ...view,
+  discardTop: view.drawn,
+  drawn: null,
+});
 
 /** How long a card takes to turn over where it lies, by its size (UX-24). */
 export const FLIP_MS = { lg: 380, md: 340, sm: 260 } as const;
@@ -153,8 +169,9 @@ interface Frame {
  * `lift`, it is first picked up for that many ms where it is and stays up for the first half of
  * the way (UX-23). A card that left face down (`turn`) turns face up on the way: within that first
  * half after a lift, else edge-on halfway, taking at least a medium card's flip (UX-25, UX-24).
+ * A card that lay tilted (`tilt`, deg: one thrown on the pile, UX-19) straightens on its way.
  */
-export function path(from: Rect, to: Rect, { lift = 0, turn = false } = {}) {
+export function path(from: Rect, to: Rect, { lift = 0, turn = false, tilt = 0 } = {}) {
   const dx = from.x + from.width / 2 - (to.x + to.width / 2);
   const dy = from.y + from.height / 2 - (to.y + to.height / 2);
   const s = from.width / to.width;
@@ -165,7 +182,7 @@ export function path(from: Rect, to: Rect, { lift = 0, turn = false } = {}) {
   const lean = Math.abs(dx) < 1 ? 0 : -3 * Math.sign(dx);
   const back = turn ? 180 : 0;
   const frames: Frame[] = lift
-    ? [{ offset: 0, x: dx, y: dy, rotate: 0, scale: s, turn: back }]
+    ? [{ offset: 0, x: dx, y: dy, rotate: tilt, scale: s, turn: back }]
     : [];
   for (const t of TIMES) {
     const p = travel(t);
@@ -174,7 +191,7 @@ export function path(from: Rect, to: Rect, { lift = 0, turn = false } = {}) {
       offset: (lift + t * fly) / duration,
       x: dx * (1 - p),
       y: dy * (1 - p) - arc * bump(t),
-      rotate: lean * bump(t),
+      rotate: lean * bump(t) + tilt * (1 - p),
       scale: (s + (1 - s) * p) * (1 + 0.06 * up) * (t === 0.94 ? 0.97 : 1),
       turn: back * (1 - turned(Math.min(1, lift ? 2 * t : t))),
     });
@@ -261,28 +278,44 @@ export type Timing = Map<string, { start: number; hit: number; end: number }>;
 
 const flying = (el: HTMLElement) => el.getAnimations().some(ours);
 
+/** Where a card sits, and how far it lies tilted (deg). */
+type Place = Rect & { tilt?: number };
+
+/**
+ * A card's place. One lying tilted (`data-tilt`, UX-19's thrown card) is measured as if straight:
+ * its own size around its centre, since its bounding box grows with the tilt.
+ */
+function place(el: HTMLElement): Place {
+  const r = el.getBoundingClientRect();
+  const tilt = Number(el.dataset.tilt);
+  if (!tilt) return r;
+  const [width, height] = [el.offsetWidth, el.offsetHeight];
+  return { x: r.x + (r.width - width) / 2, y: r.y + (r.height - height) / 2, width, height, tilt };
+}
+
 /**
  * Where each card sits. A card in flight keeps the place it was last measured at rest, so no
  * flight ever starts from another flight's frame (UX-1).
  */
-const measure = (els: Map<string, HTMLElement>, old: Map<string, DOMRect>) =>
-  new Map(
-    [...els].map(
-      ([k, el]) => [k, (flying(el) && old.get(k)) || el.getBoundingClientRect()] as const,
-    ),
-  );
+const measure = (els: Map<string, HTMLElement>, old: Map<string, Place>) =>
+  new Map([...els].map(([k, el]) => [k, (flying(el) && old.get(k)) || place(el)] as const));
 
 /**
  * Registers card elements under keys and animates what changed whenever the view changes.
  * Positions are re-measured after scrolls and resizes, so flights start where cards really were.
  * Does nothing (and measures nothing) when the user prefers reduced motion. `timing` holds when
- * the last change's animations start and end, for its sounds.
+ * the last change's animations start and end, for its sounds. `pending` is the key of a card
+ * lifted by a tap (UX-3): it is measured there, so its flight starts where it is.
  */
-export function useFlights(view: GameView, tapped?: { current: string | null }) {
+export function useFlights(
+  view: GameView,
+  tapped?: { current: string | null },
+  pending?: string | null,
+) {
   const els = useRef(new Map<string, HTMLElement>());
   const refs = useRef(new Map<string, (el: HTMLElement | null) => void>());
   const prev = useRef<GameView | null>(null);
-  const rects = useRef(new Map<string, DOMRect>());
+  const rects = useRef(new Map<string, Place>());
   const timing = useRef<Timing>(new Map());
   const measureAgain = useRef(() => {});
   const reduced = useReducedMotion();
@@ -315,7 +348,7 @@ export function useFlights(view: GameView, tapped?: { current: string | null }) 
       const lift = from.startsWith("slot-") ? LIFT_MS : 0;
       const delay = from === "drawn" && to !== "discard" ? IN_MS : 0;
       const turn = turns.has(to);
-      const { frames, duration, edge, hit } = path(a, b, { lift, turn });
+      const { frames, duration, edge, hit } = path(a, b, { lift, turn, tilt: a.tilt });
       // Around the card's centre, like its own `scale` (the lifted discard, UX-21), so the two
       // compose; that scale also scales the offset.
       const k = Number.parseFloat(getComputedStyle(el).scale) || 1;
@@ -345,6 +378,10 @@ export function useFlights(view: GameView, tapped?: { current: string | null }) 
     start(jobs);
     measureAgain.current(); // and again once they land
   }, [view, reduced, tapped]);
+
+  useLayoutEffect(() => {
+    if (pending && !reduced) rects.current = measure(els.current, rects.current);
+  }, [pending, reduced]);
 
   useEffect(() => {
     if (reduced) return;

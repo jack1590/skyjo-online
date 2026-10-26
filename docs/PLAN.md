@@ -382,7 +382,7 @@ The user asked for natural animations, so this comes right after M9, ahead of M1
 - **Sounds** (real game, Chromium): every draw, place and discard peaks 16–25 ms after its card touches down, at the bottom of its settle. "Your turn" starts 1–2 ms after the last card lands.
 - **Visual polish 4, not 5.** An opponent's incoming card is invisible for its first ~140 ms, clipped by the strip (UX-8, M19). The discard pile looks empty while its new top card flies in (UX-30, new, M19).
 
-### M10 — Responsive taps, honest connection state, a visible throw-away · v2.2.3
+### M10 — Responsive taps, honest connection state, a visible throw-away · v2.2.3 · ✅ shipped (PR #27)
 
 The expert counts slow taps as part of the "not smooth" feeling. All three items here give feedback before the server answers.
 - **UX-3.** Time from tap to new state: draw p50 97 ms, p90 181 ms, max 372 ms; discard-and-flip p90 401 ms. Extra taps are dropped silently (`useRoom.ts:134`). On a tap, immediately play the sound, vibrate briefly and lift the tapped card, and keep that until the view arrives.
@@ -400,7 +400,38 @@ The expert counts slow taps as part of the "not smooth" feeling. All three items
 - The reload and reconnect E2E still pass.
 - The release checklist is done.
 
+**How it was built (author, PR #27).**
+- **Pending until the server answers.** `useRoom` says which message of yours awaits its ack (`waiting`, its seq). The tapped card is lifted 6 px at once (`data-pending`) until that message's answer, even when another player's view comes first, as in the opening flip. While it waits, other taps do nothing: one message per move, as before, but no longer silently.
+- **The tap's sound** plays at the tap. `soundsBetween` then skips that sound once, for your own card only, so an opponent's flip at the same moment still sounds. It is skipped only if it really played: right after a reload the first tap can come before the sounds have decoded, and then the answer plays it. Every other sound keeps M11's landing times: a swap's discard sound still peaks as the old card lands.
+- **A lifted card flies from where it is.** The tap re-measures the cards; a card in flight keeps its resting place (M9's guard), so a tap on a pile whose card is still flying in can't start the next flight mid-air. The card settles back over 150 ms, through `translate`, not the flights' `transform`.
+- **The throw is a local view** (`thrown` in `motion.ts`): the discard pile shows the drawn card, so its flight, its sound and Undo come from `flightsBetween` like any move. It flies on M11's curve, which is 260 ms at its shortest (not 250: UX-22's floor), and rests at a 4° tilt (`rotate`, 250 ms). The flip that sends it moves only the card turned over, and the pile's card straightens. Undo flies it back from the pile, starting from its tilt, and puts a fresh card on the pile, so the one under it shows at once, straight, even mid-throw; keyboard focus moves to the pile. A place phase with no card in hand exists only locally, which is how `flightsBetween` tells Undo from a draw. If your clock runs out while the card is thrown and Auto-play swaps it in, it flies from the pile into your grid (review, PR #27).
+- **The lost discard tap.** The pile's slot (`.stack`) takes a tap that lands where its card isn't yet. The card stays the button for keyboards and screen readers.
+- **"Reconnecting…"** shows while `navigator.onLine` is false (the `offline` event), while an ack is over 1.5 s late, and while reconnecting, as before.
+
+**PO, PR #27 round 1: approved.** Played on `8d9a4e7` with motion and sound on: a 3-phone round (Ana in es with every server frame held 400 ms, Ben in en, Cleo in pt) in WebKit at 390×664 and Chromium at 360×740, plus 2-phone edge cases in both.
+- **Taps.** Over 46 taps the card lifted 0.8–4.0 ms after the pointer and stayed up 408–425 ms, until the answer. Each tap's sound started at the tap and never again with the answer. A second tap while waiting did nothing and sent nothing. Each move was one message; throwing away and Undo sent none.
+- **The lost discard tap.** A tap on the pile's slot while its card was still flying in, 46–113 px away, took the discard 7 times out of 7 (WebKit 3, Chromium 4).
+- **"Reconnecting…"** showed 1 ms after the `offline` event and cleared 1 ms after `online`, on 300 ms and 3 s drops. It never showed with answers 400 ms late, and showed 1526–1543 ms after the tap with answers 1.7 s late. With an answer lost, the card stayed lifted until the 5 s ack timeout, which reconnected; the move had landed and both phones matched.
+- **No desync,** in both engines:
+  - a dropped socket while the card was thrown reconnected in 0.5 s, kept the throw, and the flip sent one `discardAndFlip`;
+  - when the clock ran out with the card thrown, Auto-play swapped it in, flying from the pile;
+  - ticking Auto-play with the card thrown brought it back to the hand, and Auto-play then played.
+- **Reduced motion:** no animation at all; the lift and the 4° tilt are static.
+- **Rulings.**
+  - The throw's 260 ms stands. It is UX-22's floor, and at 300 ms the card covers 97–98% of the pile.
+  - Taps during a pending move do nothing. A queue would send a second message for a table that is about to change. The lifted card says why, and the wait ends within 5 s.
+- **Delivery.**
+  - The iPhone job took 155, 132 and 155 s (Playwright 107, 77 and 108 s; `main` 150 and 104 s), and the run 159 s.
+  - The new tests add 10–12 s of iPhone test time, about 3 s of wall time.
+  - Locally, `npm run e2e` took 92 s, and the new tests passed 160 of 160 at `--repeat-each=10 --workers=4`.
+  - The author's local timeouts are real, and on `main` too: see M19's first commit.
+- **Scores:** Rules correctness 5, Mobile UX 5, Visual polish 4 (UX-8 and UX-30 are open in M19), Multiplayer stability 5, Security 5 (client only: no new entry point, no extra message), Code health 5, Delivery health 4, Game feel 5.
+
 ### M19 — Column removal you can follow · v2.2.4
+
+**First commit of M19's PR, test only (delivery health, PO PR #27).** Split `table.spec.ts`'s M18 test and its UX-21 test into one test per locale (en, es, pt).
+- **Why:** each loops the three locales through `show()` in one test. On CI the M18 test is the longest iPhone test (15–23 s; `main` 21 s). On this machine, with `main`'s and PR #27's iPhone projects run side by side at 4 workers (load 6–74), `main`'s M18 test timed out at 31 s, and on the branch M18 and UX-21 timed out at 30 s.
+- **Acceptance:** each new test takes ≤ 10 s on CI's iPhone job. Run side by side like that, no table test times out. The PR reports the iPhone job and Playwright-step times on 2 runs, next to PR #27's (job 132–155 s, step 77–108 s).
 
 - **UX-8.** Flights to opponents are clipped by the strip's overflow (`styles.css:327`). Fly a fixed-position copy instead.
 - **UX-26** (it needs UX-8's copies). `flightsBetween` keys its moves by destination, so a swap that completes a column returns 1 flight of 5: it drops the drawn card, the replaced card and 2 of the 3 column cards. Instead:
@@ -410,12 +441,14 @@ The expert counts slow taps as part of the "not smooth" feeling. All three items
 
   This replaces the After-M5 "declined" note: it now has a measured cost and a plan.
 - **UX-30** (PO, PR #26). While a card flies to the discard pile, the pile looks empty: the card it covers is gone for the whole flight, 340–540 ms of every swap. With UX-8's copies, the pile keeps showing that card until the flight lands.
+- **The tap's sound, used up** (PO, PR #27; column removal's sounds). `heard` (UX-3) is cleared only when the answer plays the same sound for your card. A discard-and-flip that completes a column answers with the discard and column sounds, so `heard` stays "flip". Your next flip that you didn't tap is then silent once: your seat's first flip in the final reveal, or an Auto-play flip. Clear it once the answer has rendered.
 
 **Acceptance:**
 - At mid-flight, no ancestor clips a flying card; the PR has a screenshot.
 - At 25% of a flight to the discard pile, the pile shows the card that flight will cover.
 - WebKit: the 8-seat final reveal's longest frame, median of 9 runs, is ≤ 60 ms (PO, PR #26: 89 ms; M9: 49 ms).
 - A unit test gets 5 flights from a column-completing swap.
+- A unit test: after the answer to a column-completing discard-and-flip, `heard` is empty.
 - An E2E shows 3 flights to the discard, 60–90 ms apart.
 - Reduced motion turns it all off.
 - The release checklist is done.
@@ -618,7 +651,7 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 10  | ✅ M17                             | Play until one is left (knockout), a lobby option                                                                       | 2.2.0         | the user's request; right after SEC-9 and M18                                                                    |
 | 11  | ✅ M9                              | UX-1, UX-2, UX-21, UX-25, UX-27 (final reveal)                                                                          | 2.2.1         | no jumps, and a card from the discard stays at the pile                                                          |
 | 12  | ✅ M11                             | UX-22, UX-23, UX-24 (+ UX-9), UX-7                                                                                      | 2.2.2         | the user asked for natural animations; it needs M9's correct start positions                                     |
-| 13  | M10                                | UX-3, UX-5, UX-19                                                                                                       | 2.2.3         | feedback before the server answers                                                                               |
+| 13  | ✅ M10                             | UX-3, UX-5, UX-19                                                                                                       | 2.2.3         | feedback before the server answers                                                                               |
 | 14  | M19                                | UX-8, UX-26, UX-30                                                                                                      | 2.2.4         | column removal you can follow                                                                                    |
 | 15  | M20                                | UX-28, the deal                                                                                                         | 2.2.5         | polish                                                                                                           |
 | 16  | M12                                | Spectators keep the piles                                                                                               | 2.2.6         | minor                                                                                                            |

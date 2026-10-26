@@ -108,14 +108,16 @@ export function recoverAudio() {
     });
 }
 
-function play(name: Sound, ms = 0) {
+/** Plays a sound (`ms` from now); says whether it started. */
+export function play(name: Sound, ms = 0): boolean {
   const buffer = buffers.get(name);
   // A suspended context would queue sounds and blast them all at once later; drop them instead.
-  if (muted || !ctx || !master || ctx.state !== "running" || !buffer) return;
+  if (muted || !ctx || !master || ctx.state !== "running" || !buffer) return false;
   const source = ctx.createBufferSource();
   source.buffer = buffer;
   source.connect(master);
   source.start(ctx.currentTime + ms / 1000);
+  return true;
 }
 
 /** A table that has just been dealt: nobody has turned a card yet. */
@@ -127,28 +129,38 @@ const freshDeal = (v: GameView) =>
  * with its delay in ms. With motion, `timing` says when each card's animation starts and ends
  * (useFlights): a card's sound peaks as it lands (UX-22, UX-23), each player's cards sound as they
  * start turning, in the order they turn (UX-27), and game over sounds when the summary shows.
- * Without it, everything sounds at once.
+ * Without it, everything sounds at once. `heard` holds the sound this phone played when you tapped
+ * (UX-3): the first time your own card makes it here, it isn't played again, and `heard` is
+ * cleared.
  */
 export function soundsBetween(
   prev: GameView | null,
   cur: GameView,
   seat: number | null,
   timing?: Timing,
+  heard?: { current: Sound | null },
 ): [Sound, number][] {
   if (!prev) return freshDeal(cur) ? [["deal", 0]] : []; // first view: only a brand-new game sounds
   if (prev.round !== cur.round) return cur.phase === "flip" ? [["deal", 0]] : [];
   const out: [Sound, number][] = [];
-  const add = (name: Sound, ms = 0) => {
+  /** Whose card an element shows: a slot's player, or for the piles, the one who moved. */
+  const owner = (key: string) =>
+    key.startsWith("slot-") ? Number(key.split("-")[1]) : prev.current;
+  const add = (name: Sound, ms = 0, key?: string) => {
+    if (heard?.current === name && key !== undefined && owner(key) === seat) {
+      heard.current = null;
+      return;
+    }
     if (!out.some(([n, t]) => n === name && t === ms)) out.push([name, ms]);
   };
   const { moves, flips, reveal } = flightsBetween(prev, cur);
   // A card's sound is loudest as it hits home, at the bottom of its settle (UX-22, UX-23).
   const lands = (name: Sound, key: string) =>
-    add(name, Math.max(0, (timing?.get(key)?.hit ?? 0) - (PEAK[name] ?? 0)));
-  for (const [to, from] of moves) {
+    add(name, Math.max(0, (timing?.get(key)?.hit ?? 0) - (PEAK[name] ?? 0)), key);
+  for (const to of moves.keys()) {
     if (to === "drawn") lands("draw", to);
     else if (to === "discard") lands("discard", to);
-    else if (from === "drawn") lands("place", to);
+    else lands("place", to); // into a grid, from your hand or (thrown, UX-19) the pile
   }
   // flips are slot keys ("slot-<seat>-<pos>").
   const start = (key: string) => timing?.get(key)?.start ?? 0;
@@ -156,7 +168,7 @@ export function soundsBetween(
   [...flips]
     .sort((a, b) => start(a) - start(b))
     .forEach((key, i, order) => {
-      if (seatOf(key) !== seatOf(order[i - 1])) add("flip", start(key));
+      if (seatOf(key) !== seatOf(order[i - 1])) add("flip", start(key), key);
     });
   const removed = cur.players.some((p, s) =>
     p.grid.some((slot, i) => slot === null && prev.players[s]?.grid[i] !== null),
@@ -177,16 +189,22 @@ export function soundsBetween(
 /**
  * Plays the sounds for each change of `view`, including the deal when a new game appears, timed
  * by that change's animations (useFlights' `timing`, set in its layout effect, before this runs).
+ * `heard`: the sound already played for your last tap (UX-3), used up by the server's answer.
  */
-export function useSounds(view: GameView, seat: number | null, timing: { current: Timing }) {
+export function useSounds(
+  view: GameView,
+  seat: number | null,
+  timing: { current: Timing },
+  heard?: { current: Sound | null },
+) {
   const prev = useRef<GameView | null>(null);
   const reduced = useReducedMotion();
   useEffect(() => {
     const before = prev.current;
     prev.current = view;
     const timed = reduced ? undefined : timing.current;
-    for (const [name, ms] of soundsBetween(before, view, seat, timed)) play(name, ms);
-  }, [view, seat, reduced, timing]);
+    for (const [name, ms] of soundsBetween(before, view, seat, timed, heard)) play(name, ms);
+  }, [view, seat, reduced, timing, heard]);
 }
 
 let nudged: string | null = null;

@@ -98,6 +98,115 @@ test("SEC-9: a visible phone the room shows offline says hello once, since its p
   expect(hellos()).toBe(said + 1);
 });
 
+test("UX-3: with the server's answers 500 ms late, a tapped card lifts within 50 ms with its sound, which doesn't play again with the answer; a second tap meanwhile sends nothing", async ({
+  browser,
+}, info) => {
+  test.skip(info.project.name !== "pixel", "a client rule, with audio: one engine is enough");
+  const [ana, ben] = await phones(browser, info, 2, { audio: true });
+  let late = false;
+  const moves: string[] = [];
+  await ana.routeWebSocket(/\/api\/rooms\/[A-Z0-9]+\/ws$/, (ws) => {
+    const server = ws.connectToServer();
+    ws.onMessage((m) => {
+      if (String(m).includes('"t":"act"')) moves.push(String(m));
+      server.send(m);
+    });
+    server.onMessage((m) => (late ? setTimeout(() => ws.send(m), 500) : ws.send(m)));
+  });
+  await ana.addInitScript(() => {
+    // Sounds really started (not the unlock's 1-frame silence), and when a card first lifted.
+    const w = window as unknown as { sounds: number; lifted?: number };
+    w.sounds = 0;
+    const start = AudioBufferSourceNode.prototype.start;
+    AudioBufferSourceNode.prototype.start = function (...args) {
+      if ((this.buffer?.length ?? 0) > 1) w.sounds++;
+      return start.apply(this, args);
+    };
+    new MutationObserver(() => {
+      if (document.querySelector("[data-pending]")) w.lifted ??= performance.now();
+    }).observe(document, { subtree: true, attributes: true, attributeFilter: ["data-pending"] });
+  });
+  const sounds = () => ana.evaluate(() => (window as unknown as { sounds: number }).sounds);
+  const code = await createRoom(ana);
+  await join(ana, code, "Ana");
+  await join(ben, code, "Ben");
+  await startGame(ana);
+  await expect.poll(sounds).toBeGreaterThan(0); // the deal: the sounds are loaded
+  const dealt = await sounds();
+
+  late = true;
+  const grid = ana.getByTestId("my-grid");
+  const [first, second] = [
+    grid.locator(":scope > :nth-child(1)"),
+    grid.locator(":scope > :nth-child(6)"),
+  ];
+  await ana.evaluate(() => {
+    const w = window as unknown as { tap?: number };
+    addEventListener("click", () => (w.tap = performance.now()), { capture: true, once: true });
+  });
+  await first.click();
+  const { tap = 0, lifted = 1e9 } = await ana.evaluate(() => {
+    const w = window as unknown as { tap?: number; lifted?: number };
+    return { tap: w.tap, lifted: w.lifted };
+  });
+  expect(lifted - tap, "lifted within 50 ms of the tap").toBeLessThanOrEqual(50);
+  await expect(first).toHaveCSS("translate", "0px -6px");
+  expect(await sounds(), "its sound, at the tap").toBe(dealt + 1);
+  await second.click();
+  await expect(first, "still waiting for the answer").toHaveAttribute("data-pending", "true");
+  await expect(second).not.toHaveAttribute("data-pending");
+  expect(moves).toHaveLength(1);
+
+  // The answer: the card turns over and settles, without a second sound.
+  await expect(first).toHaveAttribute("data-face", "up");
+  await expect(first).not.toHaveAttribute("data-pending");
+  await ana.evaluate(() => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 100))));
+  expect(await sounds(), "not again with the answer").toBe(dealt + 1);
+  await expect(second).toHaveAttribute("data-face", "down");
+  expect(moves).toHaveLength(1);
+  await expect(ana.getByText("Reconnecting…"), "500 ms is not late").toHaveCount(0);
+});
+
+test("UX-5: 'Reconnecting…' shows within 1 s of going offline and clears once back, and shows while an answer is over 1.5 s late", async ({
+  browser,
+}, info) => {
+  const [page] = await phones(browser, info, 1);
+  let hold = false;
+  const held: (() => void)[] = [];
+  await page.routeWebSocket(/\/api\/rooms\/[A-Z0-9]+\/ws$/, (ws) => {
+    const server = ws.connectToServer();
+    server.onMessage((m) => (hold ? held.push(() => ws.send(m)) : ws.send(m)));
+  });
+  await join(page, await createRoom(page), "Ana");
+  const toast = page.getByText("Reconnecting…");
+  await expect(toast).toHaveCount(0);
+  await page.context().setOffline(true);
+  await expect(toast).toBeVisible({ timeout: 1_000 });
+  await page.context().setOffline(false);
+  await expect(toast).toHaveCount(0);
+  await expect(page.getByTestId("seats")).toContainText("Ana"); // still in the room
+
+  hold = true;
+  const asked = Date.now();
+  await page.getByRole("checkbox", { name: "Play until one is left" }).click();
+  await expect(toast).toBeVisible({ timeout: 3_000 });
+  expect(Date.now() - asked, "not before 1.5 s").toBeGreaterThanOrEqual(1_400);
+  hold = false;
+  for (const send of held.splice(0)) send();
+  await expect(toast).toHaveCount(0);
+});
+
+test("screenshots: M10 Reconnecting…", async ({ browser }, info) => {
+  test.skip(!process.env.SHOTS || info.project.name !== "iphone", "run with SHOTS=1");
+  const { pages } = await seatedRoom(browser, info, ["Ana", "Ben"]);
+  await startGame(pages[0]);
+  const [mover] = await pastFlips(pages);
+  await mover.context().setOffline(true);
+  await expect(mover.getByText("Reconnecting…")).toBeVisible();
+  await mover.screenshot({ path: "docs/screenshots/m10/en-3-reconnecting.jpg", scale: "css" });
+  await mover.context().setOffline(false);
+});
+
 /** Plays the opening flip on every phone; returns the phone to move first, then the others. */
 async function pastFlips(pages: Page[]) {
   while ((await pages[0].getByTestId("table").getAttribute("data-phase")) === "flip") {
@@ -321,18 +430,37 @@ test("a round runs to its summary, then the next round (or the game ends)", asyn
   }
 });
 
-test("discard mode can be cancelled and the drawn card swapped in; then a whole discard-and-flip turn", async ({
+/** Records the moves (`act` messages) a phone sends from now on: `moves(page)` reads them. */
+const countMoves = (page: Page) =>
+  page.evaluate(() => {
+    const w = window as unknown as { moves: string[] };
+    w.moves = [];
+    const send = WebSocket.prototype.send;
+    WebSocket.prototype.send = function (data) {
+      if (String(data).includes('"t":"act"')) w.moves.push(JSON.parse(String(data)).action.type);
+      return send.call(this, data);
+    };
+  });
+const moves = (page: Page) => page.evaluate(() => (window as unknown as { moves: string[] }).moves);
+
+test("UX-19: a thrown-away card can be taken back with Undo and swapped in; then a whole discard-and-flip turn, with nothing sent before the flip", async ({
   browser,
 }, info) => {
   const { pages } = await seatedRoom(browser, info, ["Ana", "Ben"]);
   await startGame(pages[0]);
   const [mover, other] = await pastFlips(pages);
+  for (const page of pages) await countMoves(page);
   await mover.getByTestId("deck").click();
   const drawn = (await mover.getByTestId("drawn").getAttribute("aria-label"))?.split(": ")[1];
   await mover.getByTestId("discard").click();
   await expect(mover.getByText("Now flip one of your face-down cards")).toBeVisible();
-  await mover.getByTestId("drawn").click();
+  await expect(mover.getByTestId("discard")).toHaveAttribute(
+    "aria-label",
+    `Discard pile: ${drawn}`,
+  );
+  await mover.getByRole("button", { name: "Undo", exact: true }).click();
   await expect(mover.getByText("Tap a grid card to swap")).toBeVisible();
+  expect(await moves(mover), "throwing and taking back are this phone's alone").toEqual(["draw"]);
   const target = mover.getByTestId("my-grid").locator('button[data-face="up"]').first();
   const position = (await target.getAttribute("aria-label"))?.split(":")[0];
   await target.click();
@@ -346,12 +474,15 @@ test("discard mode can be cancelled and the drawn card swapped in; then a whole 
   await other.getByTestId("deck").click({ force: true });
   const card = (await other.getByTestId("drawn").getAttribute("aria-label"))?.split(": ")[1];
   await other.getByTestId("discard").click({ force: true });
-  await expect(other.getByTestId("drawn")).toHaveJSProperty("tagName", "BUTTON"); // discard mode
+  await expect(other.getByRole("button", { name: "Undo", exact: true })).toBeVisible(); // thrown
+  expect(await moves(other)).toEqual(["draw"]);
   await grid.locator('button[data-face="down"]').first().click({ force: true });
   await expect(grid.locator('[data-face="down"]')).toHaveCount(down - 1);
   await expect(other.getByTestId("discard")).toHaveAttribute("aria-label", `Discard pile: ${card}`);
   await expect(other.getByTestId("table")).toHaveAttribute("data-myturn", "false");
   await expect(mover.getByTestId("table")).toHaveAttribute("data-myturn", "true");
+  expect(await moves(other)).toEqual(["draw", "discardAndFlip"]);
+  expect(await moves(mover)).toEqual(["draw", "swap"]);
 });
 
 test("an unknown room code says so, including codes that can't exist", async ({ page }) => {

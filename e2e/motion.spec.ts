@@ -147,6 +147,9 @@ async function move(
   }>;
 }
 
+/** A card value as the app writes it, with a real minus sign (Card.tsx). */
+const formatCard = (n: number) => (n < 0 ? `−${-n}` : String(n));
+
 const PILES = {
   deck: '[data-testid="deck"]',
   drawn: '[data-testid="drawn"]',
@@ -305,6 +308,104 @@ test.describe("with motion allowed", () => {
       });
       expectOver(swap.during[0].slot, swap.before.drawn, `swap ${turn}: frame 0 at the held card`);
     }
+  });
+
+  test("M9 PO, UX-3: a tap on the discard pile while its new top card is still flying in is taken, and the card you take starts at the pile, not mid-flight", async ({
+    page,
+  }) => {
+    await recordFlights(page);
+    let state = firstTurn(2, 5);
+    const me = (state.current + 1) % 2; // the opponent moves first
+    await show(page, { view: toView(state), seat: me });
+    const them = state.current;
+    state = apply(state, { type: "draw", seat: them, source: "deck" });
+    await move(page, toView(state), PILES);
+    state = apply(state, { type: "swap", seat: them, pos: swapTarget(state) });
+    // Their old card flies to the pile: held at 10% of its way, still over their grid.
+    const swap = await move(page, toView(state), PILES, [0.1], false);
+    const pile = swap.before.discard;
+    const flying = swap.during[0].discard;
+    if (!pile || !flying) throw new Error("no discard pile");
+    expect(Math.hypot(flying.x - pile.x, flying.y - pile.y), "away from the pile").toBeGreaterThan(
+      60,
+    );
+    await page.mouse.click(pile.x, pile.y);
+    await expect(page.getByTestId("discard")).toHaveAttribute("data-pending", "true");
+    // The in-flight guard: the tap re-measures the cards, but not one in flight.
+    state = apply(state, { type: "draw", seat: me, source: "discard" });
+    const take = await move(page, toView(state), PILES);
+    expectOver(take.during[0].drawn, pile, "the card taken starts at the pile");
+  });
+
+  test("UX-19: thrown away, the drawn card lies on the discard pile within 300 ms, over ≥ 90% of it and tilted 4°; Undo brings it back to your hand", async ({
+    page,
+  }) => {
+    const state = firstTurn(2, 5);
+    const me = state.current;
+    const view = toView(apply(state, { type: "draw", seat: me, source: "deck" }));
+    await show(page, { view, seat: me });
+    const thrown = await page.evaluate(async () => {
+      const pile = document.querySelector(".stack")?.getBoundingClientRect();
+      const discard = document.querySelector<HTMLElement>('[data-testid="discard"]');
+      if (!pile || !discard) return null;
+      discard.click();
+      await new Promise((r) => setTimeout(r)); // React renders the tap in a microtask
+      // Everything that moves the card (its flight, its tilt) ends by 300 ms: seen there, on the
+      // animations' own clock. Headless WebKit on CI may not paint a frame in 300 ms of wall time.
+      const moving = discard.getAnimations();
+      const ends = moving.map((a) => {
+        const { delay = 0, duration } = a.effect?.getTiming() ?? {};
+        return Number(delay) + Number(duration);
+      });
+      for (const a of moving) a.currentTime = 300;
+      // How much of the pile's box the card covers, tilted: what a tap there would hit.
+      let over = 0;
+      for (let i = 0; i < 20; i++) {
+        for (let j = 0; j < 20; j++) {
+          const x = pile.x + ((i + 0.5) * pile.width) / 20;
+          const y = pile.y + ((j + 0.5) * pile.height) / 20;
+          if (discard.contains(document.elementFromPoint(x, y))) over++;
+        }
+      }
+      const label = discard.getAttribute("aria-label");
+      const rotate = getComputedStyle(discard).rotate;
+      return { covered: over / 400, label, rotate, ends, moving: moving.length };
+    });
+    expect(thrown?.moving, "a flight and the tilt").toBeGreaterThanOrEqual(2);
+    for (const end of thrown?.ends ?? []) expect(end).toBeLessThanOrEqual(300);
+    expect(thrown?.covered).toBeGreaterThanOrEqual(0.9);
+    expect(thrown?.label).toBe(`Discard pile: ${formatCard(view.drawn ?? 0)}`);
+    expect(thrown?.rotate).toBe("4deg");
+    await expect(page.getByTestId("drawn")).toHaveCount(0);
+    // Undo from the keyboard: focus stays on the pile, whose own card shows at once, straight.
+    await page.getByRole("button", { name: "Undo", exact: true }).focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("discard")).toBeFocused();
+    const pile = page.getByTestId("discard");
+    expect(
+      await pile.evaluate((el) => [getComputedStyle(el).rotate, el.getAnimations().length]),
+    ).toEqual(["none", 0]);
+    const back = `Drawn card: ${formatCard(view.drawn ?? 0)}`;
+    await expect(page.getByTestId("drawn")).toHaveAttribute("aria-label", back);
+    const top = `Discard pile: ${formatCard(view.discardTop ?? 0)}`;
+    await expect(pile).toHaveAttribute("aria-label", top);
+    await expect(page.getByTestId("prompt")).toHaveText(
+      "Tap a grid card to swap, or the discard pile to throw it away",
+    );
+    // Undo while the throw is still in flight: nothing carries the pile's own card in.
+    const caught = await page.evaluate(async () => {
+      const tick = () => new Promise((r) => setTimeout(r));
+      const pile = () => document.querySelector('[data-testid="discard"]');
+      document.querySelector<HTMLElement>('[data-testid="discard"]')?.click();
+      await tick();
+      const flying = pile()
+        ?.getAnimations()
+        .some((a) => a.id === "flight");
+      document.querySelector<HTMLElement>(".undo")?.click();
+      await tick();
+      return { flying, after: pile()?.getAnimations().length };
+    });
+    expect(caught).toEqual({ flying: true, after: 0 });
   });
 
   test("UX-22: a flight covers 20–50% of its way at 25% of its time, is lifted ≥ 1.04 halfway, lands within 0.5 px, and lasts clamp(260, 180 + 0.55·d, 460) ms; only transforms move", async ({

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type Action, apply, createGame, type GameState } from "../engine/game";
 import { toView } from "../engine/view";
-import { FLIP_MS, flipDelays, IN_MS, LIFT_MS, path, revealStep, slotKey } from "./motion";
+import { FLIP_MS, flipDelays, IN_MS, LIFT_MS, path, revealStep, slotKey, thrown } from "./motion";
 import { type Sound, soundsBetween } from "./sound";
 
 /** A fake AudioContext that records what the unlock does to it. */
@@ -73,6 +73,14 @@ describe("unlockAudio", () => {
     ctx.state = "interrupted";
     unlockAudio();
     expect(calls).toEqual(["resume", "resume"]);
+  });
+
+  it("UX-3: play says whether a sound started: not before the first gesture, nor before its file is decoded", async () => {
+    fakeAudio("running");
+    const { play, unlockAudio } = await load();
+    expect(play("flip")).toBe(false);
+    unlockAudio();
+    await vi.waitFor(() => expect(play("flip")).toBe(true));
   });
 
   it("recoverAudio suspends then resumes, and is a no-op before the first gesture", async () => {
@@ -155,6 +163,44 @@ describe("soundsBetween", () => {
     expect(
       sounds(table(GRID, [0, 1], 0), 0, draw, { type: "discardAndFlip", seat: 0, pos: 5 }),
     ).toEqual(["discard", "flip"]);
+  });
+
+  it("UX-19: throwing the card away sounds as it lands on the pile, Undo as you pick it up, and the flip that follows only flips", () => {
+    const s = apply(table(GRID, [0, 1], 0), draw);
+    const held = toView(s);
+    const flipped = toView(apply(s, { type: "discardAndFlip", seat: 0, pos: 5 }));
+    expect(names(soundsBetween(held, thrown(held), 0))).toEqual(["discard"]);
+    expect(names(soundsBetween(thrown(held), held, 0))).toEqual(["draw"]);
+    expect(names(soundsBetween(thrown(held), flipped, 0))).toEqual(["flip"]);
+    // The clock ran out and the server swapped it in: it is placed, and the old card discarded.
+    const swapped = toView(apply(s, { type: "swap", seat: 0, pos: 5 }));
+    expect(names(soundsBetween(thrown(held), swapped, 0))).toEqual(["place", "discard"]);
+  });
+
+  it("UX-3: the sound you heard as you tapped isn't played again when the server's answer arrives, once; other players' still are", () => {
+    const s = table(GRID, [0, 1], 0);
+    const held = apply(s, draw);
+    const swapped = apply(held, { type: "swap", seat: 0, pos: 5 });
+    const answer = (
+      from: GameState,
+      to: GameState,
+      seat: number,
+      heard: { current: Sound | null },
+    ) => names(soundsBetween(toView(from), toView(to), seat, undefined, heard));
+    const heard = { current: "draw" as Sound | null };
+    expect(answer(s, held, 1, heard), "watching seat 0 draw").toEqual(["draw"]);
+    expect(heard.current, "not used up by someone else's card").toBe("draw");
+    expect(answer(s, held, 0, heard)).toEqual([]);
+    expect(heard.current, "used up").toBe(null);
+    expect(answer(s, held, 0, heard), "only once").toEqual(["draw"]);
+    // The card going in sounded at the tap; the one leaving still sounds as it lands.
+    expect(answer(held, swapped, 0, { current: "place" })).toEqual(["discard"]);
+    // The opening flip, where everyone taps at once: only your own card was heard already.
+    const fresh = createGame(["A", "B"], [1, 0, 0, 0]);
+    const mine = apply(fresh, { type: "flip", seat: 0, pos: 0 });
+    expect(answer(fresh, mine, 0, { current: "flip" })).toEqual([]);
+    const theirs = apply(mine, { type: "flip", seat: 1, pos: 3 });
+    expect(answer(mine, theirs, 0, { current: "flip" })).toEqual(["flip"]);
   });
 
   /** A card's sounds and announcements, as useFlights times a flight that starts at `start`. */

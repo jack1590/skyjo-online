@@ -20,6 +20,8 @@ const PING_MS = 20_000;
 const SILENT_MS = 2 * PING_MS + 5_000;
 /** A sent message unanswered this long means the socket is dead: reconnect. */
 const ACK_MS = 5_000;
+/** An answer this late already says "Reconnecting…" (UX-5). */
+const LATE_MS = 1_500;
 
 /** Per-room secret that lets this browser reclaim its seat after a reload or a dropped connection. */
 function tokenFor(code: string): string {
@@ -45,6 +47,15 @@ export function useRoom(code: string) {
   const seq = useRef(0);
   /** The one message awaiting the server's ack; further taps are dropped until it lands. */
   const awaiting = useRef<number | null>(null);
+  /** The same, as state (a tapped card stays lifted until its ack, UX-3), and whether it's late. */
+  const [waiting, setWaiting] = useState<number | null>(null);
+  const [late, setLate] = useState(false);
+  /** The wait is over: answered, or the socket that would answer is gone. */
+  const answered = useCallback(() => {
+    awaiting.current = null;
+    setWaiting(null);
+    setLate(false);
+  }, []);
 
   useEffect(() => {
     if (!isRoomCode(code)) {
@@ -60,7 +71,7 @@ export function useRoom(code: string) {
     let stopped = false;
     const stop = (why: "missing" | "full") => {
       stopped = true;
-      awaiting.current = null; // a pending tap's ack timeout must not reconnect
+      answered(); // a pending tap's ack timeout must not reconnect
       setStatus(why);
     };
 
@@ -82,9 +93,7 @@ export function useRoom(code: string) {
         lastHeard = Date.now();
         if (e.data === PONG) return;
         const msg = JSON.parse(e.data) as ServerMsg;
-        if ("ack" in msg && awaiting.current !== null && msg.ack >= awaiting.current) {
-          awaiting.current = null;
-        }
+        if ("ack" in msg && awaiting.current !== null && msg.ack >= awaiting.current) answered();
         if (msg.t === "state") {
           setRoom(msg.room);
           // Shown offline on a visible page: the room missed our pings (a network stall the socket
@@ -100,7 +109,7 @@ export function useRoom(code: string) {
       };
       ws.onclose = (e) => {
         if (socket.current !== ws || stopped) return;
-        awaiting.current = null;
+        answered();
         if (e.code === CLOSE_UNKNOWN_ROOM || e.code === CLOSE_ROOM_FULL) {
           stop(e.code === CLOSE_ROOM_FULL ? "full" : "missing");
           return;
@@ -148,22 +157,31 @@ export function useRoom(code: string) {
       document.removeEventListener("visibilitychange", wake);
       socket.current?.close();
     };
-  }, [code]);
+  }, [code, answered]);
 
-  /** Sends one message at a time: taps before the server acks the last one are dropped (double taps). */
-  const send = useCallback((msg: ClientMsg) => {
-    const ws = socket.current;
-    if (ws?.readyState !== WebSocket.OPEN || awaiting.current !== null) return;
-    const n = ++seq.current;
-    awaiting.current = n;
-    ws.send(JSON.stringify({ ...msg, seq: n }));
-    setTimeout(() => {
-      if (awaiting.current !== n) return;
-      awaiting.current = null;
-      reconnect.current(); // no answer: the socket is half-open
-    }, ACK_MS);
-  }, []);
+  /**
+   * Sends one message at a time: taps before the server acks the last one are dropped (double
+   * taps). Returns its seq, or null when it wasn't sent.
+   */
+  const send = useCallback(
+    (msg: ClientMsg) => {
+      const ws = socket.current;
+      if (ws?.readyState !== WebSocket.OPEN || awaiting.current !== null) return null;
+      const n = ++seq.current;
+      awaiting.current = n;
+      setWaiting(n);
+      ws.send(JSON.stringify({ ...msg, seq: n }));
+      setTimeout(() => awaiting.current === n && setLate(true), LATE_MS);
+      setTimeout(() => {
+        if (awaiting.current !== n) return;
+        answered();
+        reconnect.current(); // no answer: the socket is half-open
+      }, ACK_MS);
+      return n;
+    },
+    [answered],
+  );
 
   const clearError = useCallback(() => setError(null), []);
-  return { room, status, error, clearError, send };
+  return { room, status, error, clearError, send, waiting, late };
 }
