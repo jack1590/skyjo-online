@@ -122,7 +122,7 @@ test.describe("360×740 (common Android width)", () => {
         widths.push(await width());
         if (table.view.phase === "place") {
           await page.getByTestId("discard").click({ force: true }); // discard mode: the longest prompt
-          await expect(page.getByTestId("drawn")).toHaveJSProperty("tagName", "BUTTON"); // tap to keep
+          await expect(page.locator(".undo")).toBeVisible(); // the card is thrown (UX-19)
           widths.push(await width());
         }
       }
@@ -142,17 +142,18 @@ const placing = (): Shown => {
 test.describe("M18: discard mode shows where to tap", () => {
   // The narrowest phone the prompt must fit (UX-20); on every device, as fonts differ.
   test.use({ viewport: { width: 360, height: 740 } });
-  const flipNow = {
-    en: "Now flip one of your face-down cards",
-    es: "Ahora voltea una de tus cartas boca abajo",
-    pt: "Agora vire uma das suas cartas viradas para baixo",
+  // The prompt no longer offers to keep the card: Undo does (UX-19).
+  const words = {
+    en: ["Now flip one of your face-down cards", "Undo"],
+    es: ["Ahora voltea una de tus cartas boca abajo", "Deshacer"],
+    pt: ["Agora vire uma das suas cartas viradas para baixo", "Desfazer"],
   };
 
-  test("M18: only your face-down cards are highlighted and the rest dims; the held card is lifted, never highlighted; the prompt fits 2 lines in en, es and pt; no pulse with reduced motion", async ({
+  test("M18, UX-19: only your face-down cards are highlighted and the rest dims; the held card is lifted, never highlighted; thrown, it leaves an Undo chip ≥ 44 px; the prompt fits 2 lines in en, es and pt, with no horizontal scroll; no pulse with reduced motion", async ({
     page,
   }) => {
     const target = page.getByTestId("my-grid").locator('button[data-face="down"]').first();
-    for (const [locale, text] of Object.entries(flipNow)) {
+    for (const [locale, [text, undo]] of Object.entries(words)) {
       await page.addInitScript((l) => localStorage.setItem("skyjo:locale", l), locale);
       await show(page, placing());
       // Place phase (UX-4): every highlight is a button, and the held card sits 6 px up, unmarked.
@@ -162,10 +163,11 @@ test.describe("M18: discard mode shows where to tap", () => {
       const top = async (id: string) => (await page.getByTestId(id).boundingBox())?.y ?? 0;
       expect((await top("deck")) - (await top("drawn"))).toBeCloseTo(6, 0);
 
-      // Discard mode (UX-18): the highlights are exactly your face-down cards; face-up ones dim.
+      // Discard mode (UX-18): the card lies on the pile, with Undo where it was (UX-19); the
+      // highlights are exactly your face-down cards; face-up ones dim.
       await page.getByTestId("discard").click();
-      await expect(page.getByTestId("drawn")).toHaveJSProperty("tagName", "BUTTON"); // tap to keep
-      expect((await top("deck")) - (await top("drawn"))).toBeCloseTo(6, 0);
+      await expect(page.getByRole("button", { name: undo, exact: true })).toBeVisible();
+      await expect(page.getByTestId("drawn")).toHaveCount(0);
       await expectMobileFriendly(page);
       const marks = await page.evaluate(() => {
         const grid = '[data-testid="my-grid"]';
@@ -187,6 +189,7 @@ test.describe("M18: discard mode shows where to tap", () => {
       // UX-20: says what to do, in at most 2 lines.
       const prompt = page.getByTestId("prompt");
       await expect(prompt).toContainText(text);
+      await expect(prompt).not.toContainText(","); // no "or keep it" clause
       const lines = await prompt.evaluate((el) => {
         const range = document.createRange();
         range.selectNodeContents(el);
@@ -239,6 +242,29 @@ test("screenshots: M18 place and discard mode", async ({ page }, info) => {
     await shot(`after-${locale}-1-place`);
     await page.getByTestId("discard").click();
     await shot(`after-${locale}-2-discard-mode`);
+  }
+});
+
+test("screenshots: M10 thrown away with Undo, and a tapped card waiting for the server", async ({
+  page,
+}, info) => {
+  test.skip(!process.env.SHOTS || info.project.name !== "iphone", "run with SHOTS=1");
+  const shot = (name: string) =>
+    page.screenshot({
+      path: `docs/screenshots/m10/${name}.jpg`,
+      type: "jpeg",
+      quality: 80,
+      scale: "css",
+      animations: "disabled",
+    });
+  for (const locale of ["es", "en"]) {
+    await page.addInitScript((l) => localStorage.setItem("skyjo:locale", l), locale);
+    await show(page, placing());
+    await page.getByTestId("discard").click();
+    await shot(`${locale}-1-thrown-undo`);
+    // The harness has no server: the tapped card stays lifted, as if its answer were late.
+    await page.getByTestId("my-grid").locator('button[data-face="down"]').nth(5).click();
+    await shot(`${locale}-2-pending-tap`);
   }
 });
 

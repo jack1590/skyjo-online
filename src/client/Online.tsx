@@ -19,7 +19,7 @@ const goHome = () => window.location.assign("/");
 
 export function Online({ code }: { code: string }) {
   const { t } = useI18n();
-  const { room, status, error, clearError, send } = useRoom(code);
+  const { room, status, error, clearError, send, waiting, late } = useRoom(code);
   const online = useOnline();
 
   useEffect(() => {
@@ -55,7 +55,8 @@ export function Online({ code }: { code: string }) {
   const lostToClock = error === "illegal-move" && room.you !== null && room.seats[room.you]?.auto;
   const notices = (
     <>
-      {status === "reconnecting" && (
+      {/* Also as soon as the phone goes offline, or the server is slow to answer (UX-5). */}
+      {(status === "reconnecting" || !online || late) && (
         <div className="toast" role="status">
           {t("reconnecting")}
         </div>
@@ -87,6 +88,7 @@ export function Online({ code }: { code: string }) {
         connected={room.seats.map((s) => s.connected)}
         auto={room.seats.map((s) => s.auto)}
         wait={room.clocks}
+        waiting={waiting}
         onAction={(action) => send({ t: "act", action })}
         onAuto={(on) => send({ t: "auto", on })}
         onPlayAgain={() => send({ t: "rematch" })}

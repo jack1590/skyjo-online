@@ -14,6 +14,7 @@ import {
   SUMMARY_MS,
   settled,
   slotKey,
+  thrown,
 } from "./motion";
 
 /** 2 players past the flip phase, seat 0 to draw, with a known grid and next deck card. */
@@ -177,6 +178,31 @@ describe("flightsBetween", () => {
     const s = apply(table(GRID, [0, 1], 0), { type: "draw", seat: 0, source: "deck" });
     expect(flights(s, { type: "discardAndFlip", seat: 0, pos: 5 }).reveal).toBe(false);
   });
+
+  it("UX-19: a card thrown away flies onto the discard pile before anything is sent; Undo flies it back from there, face up; the flip that sends it moves nothing else", () => {
+    const s = apply(table(GRID, [0, 1], 0), { type: "draw", seat: 0, source: "deck" });
+    const held = toView(s);
+    expect(thrown(held)).toMatchObject({ phase: "place", drawn: null, discardTop: held.drawn });
+    expect(flightsBetween(held, thrown(held))).toEqual({
+      moves: new Map([["discard", "drawn"]]),
+      turns: new Set(),
+      flips: [],
+      reveal: false,
+    });
+    expect(flightsBetween(thrown(held), held)).toEqual({
+      moves: new Map([["drawn", "discard"]]),
+      turns: new Set(),
+      flips: [],
+      reveal: false,
+    });
+    const flipped = toView(apply(s, { type: "discardAndFlip", seat: 0, pos: 5 }));
+    expect(flightsBetween(thrown(held), flipped)).toEqual({
+      moves: new Map(),
+      turns: new Set(),
+      flips: [slotKey(0, 5)],
+      reveal: false,
+    });
+  });
 });
 
 /** A card-sized box centred on (x, y). */
@@ -233,6 +259,15 @@ describe("UX-22: the flight curve", () => {
     // Sideways, or only 80 px up: no arc.
     const flat = at(path(box(0, 80), box(0, 0)).frames, 0.5);
     expect(flat.y).toBeCloseTo(80 * (1 - bezier(0.3, 0, 0.2, 1)(0.5)), 3);
+  });
+
+  it("UX-19: a card lying tilted (thrown on the pile) starts its flight at that tilt and lands straight", () => {
+    const { frames } = path(box(297, 0), box(195, 0), { tilt: 4 });
+    expect(frames[0].rotate).toBe(4);
+    expect(frames.at(-1)?.rotate).toBe(0);
+    expect(path(box(297, 0), box(195, 0)).frames[0].rotate, "untilted: no lean at the start").toBe(
+      0,
+    );
   });
 
   it("UX-22: a card growing on the way (into your grid) still lifts 6% over its size halfway", () => {

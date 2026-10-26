@@ -740,10 +740,13 @@ dialog.zoom::backdrop {
   box-shadow:
     0 1px 0 rgb(255 255 255 / 0.25) inset,
     0 3px 8px rgb(0 0 0 / 0.4);
-  /* transform is left to the move animations (motion); only shadows and opacity transition here. */
+  /* transform is left to the move animations (motion). A tapped card settles back (UX-3), and a
+     thrown one tilts and straightens (UX-19), through the separate translate and rotate. */
   transition:
     box-shadow 0.15s,
-    opacity 0.15s;
+    opacity 0.15s,
+    translate 0.15s,
+    rotate 0.25s;
 }
 
 .card.lg {
@@ -893,6 +896,29 @@ dialog.zoom::backdrop {
 
 button.card:active {
   transform: scale(0.96);
+}
+
+/* The card you tapped, lifted at once until the server answers (UX-3). Its flight starts from
+   here (motion.ts measures it), so it can't drift on the way up. */
+button.card[data-pending] {
+  translate: 0 -6px;
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 0.25) inset,
+    0 10px 18px rgb(0 0 0 / 0.55);
+  transition: none;
+}
+
+/* Takes the thrown card back (UX-19), where it came from: shown in the hidden empty slot. */
+.undo {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  translate: -50% -50%;
+  visibility: visible;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 14px;
+  white-space: nowrap;
 }
 
 /* Round / game summary */
