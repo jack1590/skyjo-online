@@ -506,6 +506,8 @@ The expert counts slow taps as part of the "not smooth" feeling. All three items
 - At least 12 animations start at increasing times and are all done within 800 ms.
 - A tap at 100 ms works.
 - Reduced motion turns it off.
+- (PO, PR #29 round 1) A phone whose page was scrolled when the table replaced the lobby still sees the deal. Today the page's scroll clamps back to 0 as the table mounts, and that scroll event ends every stand-in. A host whose Start button is below the fold (iPhone 13, 4 seats: its bottom edge at 696 px of 664) saw no deal in 4 of 6 game starts. Test: in the harness, scroll a taller page to its bottom, shrink it as the deal arrives, and 2 frames later the 12 stand-ins still fly.
+- (PO, PR #29 round 1) Your second opening flip, answered mid-deal, leaves the cards still being dealt hidden. Today it turns your card buttons into spans, the new elements aren't hidden, and up to 10 cards show in place under their stand-ins. Test: the deal, then your 2 flips: your undealt cards stay at opacity 0 while their stand-ins fly.
 - The release checklist is done.
 
 **How it was built (author, PR #29).**
@@ -519,6 +521,14 @@ The expert counts slow taps as part of the "not smooth" feeling. All three items
   - An 8-seat deal (12 flights, 12 hidden cards, 84 fades) in WebKit (iPhone 13 project), longest frame in its first second, 9 runs on the author's machine: median 58 ms (52–82), against M19's 8-seat reveal bar of 60 ms.
   - In `npm run dev`, React's StrictMode mounts the table twice; the second mount starts over, so a new game's deal shows there too.
   - It composes: the deal sound plays as it starts; your grid scrolls into view (M8) once it has landed (`timing`); the round's reveal, if still playing, is cancelled first, as before, and now its held totals end too (`useRevealing`).
+
+**PO, PR #29 round 1: changes requested** (the two acceptance items above, and one test change). Played on `b21675f` with motion and sound on: 4-phone knockout games (Ana in es with sound, Ben hosting in en, Cleo in pt, Dani in en) in WebKit at 390×664 and Chromium at 360×740, through game start, round 2 (a seat out: Ana's phone ran 48 deal animations, 2 opponents' fades) and a rematch; plus 6 starts in a row with the lobbies scrolled or not.
+- **The deal feels like a deal.** The cards leave the deck one by one on an arc and settle into the grid; opponents' grids fill row by row; the deal sound plays at each deal. At 650 ms it isn't long, and it never delays your first flip: a tap at 100–160 ms turned its card over 17–40 ms later. No stand-in or hidden card was left behind and no console error.
+- **Both defects were proven fixable on a scratch copy:** ignore a document scroll that leaves the window where it was when the cards were measured, and hide a card that re-renders while its stand-in flies. With them, every phone saw all 12 stand-ins at all 12 starts (6 per engine), and no card showed under a stand-in.
+- **Rulings.** Your stand-ins don't carry the active grid's gold ring, so each card's ring appears as it lands: it stands, since that's when the card can be tapped. The trace change stands: a failed attempt leaves a screenshot and its error context, a retry leaves a trace, and a flaky test still fails the run (checked on Playwright 1.64.1).
+- **WebKit 8-seat deal**, longest frame, median of 9, same script and machine: this PR 57 and 61 ms, `main` 28 ms for the same new round. That's within M19's 60 ms bar, but at its edge. Not required: fading in only the strip's visible panels would save most of the 84 fades.
+- **Delivery.** CI's iPhone job: 129, 118 and 113 s on fast runners (tests summed 203–240 s; PR #28: 159–166 s), and 138 s on a medium one (attempt 4: 312 s). On that runner M18 took 5.1–6.1 s, against 8.8–14.0 s before, and "tapping an opponent" took 10.5 s: force its first click, since its second click on the same panel still hit-tests it. Locally, `npm run e2e` passed 217 in 55 s; Node 20 passed; the UX-28, M18 and UX-27 tests passed 210 of 210 at `--repeat-each=10` on all 3 devices.
+- **An idea for later (game feel):** a dealer turns the first discard over after the deal (R2). Today it's simply there.
 
 ### UX passes (user request, 2026-10-24) · M9 onward, one patch or minor each
 
