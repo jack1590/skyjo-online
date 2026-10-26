@@ -192,7 +192,10 @@ test.describe("with motion allowed", () => {
 
   test("UX-1: a scroll while a card is in flight records where it lands, not the frame it's drawn at", async ({
     page,
-  }) => {
+  }, info) => {
+    // Plain JS, so any engine shows it; on CI's iPhone job it took 8–14 s (0.5 s locally). WebKit's
+    // flights stay covered by the draw, swap and discard tests (PO, PR #25).
+    test.skip(info.project.name === "iphone", "engine-independent: Pixel and Desktop");
     await recordFlights(page);
     let state = firstTurn(2, 5);
     const me = state.current;
