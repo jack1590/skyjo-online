@@ -1,8 +1,9 @@
-import { expect, type Page, type WebSocketRoute } from "@playwright/test";
+import { expect, type Locator, type Page, type WebSocketRoute } from "@playwright/test";
 import type { RoomView } from "../src/protocol";
 import {
   botStep,
   createRoom,
+  expectMobileFriendly,
   join,
   phones,
   playToEnd,
@@ -349,6 +350,72 @@ test("M17: the host switches on 'Play until one is left'; the other phone sees i
   }
   await startGame(ana);
   await expect.poll(() => seen.at(-1)?.game?.knockout).toBe(true);
+});
+
+test("UX-13: in the lobby, Start game is the first button under the seats, and Leave seat is a quiet text button below the game option; targets ≥ 44 px and no sideways scroll at 360 and 390 px, in en, es and pt; a stand-in leader gets the same order", async ({
+  browser,
+}, info) => {
+  const words = {
+    en: ["Start game", "Leave seat", "Waiting for the host…"],
+    es: ["Empezar partida", "Dejar el lugar", "Esperando al anfitrión…"],
+    pt: ["Começar partida", "Sair do lugar", "Esperando o anfitrião…"],
+  };
+  const { pages } = await seatedRoom(browser, info, ["Ana", "Ben"]);
+  const [ana, ben] = pages;
+  const below = (page: Page) =>
+    page.locator('[data-testid="seats"] ~ button, [data-testid="seats"] ~ * button').first();
+  const top = async (at: Locator) => (await at.boundingBox())?.y ?? Number.NaN;
+  /** `first` (Start for the leader, the wait for the others), then the option, then Leave seat. */
+  const expectLobby = async (page: Page, first: string, leave: string) => {
+    const [head, option, quit] = [
+      page.getByText(first, { exact: true }),
+      page.locator(".option"),
+      page.getByRole("button", { name: leave }),
+    ];
+    await expect(head).toBeVisible();
+    expect(await top(head)).toBeLessThan(await top(option));
+    expect(await top(option)).toBeLessThan(await top(quit));
+    // Quiet: text on the panel, with no fill or border of its own.
+    await expect(quit).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await expect(quit).toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
+    await expectMobileFriendly(page);
+  };
+  for (const [locale, [start, leave, waiting]] of Object.entries(words)) {
+    if (locale !== "en") {
+      await Promise.all(
+        pages.map(async (page) => {
+          await page.evaluate((l) => localStorage.setItem("skyjo:locale", l), locale);
+          await page.reload();
+        }),
+      );
+    }
+    for (const [width, height] of [
+      [360, 740],
+      [390, 664],
+    ]) {
+      for (const page of pages) await page.setViewportSize({ width, height });
+      await expect(below(ana)).toHaveText(start);
+      await expectLobby(ana, start, leave);
+      await expect(ben.getByRole("button", { name: start })).toHaveCount(0);
+      await expect(below(ben)).toHaveText(leave);
+      await expectLobby(ben, waiting, leave);
+    }
+    if (process.env.SHOTS && info.project.name === "iphone") {
+      for (const [page, name] of [
+        [ana, `01-${locale}-host`],
+        [ben, `02-${locale}-guest`],
+      ] as const) {
+        const path = `docs/screenshots/m15/${name}.jpg`;
+        await page.screenshot({ path, type: "jpeg", quality: 80, scale: "css", fullPage: true });
+      }
+    }
+  }
+  // The host's phone dies: Ben may start now (the stand-in), and gets the same order.
+  await ana.context().close();
+  await expect(below(ben)).toHaveText(words.pt[0]);
+  await expectLobby(ben, words.pt[0], words.pt[1]);
+  await ben.getByRole("button", { name: words.pt[1] }).click();
+  await expect(ben.getByTestId("seats")).not.toContainText("Ben");
 });
 
 test("a 9th phone can't take a seat and watches instead", async ({ browser }, info) => {

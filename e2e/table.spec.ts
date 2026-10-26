@@ -13,21 +13,7 @@ import {
   type Shown,
   show,
 } from "./harness";
-
-async function expectMobileFriendly(page: Page) {
-  const { scrollWidth, innerWidth, small } = await page.evaluate(() => ({
-    scrollWidth: document.documentElement.scrollWidth,
-    innerWidth: window.innerWidth,
-    small: [...document.querySelectorAll("button:not(:disabled), input, select, summary")]
-      .map((el) => {
-        const r = el.getBoundingClientRect();
-        return { label: el.getAttribute("aria-label") ?? el.textContent, w: r.width, h: r.height };
-      })
-      .filter((t) => t.w > 0 && (t.w < 44 || t.h < 44)),
-  }));
-  expect(scrollWidth).toBeLessThanOrEqual(innerWidth);
-  expect(small).toEqual([]);
-}
+import { expectMobileFriendly } from "./helpers";
 
 /** Your turn with 9 s on your clock, the next player on Auto-play. */
 const clockAt9 = (players: number): Shown => {

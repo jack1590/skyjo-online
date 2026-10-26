@@ -165,10 +165,20 @@ function Lobby({ room, send }: { room: RoomView; send: (msg: ClientMsg) => void 
           ) : (
             <p className="tagline">{t("roomFull")}</p>
           )
+        ) : room.lead ? (
+          <>
+            <button
+              type="button"
+              className="btn primary"
+              disabled={room.seats.length < 2}
+              onClick={() => send({ t: "start" })}
+            >
+              {t("startGame")}
+            </button>
+            {room.seats.length < 2 && <p className="tagline">{t("needTwo")}</p>}
+          </>
         ) : (
-          <button type="button" className="btn" onClick={() => send({ t: "leave" })}>
-            {t("leaveSeat")}
-          </button>
+          <p className="tagline">{t("waitingHost")}</p>
         )}
         {/* Everyone sees the rule before the deal; whoever may start may change it (R16). */}
         <label className="option">
@@ -189,18 +199,12 @@ function Lobby({ room, send }: { room: RoomView; send: (msg: ClientMsg) => void 
             />
           </span>
         </label>
-        {room.lead && (
-          <button
-            type="button"
-            className="btn primary"
-            disabled={room.seats.length < 2}
-            onClick={() => send({ t: "start" })}
-          >
-            {t("startGame")}
+        {/* Last and quiet, away from Start: a mistaken tap made the next seat host (UX-13). */}
+        {room.you !== null && (
+          <button type="button" className="btn quiet" onClick={() => send({ t: "leave" })}>
+            {t("leaveSeat")}
           </button>
         )}
-        {room.lead && room.seats.length < 2 && <p className="tagline">{t("needTwo")}</p>}
-        {!room.lead && room.you !== null && <p className="tagline">{t("waitingHost")}</p>}
       </section>
     </main>
   );

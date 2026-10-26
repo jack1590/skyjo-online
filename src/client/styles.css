@@ -73,6 +73,16 @@ button {
   font-size: 18px;
 }
 
+/* A text button for a way out, such as the lobby's Leave seat (UX-13): no fill, same target. */
+.btn.quiet {
+  align-self: center;
+  border-color: transparent;
+  background: none;
+  color: var(--muted);
+  font-weight: 400;
+  text-decoration: underline;
+}
+
 :focus-visible {
   outline: 3px solid var(--accent);
   outline-offset: 2px;
