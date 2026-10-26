@@ -9,7 +9,7 @@ Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When
 ### Changed
 
 - In the room before a game, **Start game** now comes right under the list of players, so it's the first button the host reaches. Players who can't start see "Waiting for the host…" there instead.
-- **Leave seat** is now a small underlined link at the bottom of the panel, below "Play until one is left", instead of a full-size button just above Start game. A host who meant to start no longer leaves by mistake and hands the room to the next player. It's still as easy to tap on purpose.
+- **Leave seat** is now plain underlined text at the bottom of the panel, below "Play until one is left", instead of a full-size button just above Start game. A host who meant to start no longer leaves by mistake and hands the room to the next player. It's still as easy to tap on purpose.
 
 ## [2.4.0] - 2026-10-26
 

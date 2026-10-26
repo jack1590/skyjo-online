@@ -362,6 +362,7 @@ test("UX-13: in the lobby, Start game is the first button under the seats, and L
   };
   const { pages } = await seatedRoom(browser, info, ["Ana", "Ben"]);
   const [ana, ben] = pages;
+  /** The first button after the seat list, in page order. */
   const below = (page: Page) =>
     page.locator('[data-testid="seats"] ~ button, [data-testid="seats"] ~ * button').first();
   const top = async (at: Locator) => (await at.boundingBox())?.y ?? Number.NaN;
