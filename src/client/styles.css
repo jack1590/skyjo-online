@@ -847,6 +847,27 @@ dialog.zoom::backdrop {
   z-index: 3;
 }
 
+/* A card turning over where it lies stays among the cards around it: raising each card of an
+   8-seat final reveal made WebKit's first frame of it 75–90 ms (M11 PO). */
+.card[data-motion="flip"] {
+  z-index: auto;
+}
+
+/* A stand-in for a card on its way (motion.ts): over the page, where the opponents' scrolling strip
+   can't clip it (UX-8), and never what a tap hits. The one under a card flying onto the pile shows
+   the card it will cover (UX-30) only while that flight lasts. */
+.card[data-copy] {
+  position: fixed;
+  margin: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.card[data-copy="under"] {
+  z-index: 1;
+  opacity: 0;
+}
+
 /* Its back (UX-24): a face of its own, mirrored as the far side of the card is, that motion.ts
    shows while the card is turned away and hides once it is edge-on. An opacity, not
    backface-visibility, which WebKit ignored here (Playwright's iPhone project). */

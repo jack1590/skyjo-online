@@ -1,7 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type Action, apply, createGame, type GameState } from "../engine/game";
 import { toView } from "../engine/view";
-import { FLIP_MS, flipDelays, IN_MS, LIFT_MS, path, revealStep, slotKey, thrown } from "./motion";
+import {
+  COLUMN,
+  FLIP_MS,
+  flipDelays,
+  IN_MS,
+  LIFT_MS,
+  path,
+  revealStep,
+  slotKey,
+  thrown,
+} from "./motion";
 import { type Sound, soundsBetween } from "./sound";
 
 /** A fake AudioContext that records what the unlock does to it. */
@@ -259,20 +269,52 @@ describe("soundsBetween", () => {
     expect(soundsBetween(before, after, 1)).toEqual([["draw", 0]]);
   });
 
-  it("M11: 'your turn' sounds once the last card has landed, and a column's chime as its card reaches the pile; without motion, 250 ms after the cards", () => {
+  it("UX-26: a swap that completes a column places and discards as its cards land, chimes as the column pulses, and 'your turn' sounds once the column is on the pile; without motion, 250 ms after the cards", () => {
     // Seat 0 completes a column (5, 5, 5 in column 0) by swapping its last card in; seat 1 is next.
     const s = apply(table([5, 1, 2, 3, 5, 2, 3, 4, 9, 3, 4, 1], [0, 4], 5), draw);
     const before = toView(s);
     const after = toView(apply(s, { type: "swap", seat: 0, pos: 8 }));
-    // The column leaves (one card's flight to the pile for now, UX-26), and nothing goes in.
-    const column = flight(0, path(card(60, 560, 80), pile, { lift: LIFT_MS }));
-    const timing = new Map([["discard", column]]);
-    const at = new Map(soundsBetween(before, after, 1, timing));
-    expect(at.get("column")).toBe(column.end);
-    expect(at.get("turn")).toBe(column.end);
-    expect(at.get("turn") ?? 0).toBeGreaterThan((at.get("discard") ?? 0) + 210);
+    const slot = card(150, 560, 80);
+    const out = flight(0, path(slot, pile, { lift: LIFT_MS }));
+    const into = flight(IN_MS, path(drawn, slot));
+    const pulse = Math.max(out.end, into.end) + COLUMN.beat;
+    const end = pulse + COLUMN.pulse + 2 * COLUMN.gap + COLUMN.fly;
+    const timing = new Map([
+      ["discard", out],
+      [slotKey(0, 8), into],
+      ["column", { start: pulse, hit: pulse, end }],
+    ]);
+    expect(soundsBetween(before, after, 1, timing)).toEqual([
+      ["place", into.hit - 160],
+      ["discard", out.hit - 210],
+      ["column", pulse],
+      ["turn", end],
+    ]);
     const now = new Map(soundsBetween(before, after, 1));
     expect([now.get("discard"), now.get("column"), now.get("turn")]).toEqual([0, 250, 250]);
+  });
+
+  it("M19 (M10 PO): the sound you heard as you tapped is used up by the answer when it completes a column: a discard-and-flip's flip, a swap's place", () => {
+    const answer = (grid: number[], action: Action, sound: Sound) => {
+      const held = apply(table(grid, [0, 4], 5), draw);
+      const heard = { current: sound as Sound | null };
+      const out = soundsBetween(toView(held), toView(apply(held, action)), 0, undefined, heard);
+      return { sounds: names(out), heard: heard.current };
+    };
+    // Column 0: 9, 9 and a face-down 9, turned over after throwing the 5 away.
+    const flipped = answer(
+      [9, 1, 2, 3, 9, 2, 3, 4, 9, 3, 4, 1],
+      { type: "discardAndFlip", seat: 0, pos: 8 },
+      "flip",
+    );
+    expect(flipped).toEqual({ sounds: ["discard", "column"], heard: null });
+    // Column 0: 5, 5 and a face-down card the 5 is swapped into.
+    const swapped = answer(
+      [5, 1, 2, 3, 5, 2, 3, 4, 9, 3, 4, 1],
+      { type: "swap", seat: 0, pos: 8 },
+      "place",
+    );
+    expect(swapped).toEqual({ sounds: ["discard", "column"], heard: null });
   });
 
   it("a completed column chimes", () => {

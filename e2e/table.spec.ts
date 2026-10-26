@@ -149,11 +149,12 @@ test.describe("M18: discard mode shows where to tap", () => {
     pt: ["Agora vire uma das suas cartas viradas para baixo", "Desfazer"],
   };
 
-  test("M18, UX-19: only your face-down cards are highlighted and the rest dims; the held card is lifted, never highlighted; thrown, it leaves an Undo chip ≥ 44 px; the prompt fits 2 lines in en, es and pt, with no horizontal scroll; no pulse with reduced motion", async ({
-    page,
-  }) => {
-    const target = page.getByTestId("my-grid").locator('button[data-face="down"]').first();
-    for (const [locale, [text, undo]] of Object.entries(words)) {
+  // One test per locale: looped in one test, it was CI's longest iPhone test (M10 PO).
+  for (const [locale, [text, undo]] of Object.entries(words)) {
+    test(`M18, UX-19 (${locale}): only your face-down cards are highlighted and the rest dims; the held card is lifted, never highlighted; thrown, it leaves an Undo chip ≥ 44 px; the prompt fits 2 lines, with no horizontal scroll; no pulse with reduced motion`, async ({
+      page,
+    }) => {
+      const target = page.getByTestId("my-grid").locator('button[data-face="down"]').first();
       await page.addInitScript((l) => localStorage.setItem("skyjo:locale", l), locale);
       await show(page, placing());
       // Place phase (UX-4): every highlight is a button, and the held card sits 6 px up, unmarked.
@@ -196,13 +197,13 @@ test.describe("M18: discard mode shows where to tap", () => {
         return new Set([...range.getClientRects()].map((r) => Math.round(r.bottom))).size;
       });
       expect(lines, `${locale}: "${await prompt.textContent()}"`).toBeLessThanOrEqual(2);
-    }
-    // The outline holds still with reduced motion (the E2E default) and pulses without it.
-    const pulse = () => target.evaluate((el) => getComputedStyle(el, "::after").animationName);
-    expect(await pulse()).toBe("none");
-    await page.emulateMedia({ reducedMotion: "no-preference" });
-    expect(await pulse()).not.toBe("none");
-  });
+      // The outline holds still with reduced motion (the E2E default) and pulses without it.
+      const pulse = () => target.evaluate((el) => getComputedStyle(el, "::after").animationName);
+      expect(await pulse()).toBe("none");
+      await page.emulateMedia({ reducedMotion: "no-preference" });
+      expect(await pulse()).not.toBe("none");
+    });
+  }
 });
 
 test("UX-29: in discard mode, your top row's outlines stay clear of your clock's bar", async ({
@@ -303,17 +304,17 @@ test("UX-2: the deck and discard never move (±0.5 px): you or another player dr
   }
 });
 
-test("UX-21: a card taken from the discard is held up over the pile, which dims; the middle slot stays empty; caption and prompt in en, es and pt", async ({
-  page,
-}) => {
-  const state = firstTurn(4, 5);
-  const view = toView(apply(state, { type: "draw", seat: state.current, source: "discard" }));
-  const words = [
-    ["en", "From the discard", "From the discard: tap a grid card to swap it in"],
-    ["es", "Del descarte", "Del descarte: toca una carta de tu cuadrícula para cambiarla"],
-    ["pt", "Do descarte", "Do descarte: toque numa carta da sua grade para trocar"],
-  ];
-  for (const [locale, caption, prompt] of words) {
+// One test per locale (M10 PO), like M18's.
+for (const [locale, caption, prompt] of [
+  ["en", "From the discard", "From the discard: tap a grid card to swap it in"],
+  ["es", "Del descarte", "Del descarte: toca una carta de tu cuadrícula para cambiarla"],
+  ["pt", "Do descarte", "Do descarte: toque numa carta da sua grade para trocar"],
+]) {
+  test(`UX-21 (${locale}): a card taken from the discard is held up over the pile, which dims; the middle slot stays empty; caption and prompt`, async ({
+    page,
+  }) => {
+    const state = firstTurn(4, 5);
+    const view = toView(apply(state, { type: "draw", seat: state.current, source: "discard" }));
     await page.addInitScript((l) => localStorage.setItem("skyjo:locale", l), locale);
     await show(page, { view, seat: state.current });
     const held = await page.getByTestId("drawn").boundingBox();
@@ -328,8 +329,8 @@ test("UX-21: a card taken from the discard is held up over the pile, which dims;
     await expect(page.locator(".piles > .pile").nth(2).locator(".pile-label")).toHaveText(caption);
     await expect(page.getByTestId("prompt")).toHaveText(prompt);
     await expectMobileFriendly(page);
-  }
-});
+  });
+}
 
 /** The page's clock stands still from its first load: only page.clock.runFor moves it. */
 async function frozenClock(page: Page) {

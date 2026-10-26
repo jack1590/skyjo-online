@@ -157,7 +157,8 @@ export function soundsBetween(
   // A card's sound is loudest as it hits home, at the bottom of its settle (UX-22, UX-23).
   const lands = (name: Sound, key: string) =>
     add(name, Math.max(0, (timing?.get(key)?.hit ?? 0) - (PEAK[name] ?? 0)), key);
-  for (const to of moves.keys()) {
+  for (const { to, column } of moves) {
+    if (column) continue; // a column's cards sound as one chime, below
     if (to === "drawn") lands("draw", to);
     else if (to === "discard") lands("discard", to);
     else lands("place", to); // into a grid, from your hand or (thrown, UX-19) the pile
@@ -170,13 +171,10 @@ export function soundsBetween(
     .forEach((key, i, order) => {
       if (seatOf(key) !== seatOf(order[i - 1])) add("flip", start(key), key);
     });
-  const removed = cur.players.some((p, s) =>
-    p.grid.some((slot, i) => slot === null && prev.players[s]?.grid[i] !== null),
-  );
-  // Announcements come just after the cards: the column's chime as its card reaches the pile,
+  // Announcements come just after the cards: the column's chime as its cards pulse (UX-26),
   // "your turn" once everything has landed, game over as the summary shows.
   const late = (ms: number) => (timing ? ms : LATE_MS);
-  if (removed) add("column", late(timing?.get("discard")?.end ?? 0));
+  if (moves.some((m) => m.column)) add("column", late(timing?.get("column")?.start ?? 0));
   const myTurn = (v: GameView) => seat !== null && v.phase === "draw" && v.current === seat;
   if (myTurn(cur) && !myTurn(prev)) add("turn", late(timing ? settled(timing) : 0));
   if (cur.phase === "gameOver" && prev.phase !== "gameOver") {

@@ -38,40 +38,98 @@ const GRID = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 describe("flightsBetween", () => {
   it("a draw flies from the deck (or the discard) to the drawn spot", () => {
     const s = table(GRID, [0, 1], 7);
-    expect(flights(s, { type: "draw", seat: 0, source: "deck" }).moves).toEqual(
-      new Map([["drawn", "deck"]]),
-    );
-    expect(flights(s, { type: "draw", seat: 0, source: "discard" }).moves).toEqual(
-      new Map([["drawn", "discard"]]),
-    );
+    expect(flights(s, { type: "draw", seat: 0, source: "deck" }).moves).toEqual([
+      { to: "drawn", from: "deck", turn: true },
+    ]);
+    expect(flights(s, { type: "draw", seat: 0, source: "discard" }).moves).toEqual([
+      { to: "drawn", from: "discard", turn: false },
+    ]);
   });
 
   it("a swap flies the held card into the grid and the old card to the discard", () => {
     const s = apply(table(GRID, [0, 1], 0), { type: "draw", seat: 0, source: "deck" });
     const { moves, flips } = flights(s, { type: "swap", seat: 0, pos: 5 });
-    expect(moves).toEqual(
-      new Map([
-        [slotKey(0, 5), "drawn"],
-        ["discard", slotKey(0, 5)],
-      ]),
-    );
+    expect(moves).toEqual([
+      { to: slotKey(0, 5), from: "drawn", turn: false },
+      { to: "discard", from: slotKey(0, 5), turn: true },
+    ]);
     expect(flips).toEqual([]);
   });
 
   it("discard-and-flip flies the held card to the discard and flips the chosen card", () => {
     const s = apply(table(GRID, [0, 1], 0), { type: "draw", seat: 0, source: "deck" });
     const { moves, flips } = flights(s, { type: "discardAndFlip", seat: 0, pos: 5 });
-    expect(moves).toEqual(new Map([["discard", "drawn"]]));
+    expect(moves).toEqual([{ to: "discard", from: "drawn", turn: false }]);
     expect(flips).toEqual([slotKey(0, 5)]);
   });
 
-  it("a completed column flies to the discard", () => {
-    const s = apply(table([5, 1, 2, 3, 5, 2, 3, 4, 9, 3, 4, 1], [0, 4], 5), {
-      type: "draw",
-      seat: 0,
-      source: "deck",
-    });
-    expect(flights(s, { type: "swap", seat: 0, pos: 8 }).moves.get("discard")).toMatch(/^slot-0-/);
+  // Column 0 shows 5, 5 and a face-down 9; seat 0 holds a 5 drawn from the deck.
+  const COLUMN = [5, 1, 2, 3, 5, 2, 3, 4, 9, 3, 4, 1];
+  const column = (pos: number, seat = 0) => ({
+    to: "discard",
+    from: slotKey(seat, pos),
+    turn: false,
+  });
+
+  it("UX-26: a swap that completes a column is 5 flights: the card in, the one it replaced to the pile (face down: nobody saw it), then the column's 3 cards, as copies", () => {
+    const s = apply(table(COLUMN, [0, 4], 5), { type: "draw", seat: 0, source: "deck" });
+    const { moves, flips } = flights(s, { type: "swap", seat: 0, pos: 8 });
+    expect(moves).toEqual([
+      { to: slotKey(0, 8), from: "drawn", turn: false, card: 5 },
+      { to: "discard", from: slotKey(0, 8), turn: false, card: "down" },
+      ...[0, 4, 8].map((pos) => ({ ...column(pos), card: 5, column: true })),
+    ]);
+    expect(flips).toEqual([]);
+    // Into a face-up card: that card goes under the column, face up.
+    const up = apply(table(COLUMN, [0, 4, 8], 5), { type: "draw", seat: 0, source: "deck" });
+    expect(flights(up, { type: "swap", seat: 0, pos: 8 }).moves.slice(0, 2)).toEqual([
+      { to: slotKey(0, 8), from: "drawn", turn: false, card: 5 },
+      { to: "discard", from: slotKey(0, 8), turn: false, card: 9 },
+    ]);
+  });
+
+  it("UX-26: a discard-and-flip that completes a column: the thrown card to the pile, the flip, then the column, whose turned card turns over first", () => {
+    // Column 0 shows 9, 9 and a face-down 9; seat 0 throws a 5 away and turns that card over.
+    const grid = [9, 1, 2, 3, 9, 2, 3, 4, 9, 3, 4, 1];
+    const s = apply(table(grid, [0, 4], 5), { type: "draw", seat: 0, source: "deck" });
+    const { moves, flips } = flights(s, { type: "discardAndFlip", seat: 0, pos: 8 });
+    expect(moves).toEqual([
+      { to: "discard", from: "drawn", turn: false, card: 5 },
+      ...[0, 4, 8].map((pos) => ({ ...column(pos), card: 9, column: true })),
+    ]);
+    expect(flips).toEqual([slotKey(0, 8)]);
+    // Thrown on this phone first (UX-19): it already lies on the pile.
+    const held = toView(s);
+    const after = toView(apply(s, { type: "discardAndFlip", seat: 0, pos: 8 }));
+    expect(flightsBetween(thrown(held), after).moves).toEqual(
+      [0, 4, 8].map((pos) => ({ ...column(pos), card: 9, column: true })),
+    );
+  });
+
+  it("UX-26: the final reveal's columns leave after their cards turn over, and the last card's swap flies as copies too: the pile will show the column", () => {
+    // Seat 1 ends with a swap; seat 0's column 3 (4, face down 4, face down 4) is revealed.
+    const s = createGame(["A", "B"], [1, 0, 0, 0]);
+    s.phase = "draw";
+    s.current = 1;
+    s.ender = 0;
+    s.players[0].grid = [1, 2, 3, 4, 5, 6, 7, 4, 9, 10, 11, 4].map((card, i) => ({
+      card,
+      up: i !== 7 && i !== 11,
+    }));
+    s.players[1].grid = GRID.map((card, i) => ({ card, up: i !== 5 }));
+    s.deck.push(0);
+    const { moves, flips, reveal } = flights(
+      s,
+      { type: "draw", seat: 1, source: "deck" },
+      { type: "swap", seat: 1, pos: 5 },
+    );
+    expect(reveal).toBe(true);
+    expect(moves).toEqual([
+      { to: slotKey(1, 5), from: "drawn", turn: false },
+      { to: "discard", from: slotKey(1, 5), turn: false, card: "down" },
+      ...[3, 7, 11].map((pos) => ({ ...column(pos), card: 4, column: true })),
+    ]);
+    expect(flips).toEqual([slotKey(0, 7), slotKey(0, 11)]);
   });
 
   it("the round's last swap flies into its own slot even though the final reveal changes others", () => {
@@ -91,30 +149,91 @@ describe("flightsBetween", () => {
         { type: "draw", seat: 1, source },
         { type: "swap", seat: 1, pos: 5 },
       );
-      expect(moves.get(slotKey(1, 5))).toBe("drawn");
-      expect(moves.get("discard")).toBe(slotKey(1, 5));
+      expect(moves.slice(0, 2)).toMatchObject([
+        { to: slotKey(1, 5), from: "drawn" },
+        { to: "discard", from: slotKey(1, 5) },
+      ]);
     }
   });
+
+  it("UX-26: the round's last swap into a face-up card that completes a column goes there, though the final reveal turns up the same card elsewhere", () => {
+    // Seat 1 ends with a swap; seat 0, the ender, is done. Seat 1's column 0 shows 5, 5 and a
+    // face-up 9, and a face-down 5 waits at position 1.
+    const s = createGame(["A", "B"], [1, 0, 0, 0]);
+    s.phase = "draw";
+    s.current = 1;
+    s.ender = 0;
+    s.players[0].grid = GRID.map((card) => ({ card, up: true }));
+    s.players[1].grid = [5, 5, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((card, i) => ({
+      card,
+      up: i !== 1,
+    }));
+    s.deck.push(5);
+    const { moves, flips } = flights(
+      s,
+      { type: "draw", seat: 1, source: "deck" },
+      { type: "swap", seat: 1, pos: 8 },
+    );
+    expect(moves.slice(0, 2)).toEqual([
+      { to: slotKey(1, 8), from: "drawn", turn: false, card: 5 },
+      { to: "discard", from: slotKey(1, 8), turn: false, card: 9 },
+    ]);
+    expect(flips).toEqual([slotKey(1, 1)]);
+  });
+
+  // Seat 1 takes the round's last turn, swapping a 5 into column 0, which the final reveal then
+  // completes as 5, 5, 5. `col` is that column, top to bottom (a number face up, "down" a face-down
+  // 5); the swap goes into the 3 (PO, PR #28).
+  for (const col of [
+    [3, 5, "down"],
+    [3, "down", "down"],
+    ["down", 3, "down"],
+  ] as const) {
+    it(`UX-26 (PO, PR #28): the round's last swap into a column the reveal completes (${col.join(", ")}): the 5 goes into the 3, the 3 to the pile, and the column is 5s`, () => {
+      const s = createGame(["A", "B"], [1, 0, 0, 0]);
+      s.phase = "draw";
+      s.current = 1;
+      s.ender = 0;
+      s.players[0].grid = GRID.map((card) => ({ card, up: true }));
+      const rest = [1, 2, 4, 6, 7, 8, 9, 10, 11];
+      s.players[1].grid = Array.from({ length: 12 }, (_, i) => {
+        if (i % 4) return { card: rest.shift() ?? 0, up: true };
+        const c = col[i / 4];
+        return c === "down" ? { card: 5, up: false } : { card: c, up: true };
+      });
+      s.deck.push(5);
+      const pos = col.indexOf(3) * 4;
+      const { moves, flips } = flights(
+        s,
+        { type: "draw", seat: 1, source: "deck" },
+        { type: "swap", seat: 1, pos },
+      );
+      expect(moves).toEqual([
+        { to: slotKey(1, pos), from: "drawn", turn: false, card: 5 },
+        { to: "discard", from: slotKey(1, pos), turn: false, card: 3 },
+        ...[0, 4, 8].map((i) => ({ ...column(i, 1), card: 5, column: true })),
+      ]);
+      const down = [0, 4, 8].filter((i) => col[i / 4] === "down");
+      expect(flips).toEqual(down.map((i) => slotKey(1, i)));
+    });
+  }
 
   it("a new deal animates nothing", () => {
     const s = table(GRID, [0, 1], 0);
     const next = { ...toView(s), round: 2 };
-    expect(flightsBetween(toView(s), next)).toEqual({
-      moves: new Map(),
-      turns: new Set(),
-      flips: [],
-      reveal: false,
-    });
+    expect(flightsBetween(toView(s), next)).toEqual({ moves: [], flips: [], reveal: false });
   });
 
   it("UX-23, UX-25: a card that leaves face down turns over on the way: a deck draw, and a swapped-out face-down card; not a face-up one, nor one from the discard", () => {
     const s = table(GRID, [0, 1], 0);
-    expect(flights(s, { type: "draw", seat: 0, source: "deck" }).turns).toEqual(new Set(["drawn"]));
-    expect(flights(s, { type: "draw", seat: 0, source: "discard" }).turns).toEqual(new Set());
-    const held = apply(s, { type: "draw", seat: 0, source: "deck" });
-    expect(flights(held, { type: "swap", seat: 0, pos: 5 }).turns).toEqual(new Set(["discard"]));
-    expect(flights(held, { type: "swap", seat: 0, pos: 0 }).turns).toEqual(new Set());
-    expect(flights(held, { type: "discardAndFlip", seat: 0, pos: 5 }).turns).toEqual(new Set());
+    const turns = (...actions: Action[]) =>
+      flights(s, ...actions).moves.flatMap((m) => (m.turn ? [m.to] : []));
+    const draw = { type: "draw", seat: 0, source: "deck" } as const;
+    expect(turns(draw)).toEqual(["drawn"]);
+    expect(turns({ type: "draw", seat: 0, source: "discard" })).toEqual([]);
+    expect(turns(draw, { type: "swap", seat: 0, pos: 5 })).toEqual(["discard"]);
+    expect(turns(draw, { type: "swap", seat: 0, pos: 0 })).toEqual([]);
+    expect(turns(draw, { type: "discardAndFlip", seat: 0, pos: 5 })).toEqual([]);
   });
 
   it("UX-27: the final reveal turns cards in seat order from the ender's left, row by row", () => {
@@ -184,21 +303,18 @@ describe("flightsBetween", () => {
     const held = toView(s);
     expect(thrown(held)).toMatchObject({ phase: "place", drawn: null, discardTop: held.drawn });
     expect(flightsBetween(held, thrown(held))).toEqual({
-      moves: new Map([["discard", "drawn"]]),
-      turns: new Set(),
+      moves: [{ to: "discard", from: "drawn", turn: false }],
       flips: [],
       reveal: false,
     });
     expect(flightsBetween(thrown(held), held)).toEqual({
-      moves: new Map([["drawn", "discard"]]),
-      turns: new Set(),
+      moves: [{ to: "drawn", from: "discard", turn: false }],
       flips: [],
       reveal: false,
     });
     const flipped = toView(apply(s, { type: "discardAndFlip", seat: 0, pos: 5 }));
     expect(flightsBetween(thrown(held), flipped)).toEqual({
-      moves: new Map(),
-      turns: new Set(),
+      moves: [],
       flips: [slotKey(0, 5)],
       reveal: false,
     });
@@ -207,13 +323,10 @@ describe("flightsBetween", () => {
   it("UX-19: when the clock runs out on a thrown card and the server swaps it in instead, it flies from the pile into the grid, and the card it replaces to the pile", () => {
     const s = apply(table(GRID, [0, 1], 0), { type: "draw", seat: 0, source: "deck" });
     const swapped = toView(apply(s, { type: "swap", seat: 0, pos: 5 }));
-    expect(flightsBetween(thrown(toView(s)), swapped)).toMatchObject({
-      moves: new Map([
-        [slotKey(0, 5), "discard"],
-        ["discard", slotKey(0, 5)],
-      ]),
-      turns: new Set(["discard"]),
-    });
+    expect(flightsBetween(thrown(toView(s)), swapped).moves).toEqual([
+      { to: slotKey(0, 5), from: "discard", turn: false },
+      { to: "discard", from: slotKey(0, 5), turn: true },
+    ]);
   });
 });
 
