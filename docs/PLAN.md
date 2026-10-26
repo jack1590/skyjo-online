@@ -285,7 +285,7 @@ This is a small, client-only patch (`Table.tsx`, `styles.css`, `i18n.tsx`) with 
 - With reduced motion there is no pulse.
 - Each new test fails on `main`. The release checklist is done.
 
-### M9 — Smooth animations, part 1: no jumps, and the discard reads right (user request, 2026-10-24) · v2.2.1
+### M9 — Smooth animations, part 1: no jumps, and the discard reads right (user request, 2026-10-24) · v2.2.1 · ✅ shipped (PR #25)
 
 **First commit of M9's PR, test only (delivery health, PO PR #24).** The iPhone job is now 2:15–2:45 against a 3-minute PR budget, and the M9–M11 animation work adds more iPhone checks.
 - **The change:** make `e2e/online.spec.ts` "a round runs to its summary, then the next round (or the game ends)" run on Pixel only, like the other long play-throughs (`AGENTS.md`). On iPhone it is about 45 bot moves, and took 25–51 s in PR #24's three runs, the biggest single source of the job's spread. Its iPhone-specific part, the summary's layout, stays covered on all three devices by the `table.spec.ts` round-summary harness test.
@@ -309,7 +309,8 @@ The second audit (2026-10-25) added the user's third complaint: a card taken fro
 - **UX-25.** A deck draw leaves the top of the deck face-down, lifts, and turns face-up halfway, over 420 ms.
 - **UX-27** (this replaces the After-M6 "final reveal" item). The final reveal is staggered:
   - flips go in seat order starting after the ender, by row, with a step of min(110, 2500/n) ms;
-  - the summary sheet appears 600 ms after the last flip.
+  - the summary sheet appears 600 ms after the last flip;
+  - (PO, PR #25 round 1) while the reveal plays, every player's total (the opponent panels and your own "pts") still shows the total from before this round, and the summary's count-up then brings it to the new one. In round 1 of the PO's 3-phone game the panels read "Ben 67" and "Cleo 45" at the reveal's first frame, while 18 of their cards were still face down, which gives away the result the stagger was building up to.
 
 **Acceptance:**
 - With motion on, on the Pixel and iPhone projects:
@@ -318,8 +319,9 @@ The second audit (2026-10-25) added the user's third complaint: a card taken fro
 - The deck and discard boxes are identical (within 0.5 px) in the draw and place phases, with 2 and 8 players, on all 3 devices.
 - The held discard card's centre x stays within 2 px of the discard pile's at 0, 25, 50 and 100% of its animation, in both engines, including right after an opponent's swap. Its caption and prompt read as above in en, es and pt.
 - A deck draw's frame 0 shows the card back over the deck, within 2 px.
-- Final reveal: flip start times strictly increase; the sheet appears ≥ 500 ms after the last flip, and at once with reduced motion.
+- Final reveal: flip start times strictly increase; the sheet appears ≥ 500 ms after the last flip, and at once with reduced motion. While it plays, the totals shown are the ones from before the round (harness test, motion on).
 - Each new test fails on `main` without the fix; the PR shows this.
+- No flaky test (PO, PR #25 round 1): the new motion tests pass `--repeat-each=20` on iPhone at 4 or more workers. The first flight after the table mounts starts from where the card really is, even when the stylesheet loaded after the first render.
 - CI grows by ≤ 10 s. The release checklist is done. The PO plays with motion on and sees no jump.
 
 ### M11 — Smooth animations, part 2: motion that feels natural (user request, 2026-10-24) · v2.2.2
@@ -330,12 +332,13 @@ The user asked for natural animations, so this comes right after M9, ahead of M1
   - From 0 to 0.5: a lift to scale 1.06, a lean of rotate 3°·sign(dx), and an arc of −min(24, 0.12·d) px when |dy| > 80.
   - From 0.88 to 0.94 to 1: a settle from scale 1 to 0.97 and back to 1.
   - Sounds are re-timed to the new landings: today's sound peaks match the old front-loaded curve.
+  - (PO, PR #25) The final reveal's sounds follow the order the cards actually turn. On the phone that tapped the round's last card, that card turns first (M9), but `soundsBetween` still times each player's flip sound by `flightsBetween`'s order, so those sounds play one step (up to 110 ms) before their cards turn.
 - **UX-23, the swap order.**
   - The outgoing card lifts for 80 ms, then flies to the discard, turning face-up during its first half.
   - The incoming card starts 90 ms later.
   - Stacking: incoming above outgoing, above the table.
   - The discard sound plays at landing − 210 ms and the place sound at landing − 160 ms. The whole swap takes ≤ 560 ms.
-- **UX-24, the flip** (this includes UX-9: rotate from 180° and give cards a back face).
+- **UX-24, the flip** (this includes UX-9: rotate from 180° and give cards a back face). M9 already shows the back for the first half of every flip and draw (`turnOver` in `motion.ts`, a discrete picture swap at 50%); UX-24 replaces those keyframes.
   - Keyframes: 0 `perspective(6w) rotateY(180°)`, then 0.5 `translateY(−4px) rotateY(90°) scale(1.08)`, then 1 `rotateY(0)`.
   - Easing: `cubic-bezier(0.45,0,0.25,1)`.
   - Durations: large cards 380 ms, medium 340 ms, small 260 ms with no lift.
@@ -364,6 +367,7 @@ The user asked for natural animations, so this comes right after M9, ahead of M1
 
 The expert counts slow taps as part of the "not smooth" feeling. All three items here give feedback before the server answers.
 - **UX-3.** Time from tap to new state: draw p50 97 ms, p90 181 ms, max 372 ms; discard-and-flip p90 401 ms. Extra taps are dropped silently (`useRoom.ts:134`). On a tap, immediately play the sound, vibrate briefly and lift the tapped card, and keep that until the view arrives.
+  - (PO, PR #25) A tap on the discard pile is also lost while the pile's new top card is still flying in, because the button is in flight, away from its slot. In the PO's game, the first tap on the pile 0–140 ms after an opponent's swap did nothing in WebKit, and the second worked. The pile's slot should take the tap, wherever its card is in its flight.
 - **UX-5.** Going offline mid-game is invisible: 20 s offline showed no toast. Only the `online` event is handled (`useRoom.ts:119`), and recovery waits for a 5 s ack or the 45 s stale timeout. Show "Reconnecting…" on `offline`, or when an ack is more than 1.5 s late.
 - **UX-19.** Throwing away a card shows no result: the tap moves nothing, and only the caption changes.
   - Slide the drawn card onto the discard locally (250 ms, a 4° tilt), and show an "↶ Undo" chip of at least 44 px (es "Deshacer", pt "Desfazer").
@@ -589,7 +593,7 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 8   | ✅ SEC-9                           | Slower presence checks in rooms where nobody has sent anything for 10 min; M8's ping-only return; the CI timeout        | 2.1.2         | medium, effort S; after M8, which rewrites the alarm schedule and ends stuck flips                               |
 | 9   | ✅ M18                             | Discard mode shows where to tap: UX-18, UX-20, UX-4 redefined                                                           | 2.1.3         | the user's complaint, hit on every first deck draw; client-only and S; after SEC-9, whose implementer is waiting |
 | 10  | ✅ M17                             | Play until one is left (knockout), a lobby option                                                                       | 2.2.0         | the user's request; right after SEC-9 and M18                                                                    |
-| 11  | M9                                 | UX-1, UX-2, UX-21, UX-25, UX-27 (final reveal)                                                                          | 2.2.1         | no jumps, and a card from the discard stays at the pile                                                          |
+| 11  | ✅ M9                              | UX-1, UX-2, UX-21, UX-25, UX-27 (final reveal)                                                                          | 2.2.1         | no jumps, and a card from the discard stays at the pile                                                          |
 | 12  | M11                                | UX-22, UX-23, UX-24 (+ UX-9), UX-7                                                                                      | 2.2.2         | the user asked for natural animations; it needs M9's correct start positions                                     |
 | 13  | M10                                | UX-3, UX-5, UX-19                                                                                                       | 2.2.3         | feedback before the server answers                                                                               |
 | 14  | M19                                | UX-8, UX-26                                                                                                             | 2.2.4         | column removal you can follow                                                                                    |

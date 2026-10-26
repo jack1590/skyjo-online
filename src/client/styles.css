@@ -808,6 +808,34 @@ dialog.zoom::backdrop {
     0 10px 18px rgb(0 0 0 / 0.55);
 }
 
+/* The middle slot, kept while nobody holds a card from the deck, so the piles never move (UX-2). */
+.pile.empty {
+  visibility: hidden;
+}
+
+/* A card taken from the discard (UX-21): held up over its pile, which dims under it. Like the
+   drawn card's lift, `translate` and `scale` add to the flights' transform (motion.ts). */
+.stack {
+  position: relative;
+}
+
+.stack.taken > .card:first-child {
+  opacity: 0.45;
+}
+
+.stack.taken > .card + .card {
+  position: absolute;
+  top: 0;
+  left: 0;
+  /* Taps reach the pile under it (Auto-play points at its switch). */
+  pointer-events: none;
+  translate: 0 -16px;
+  scale: 1.06;
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 0.25) inset,
+    0 14px 24px rgb(0 0 0 / 0.6);
+}
+
 /* Discard mode (UX-18): your face-down cards glow past the gold rim of the card back; the others
    step back. */
 .grid.discarding .card.up {

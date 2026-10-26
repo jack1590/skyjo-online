@@ -1,4 +1,5 @@
-import { Component, type ComponentProps, type ReactNode } from "react";
+import { Component, type ComponentProps, type ReactNode, useEffect, useState } from "react";
+import { flushSync } from "react-dom";
 import { Home } from "./Home";
 import { useI18n } from "./i18n";
 import { Online } from "./Online";
@@ -7,16 +8,26 @@ import { Table } from "./Table";
 /** Share links look like /r/ABCDE; anything else is the home screen. */
 const roomCode = window.location.pathname.match(/^\/r\/([a-z0-9]{5})\/?$/i)?.[1]?.toUpperCase();
 
+type Harness = Partial<ComponentProps<typeof Table>>;
 /**
  * Test-only layout harness: e2e/table.spec.ts injects a table at any game state (2–8 players,
- * last turns, summaries) without playing up to it. Nothing a user can reach.
+ * last turns, summaries) without playing up to it. A "skyjo:table" event moves it on to the next
+ * view at once, so e2e/motion.spec.ts can catch the flights between two views. Nothing a user can
+ * reach.
  */
-const harness = (window as Window & { __SKYJO_TABLE__?: Partial<ComponentProps<typeof Table>> })
-  .__SKYJO_TABLE__;
+const harness = (window as Window & { __SKYJO_TABLE__?: Harness }).__SKYJO_TABLE__;
 const noop = () => {};
 
 export function App() {
-  if (harness?.view) {
+  const [table, setTable] = useState(harness);
+  useEffect(() => {
+    if (!harness) return;
+    const next = (e: Event) =>
+      flushSync(() => setTable((t) => ({ ...t, ...(e as CustomEvent<Harness>).detail })));
+    window.addEventListener("skyjo:table", next);
+    return () => window.removeEventListener("skyjo:table", next);
+  }, []);
+  if (table?.view) {
     return (
       <Table
         seat={null}
@@ -24,8 +35,8 @@ export function App() {
         onAction={noop}
         onPlayAgain={noop}
         onExit={noop}
-        {...harness}
-        view={harness.view}
+        {...table}
+        view={table.view}
       />
     );
   }

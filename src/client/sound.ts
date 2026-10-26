@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { GameView } from "../engine/view";
 import type { Wait } from "../protocol";
-import { flightsBetween } from "./motion";
+import { flightsBetween, revealMs, revealStep, useReducedMotion } from "./motion";
 
 /** tick.mp3, the 5 s warning, is generated for this project (ffmpeg, two decaying sines). */
 const NAMES = [
@@ -65,7 +65,7 @@ export function unlockAudio() {
     const audio = new AudioContext();
     ctx = audio;
     master = audio.createGain();
-    master.gain.value = VOLUME;
+    master.gain.value = muted ? 0 : VOLUME;
     master.connect(audio.destination);
     preloadSounds();
     void files?.then((loaded) => {
@@ -106,52 +106,74 @@ export function recoverAudio() {
     });
 }
 
-function play(name: Sound) {
+function play(name: Sound, ms = 0) {
   const buffer = buffers.get(name);
   // A suspended context would queue sounds and blast them all at once later; drop them instead.
   if (muted || !ctx || !master || ctx.state !== "running" || !buffer) return;
   const source = ctx.createBufferSource();
   source.buffer = buffer;
   source.connect(master);
-  source.start(ctx.currentTime + (LATE.has(name) ? 0.25 : 0));
+  source.start(ctx.currentTime + ms / 1000 + (LATE.has(name) ? 0.25 : 0));
 }
 
 /** A table that has just been dealt: nobody has turned a card yet. */
 const freshDeal = (v: GameView) =>
   v.phase === "flip" && v.players.every((p) => p.grid.every((slot) => slot === "down"));
 
-/** What to play between two views of the same table, as seen from `seat` (null = watching). */
-export function soundsBetween(prev: GameView | null, cur: GameView, seat: number | null): Sound[] {
-  if (!prev) return freshDeal(cur) ? ["deal"] : []; // first view: only a brand-new game makes a sound
-  if (prev.round !== cur.round) return cur.phase === "flip" ? ["deal"] : [];
-  const out = new Set<Sound>();
-  const { moves, flips } = flightsBetween(prev, cur);
+/**
+ * What to play between two views of the same table, as seen from `seat` (null = watching), each
+ * with its delay in ms. With `motion`, the final reveal is staggered (UX-27): each player's cards
+ * sound as they start turning, and game over sounds when the summary shows.
+ */
+export function soundsBetween(
+  prev: GameView | null,
+  cur: GameView,
+  seat: number | null,
+  motion = false,
+): [Sound, number][] {
+  if (!prev) return freshDeal(cur) ? [["deal", 0]] : []; // first view: only a brand-new game sounds
+  if (prev.round !== cur.round) return cur.phase === "flip" ? [["deal", 0]] : [];
+  const out: [Sound, number][] = [];
+  const add = (name: Sound, ms = 0) => {
+    if (!out.some(([n, t]) => n === name && t === ms)) out.push([name, ms]);
+  };
+  const { moves, flips, reveal } = flightsBetween(prev, cur);
+  const staggered = motion && reveal;
   for (const [to, from] of moves) {
-    if (to === "drawn") out.add("draw");
-    else if (to === "discard") out.add("discard");
-    else if (from === "drawn") out.add("place");
+    if (to === "drawn") add("draw");
+    else if (to === "discard") add("discard");
+    else if (from === "drawn") add("place");
   }
-  if (flips.length) out.add("flip");
+  // flips are slot keys ("slot-<seat>-<pos>") in reveal order.
+  const step = revealStep(flips.length);
+  flips.forEach((key, i) => {
+    if (!staggered) add("flip");
+    else if (key.split("-")[1] !== flips[i - 1]?.split("-")[1]) add("flip", i * step);
+  });
   const removed = cur.players.some((p, s) =>
     p.grid.some((slot, i) => slot === null && prev.players[s]?.grid[i] !== null),
   );
-  if (removed) out.add("column");
+  if (removed) add("column");
   const myTurn = (v: GameView) => seat !== null && v.phase === "draw" && v.current === seat;
-  if (myTurn(cur) && !myTurn(prev)) out.add("turn");
+  if (myTurn(cur) && !myTurn(prev)) add("turn");
   if (cur.phase === "gameOver" && prev.phase !== "gameOver") {
-    out.add(seat !== null && cur.winners.includes(seat) ? "win" : "end");
+    add(
+      seat !== null && cur.winners.includes(seat) ? "win" : "end",
+      staggered ? revealMs(flips.length) : 0,
+    );
   }
-  return [...out];
+  return out;
 }
 
 /** Plays the sounds for each change of `view`, including the deal when a new game appears. */
 export function useSounds(view: GameView, seat: number | null) {
   const prev = useRef<GameView | null>(null);
+  const reduced = useReducedMotion();
   useEffect(() => {
     const before = prev.current;
     prev.current = view;
-    for (const name of soundsBetween(before, view, seat)) play(name);
-  }, [view, seat]);
+    for (const [name, ms] of soundsBetween(before, view, seat, !reduced)) play(name, ms);
+  }, [view, seat, reduced]);
 }
 
 let nudged: string | null = null;
@@ -180,6 +202,8 @@ export function useMuted(): [boolean, () => void] {
   const [value, setValue] = useState(muted);
   const toggle = () => {
     muted = !muted;
+    // Also silences sounds already scheduled, like a final reveal's (UX-27).
+    if (master) master.gain.value = muted ? 0 : VOLUME;
     setValue(muted);
     try {
       localStorage.setItem(MUTED_KEY, muted ? "1" : "0");

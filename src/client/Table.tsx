@@ -4,7 +4,7 @@ import type { GameView, PlayerView, ViewSlot } from "../engine/view";
 import { TURN_MS, type Wait } from "../protocol";
 import { Card } from "./Card";
 import { type T, useI18n } from "./i18n";
-import { slotKey, useCountUp, useFlights, useReducedMotion } from "./motion";
+import { slotKey, useCountUp, useFlights, useReducedMotion, useRevealing } from "./motion";
 import { nudge, useMuted, useSounds } from "./sound";
 
 interface TableProps {
@@ -34,6 +34,8 @@ const hurry = (left: number | null) => (left === null ? "" : left <= 5 ? " dange
 /** Out (R16) before this round: no cards and no turns. */
 const isOut = (p: PlayerView | undefined, round: number) =>
   p !== undefined && p.out !== null && p.out < round;
+/** This round's score, once the round is over; none for a player out before it (R16). */
+const lastScore = (p: PlayerView, round: number) => (isOut(p, round) ? 0 : (p.scores.at(-1) ?? 0));
 
 export function Table(props: TableProps) {
   const { view, onAction, onAuto, onPlayAgain, onExit, lead, connected, auto } = props;
@@ -46,9 +48,14 @@ export function Table(props: TableProps) {
   const [discarding, setDiscarding] = useState(false);
   // Hides the summary sheet so players can look at the revealed grids.
   const [peek, setPeek] = useState(false);
+  // The card you last tapped to turn over, so a final reveal turns it first (UX-27).
+  const tapped = useRef<string | null>(null);
   // Local modes never outlive the turn or summary they started in (the server may move for us).
   // biome-ignore lint/correctness/useExhaustiveDependencies: the deps are triggers, not inputs
-  useEffect(() => setDiscarding(false), [view.round, view.current, phase]);
+  useEffect(() => {
+    setDiscarding(false);
+    tapped.current = null;
+  }, [view.round, view.current, phase]);
   useEffect(() => {
     if (!summary) setPeek(false);
   }, [summary]);
@@ -67,7 +74,11 @@ export function Table(props: TableProps) {
   }, [myTurn]);
   const discardMode = discarding && myTurn && phase === "place" && view.drawnFrom === "deck";
 
-  const reg = useFlights(view);
+  const reg = useFlights(view, tapped);
+  const revealing = useRevealing(view);
+  // While the final reveal plays, totals stay as they were, so the cards tell the result first;
+  // the summary then counts them up (UX-27).
+  const total = (p: PlayerView) => (revealing ? p.total - lastScore(p, view.round) : p.total);
   useSounds(view, seat);
   const [muted, toggleMuted] = useMuted();
   // Tapping an opponent opens their grid full size; your own turn closes it.
@@ -148,7 +159,11 @@ export function Table(props: TableProps) {
     }
     if (phase !== "place") return undefined;
     if (discardMode) {
-      return slot === "down" ? () => act({ type: "discardAndFlip", seat, pos }) : undefined;
+      if (slot !== "down") return undefined;
+      return () => {
+        tapped.current = slotKey(seat, pos);
+        act({ type: "discardAndFlip", seat, pos });
+      };
     }
     return () => act({ type: "swap", seat, pos });
   };
@@ -169,6 +184,7 @@ export function Table(props: TableProps) {
       ? players.map((_, i) => i)
       : Array.from({ length: n - 1 }, (_, i) => (seat + 1 + i) % n);
   const lastTurns = view.ender !== null && playing;
+  const fromDiscard = view.drawn !== null && view.drawnFrom === "discard";
 
   let pill = "";
   if (playing) {
@@ -257,7 +273,7 @@ export function Table(props: TableProps) {
               }}
               className={`opp${active ? " active" : ""}${gone ? " away" : ""}${clock ? " timed" : ""}${out ? " out" : ""}`}
               data-testid="opponent"
-              aria-label={`${gone ? `${t("offline")}: ` : ""}${auto?.[i] ? `${t("autoPlay")}: ` : ""}${out ? `${p.name}, ${t("outWatching")}` : t("showCards", { name: p.name })}, ${t("pts", { n: p.total })}`}
+              aria-label={`${gone ? `${t("offline")}: ` : ""}${auto?.[i] ? `${t("autoPlay")}: ` : ""}${out ? `${p.name}, ${t("outWatching")}` : t("showCards", { name: p.name })}, ${t("pts", { n: total(p) })}`}
               // No cards to show.
               disabled={out}
               onClick={() => setZoom(i)}
@@ -268,7 +284,7 @@ export function Table(props: TableProps) {
                   {p.name}
                 </span>
                 {clock && <Ring inMs={clock.inMs} />}
-                <span className="opp-total">{p.total}</span>
+                <span className="opp-total">{total(p)}</span>
               </span>
               {out ? (
                 <span className="out-note">{t("outWatching")}</span>
@@ -304,8 +320,9 @@ export function Table(props: TableProps) {
           />
           <span className="pile-label">{t("deckCount", { n: view.deckCount })}</span>
         </div>
-        {view.drawn !== null && (
-          // Held, never highlighted: the highlights are what to tap (UX-4).
+        {/* Always there, empty unless you hold a card from the deck, so the piles never move (UX-2).
+            Held, never highlighted: the highlights are what to tap (UX-4). */}
+        {view.drawn !== null && view.drawnFrom === "deck" ? (
           <div className="pile held">
             <Card
               slot={view.drawn}
@@ -317,19 +334,36 @@ export function Table(props: TableProps) {
             />
             <span className="pile-label">{discardMode ? t("tapToKeep") : t("drawn")}</span>
           </div>
+        ) : (
+          <div className="pile empty" aria-hidden="true">
+            <span className="card md" />
+            <span className="pile-label">&nbsp;</span>
+          </div>
         )}
         <div className="pile">
-          <Card
-            slot={view.discardTop}
-            size="md"
-            label={t("discardPile")}
-            testId="discard"
-            // In discard mode tapping it only cancels: your face-down cards are the targets (UX-18).
-            highlight={!!onDiscard && !discardMode}
-            onClick={myAuto ? pointAtSwitch : onDiscard}
-            cardRef={reg("discard")}
-          />
-          <span className="pile-label">{t("discard")}</span>
+          {/* A card taken from the discard is held up over its pile, not moved aside (UX-21). */}
+          <span className={`stack${fromDiscard ? " taken" : ""}`}>
+            <Card
+              slot={view.discardTop}
+              size="md"
+              label={t("discardPile")}
+              testId="discard"
+              // In discard mode tapping it only cancels: your face-down cards are the targets (UX-18).
+              highlight={!!onDiscard && !discardMode}
+              onClick={myAuto ? pointAtSwitch : onDiscard}
+              cardRef={reg("discard")}
+            />
+            {fromDiscard && (
+              <Card
+                slot={view.drawn}
+                size="md"
+                label={t("fromDiscard")}
+                testId="drawn"
+                cardRef={reg("drawn")}
+              />
+            )}
+          </span>
+          <span className="pile-label">{fromDiscard ? t("fromDiscard") : t("discard")}</span>
         </div>
       </section>
 
@@ -349,7 +383,7 @@ export function Table(props: TableProps) {
               <span className="auto-note">{t(away ? "autoAway" : "autoOn")}</span>
             ) : (
               <span className="me">
-                <strong>{me.name}</strong> <span className="pts">{t("pts", { n: me.total })}</span>
+                <strong>{me.name}</strong> <span className="pts">{t("pts", { n: total(me) })}</span>
               </span>
             )}
             {/* Nothing left to play once you're out (R16), even at that round's summary. */}
@@ -403,10 +437,11 @@ export function Table(props: TableProps) {
       )}
 
       {zoom !== null && players[zoom] && !isOut(players[zoom], view.round) && (
-        <Zoom view={view} seat={zoom} onClose={() => setZoom(null)} />
+        <Zoom view={view} seat={zoom} total={total(players[zoom])} onClose={() => setZoom(null)} />
       )}
 
-      {summary && !peek && (
+      {/* The summary waits for the final reveal (UX-27). */}
+      {summary && !peek && !revealing && (
         <Summary
           view={view}
           lead={lead}
@@ -446,7 +481,15 @@ function prompt(t: T, view: GameView, seat: number, myTurn: boolean, discardMode
  * One opponent's grid at full size, opened by tapping their panel; follows the live view. A native
  * modal <dialog> gives focus handling, Escape and an inert background; tapping outside closes it.
  */
-function Zoom({ view, seat, onClose }: { view: GameView; seat: number; onClose: () => void }) {
+interface ZoomProps {
+  view: GameView;
+  seat: number;
+  /** Their total as the table shows it (held during the final reveal). */
+  total: number;
+  onClose: () => void;
+}
+
+function Zoom({ view, seat, total, onClose }: ZoomProps) {
   const { t } = useI18n();
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -466,7 +509,7 @@ function Zoom({ view, seat, onClose }: { view: GameView; seat: number; onClose: 
       <div className="sheet">
         <div className="sheet-head">
           <h2 id="zoom-title">
-            {p.name} · {t("pts", { n: p.total })}
+            {p.name} · {t("pts", { n: total })}
           </h2>
           <button type="button" className="btn" onClick={onClose}>
             {t("close")}
@@ -537,7 +580,7 @@ function Summary({ view, lead, auto, onPeek, onNext, onPlayAgain, onExit }: Summ
             {rows.map((p) => {
               // Players out before this round (R16) have no score in it.
               const played = !isOut(p, view.round);
-              const last = played ? (p.scores.at(-1) ?? 0) : 0;
+              const last = lastScore(p, view.round);
               return (
                 <tr key={p.seat} className={view.winners.includes(p.seat) ? "win" : undefined}>
                   <td>

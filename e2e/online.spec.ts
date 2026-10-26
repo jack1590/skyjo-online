@@ -294,8 +294,9 @@ test("m5 screenshots", async ({ browser }, info) => {
 test("a round runs to its summary, then the next round (or the game ends)", async ({
   browser,
 }, info) => {
-  // A whole round at bot speed: about 45 moves, which CI's WebKit can stretch past 25 s when the
-  // other workers are busy (PR #17 probe).
+  // A whole round at bot speed: about 45 moves, 25–51 s on CI's iPhone (PR #24), its biggest
+  // single cost. The summary's layout is checked on every device by table.spec.ts's harness.
+  test.skip(info.project.name !== "pixel", "long play-throughs run on Pixel only");
   test.setTimeout(60_000);
   const { pages } = await seatedRoom(browser, info, ["Ana", "Ben"]);
   await startGame(pages[0]);
