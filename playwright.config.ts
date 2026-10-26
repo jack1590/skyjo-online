@@ -28,6 +28,8 @@ export default defineConfig({
     // made CI's iPhone job 1.7× slower (M20 probe: Playwright 1.9 min → 1.1 min, and 1.2 min →
     // 42 s, trace on vs off on the same runner); most of it is the screencast.
     trace: "on-first-retry",
+    // So a flaky test's failed attempt, untraced, still shows how the page looked.
+    screenshot: "only-on-failure",
     locale: "en-US",
     // Card-flight animations would make every click wait for movement to settle; motion.spec.ts
     // opts back in to test them.
