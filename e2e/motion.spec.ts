@@ -60,6 +60,7 @@ interface Box {
   z: string;
   hit: boolean;
   over: number;
+  opacity: number;
 }
 type Boxes = Record<string, Box | null>;
 
@@ -103,6 +104,7 @@ async function move(
           z: style.zIndex,
           hit: el.contains(document.elementFromPoint(x, y)),
           over: under.length,
+          opacity: Number(style.opacity),
         };
       };
       const boxes = () => Object.fromEntries(Object.entries(read).map(([k, s]) => [k, box(s)]));
@@ -155,6 +157,8 @@ const PILES = {
   drawn: '[data-testid="drawn"]',
   discard: '[data-testid="discard"]',
 };
+/** A stand-in for a card on its way (motion.ts), not the one under a card flying onto the pile. */
+const STAND_IN = '.card[data-copy=""]';
 
 /** Within 2 px of `to`, centre and width: where the flight's first frame must be. */
 function expectOver(box: Box | null | undefined, to: Box | null | undefined, what: string) {
@@ -214,6 +218,19 @@ function race(players: number, seed: number) {
   return { before, after };
 }
 
+/** Your turn, holding a 7 from the deck; your column 0 shows 7, 7 and a face-down card (UX-26). */
+function columnTurn() {
+  const state = firstTurn(2, 5);
+  const me = state.current;
+  const grid = state.players[me].grid;
+  grid[0] = { card: 7, up: true };
+  grid[4] = { card: 7, up: true };
+  grid[8] = { card: 3, up: false };
+  state.deck.push(7);
+  const held = apply(state, { type: "draw", seat: me, source: "deck" });
+  return { held, me, after: apply(held, { type: "swap", seat: me, pos: 8 }) };
+}
+
 test.describe("with motion allowed", () => {
   test.use({ reducedMotion: "no-preference" });
 
@@ -230,10 +247,9 @@ test.describe("with motion allowed", () => {
     await recordFlights(page);
     let state = firstTurn(2, 5);
     const me = state.current;
+    // A card going into an opponent's grid flies as a stand-in, outside their strip (UX-8).
     const slot = (seat: number, pos: number) =>
-      seat === me
-        ? `[data-testid="my-grid"] > :nth-child(${pos + 1})`
-        : `[data-testid="opponent"] .mini > :nth-child(${pos + 1})`;
+      seat === me ? `[data-testid="my-grid"] > :nth-child(${pos + 1})` : STAND_IN;
     await show(page, { view: toView(state), seat: me });
     for (let swaps = 0; swaps < 16; swaps++) {
       const seat = state.current;
@@ -676,11 +692,215 @@ test.describe("with motion allowed", () => {
     for (const [p, delay] of delays) if (p !== pos) expect(delay).toBeGreaterThan(0);
   });
 
+  test("UX-8: a card going into an opponent's grid flies as a stand-in that no ancestor clips; their card stays hidden until it lands there, within 0.5 px", async ({
+    page,
+  }) => {
+    await recordFlights(page);
+    let state = firstTurn(2, 5);
+    const me = (state.current + 1) % 2; // the opponent moves first
+    const them = state.current;
+    await show(page, { view: toView(state), seat: me });
+    state = apply(state, { type: "draw", seat: them, source: "deck" });
+    await move(page, toView(state), PILES);
+    const pos = swapTarget(state);
+    state = apply(state, { type: "swap", seat: them, pos });
+    const read = {
+      real: `[data-testid="opponent"] .mini > :nth-child(${pos + 1})`,
+      copy: STAND_IN,
+    };
+    const swap = await move(page, toView(state), read, [0.5], false);
+    // Every card on screen in motion, through the first half of its flight (the strip hid it for
+    // ~140 ms, UX-8): none sticks out of a box that clips it.
+    const clipped = await page.evaluate(() => {
+      const w = window as unknown as { flights: { el: Element; a: Animation }[] };
+      const paused = w.flights.filter(({ a }) => a.playState === "paused");
+      return [0, 0.1, 0.25, 0.5].flatMap((f) => {
+        for (const { a } of paused) {
+          const t = a.effect?.getTiming();
+          a.currentTime = Number(t?.delay) + f * Number(t?.duration);
+        }
+        const moving = paused.flatMap(({ el, a }) =>
+          !(a.effect as KeyframeEffect).pseudoElement && Number(getComputedStyle(el).opacity) > 0
+            ? [el]
+            : [],
+        );
+        return [...new Set(moving)].flatMap((el) => {
+          const r = el.getBoundingClientRect();
+          const out: string[] = [];
+          for (let box = el.parentElement; box; box = box.parentElement) {
+            const s = getComputedStyle(box);
+            if (s.overflowX === "visible" && s.overflowY === "visible") continue;
+            const b = box.getBoundingClientRect();
+            const inside =
+              r.left >= b.left - 0.5 &&
+              r.right <= b.right + 0.5 &&
+              r.top >= b.top - 0.5 &&
+              r.bottom <= b.bottom + 0.5;
+            if (!inside) out.push(`at ${f}: ${el.className} in ${box.className}`);
+          }
+          return out;
+        });
+      });
+    });
+    expect(clipped).toEqual([]);
+    const [mid] = swap.during;
+    expect(mid.real?.opacity, "their card waits, hidden").toBe(0);
+    expect(mid.copy?.opacity).toBe(1);
+    // It lands on their card, which then shows instead.
+    const landing = await page.evaluate((copy) => {
+      const w = window as unknown as { flights: { el: Element; a: Animation }[] };
+      const paused = w.flights.filter(({ a }) => a.playState === "paused");
+      const flight = paused.find(({ el }) => el.matches(copy))?.a;
+      const end = Number(flight?.effect?.getComputedTiming().endTime);
+      for (const { a } of paused) a.currentTime = end - 1;
+      const at = document.querySelector(copy)?.getBoundingClientRect();
+      for (const { a } of paused) a.finish();
+      return at && { x: at.x, y: at.y, w: at.width };
+    }, STAND_IN);
+    const card = await page.locator(read.real).boundingBox();
+    expect(Math.abs((landing?.x ?? 0) - (card?.x ?? 99))).toBeLessThanOrEqual(0.5);
+    expect(Math.abs((landing?.y ?? 0) - (card?.y ?? 99))).toBeLessThanOrEqual(0.5);
+    expect(Math.abs((landing?.w ?? 0) - (card?.width ?? 99))).toBeLessThanOrEqual(0.5);
+    await expect(page.locator(STAND_IN)).toHaveCount(0);
+    await expect(page.locator(read.real)).toHaveCSS("opacity", "1");
+    expectOnlyTransforms(swap.timing);
+  });
+
+  test("UX-30: at 25% of a flight onto the discard pile, the pile still shows the card it will cover: their swap, yours, and their discard-and-flip", async ({
+    page,
+  }) => {
+    await recordFlights(page);
+    let state = firstTurn(2, 5);
+    const me = (state.current + 1) % 2; // the opponent moves first
+    await show(page, { view: toView(state), seat: me });
+    for (const [i, how] of (["swap", "swap", "discardAndFlip"] as const).entries()) {
+      const seat = state.current;
+      state = apply(state, { type: "draw", seat, source: "deck" });
+      await move(page, toView(state), PILES);
+      const covered = formatCard(state.discard.at(-1) ?? 99);
+      const pos =
+        how === "swap" ? swapTarget(state) : state.players[seat].grid.findIndex((s) => !s?.up);
+      state = apply(state, { type: how, seat, pos });
+      await move(page, toView(state), PILES, [0.25], false);
+      // Every card seen over the pile's centre (at full opacity), and how far its flight is.
+      const shown = await page.evaluate(() => {
+        const w = window as unknown as { flights: { a: Animation }[] };
+        const pile = document.querySelector(".stack")?.getBoundingClientRect();
+        if (!pile) return null;
+        const [x, y] = [pile.x + pile.width / 2, pile.y + pile.height / 2];
+        const over = [...document.querySelectorAll(".card")].filter((el) => {
+          const r = el.getBoundingClientRect();
+          const seen = Number(getComputedStyle(el).opacity) > 0.99;
+          return seen && x > r.left && x < r.right && y > r.top && y < r.bottom;
+        });
+        for (const { a } of w.flights) if (a.playState === "paused") a.finish();
+        return over.map((el) => el.textContent);
+      });
+      expect(shown, `${i} (${how}): the pile at 25%`).toEqual([covered]);
+    }
+  });
+
+  test("UX-26: a swap that completes a column: once it has landed, a beat; the column's 3 cards pulse ×1.1, then fly to the pile 60–90 ms apart, 380 ms each, and the pile shows their card", async ({
+    page,
+  }) => {
+    await recordFlights(page);
+    const { held, me, after } = columnTurn();
+    await show(page, { view: toView(held), seat: me });
+    const column = [0, 4, 8].map((pos) => `[data-testid="my-grid"] > :nth-child(${pos + 1})`);
+    const seen = await page.evaluate(
+      ({ view, column }) => {
+        const w = window as unknown as { flights: { el: Element; a: Animation }[] };
+        const start = w.flights.length;
+        dispatchEvent(new CustomEvent("skyjo:table", { detail: { view } }));
+        const started = w.flights.slice(start);
+        for (const { a } of started) a.pause();
+        const seek = (t: number) => {
+          for (const { a } of started) a.currentTime = t;
+        };
+        const box = (el: Element | null) => {
+          const r = el?.getBoundingClientRect();
+          return r ? { x: r.x + r.width / 2, y: r.y + r.height / 2, w: r.width } : null;
+        };
+        const leave = started
+          .filter(({ a }) => a.id === "column")
+          .map(({ el, a }) => ({ el, ...a.effect?.getTiming() }))
+          .map(({ el, delay, duration }) => ({
+            el,
+            delay: Number(delay),
+            duration: Number(duration),
+          }))
+          .sort((a, b) => a.delay - b.delay);
+        const copies = [...document.querySelectorAll('.card[data-copy=""]')];
+        const at = (t: number) => {
+          seek(t);
+          return copies.map(box);
+        };
+        const pulse = leave[0].delay - 220;
+        const beat = [at(pulse - 120), at(pulse)];
+        const slots = column.map((sel) => box(document.querySelector(sel)));
+        seek(pulse);
+        const rest = leave.map(({ el }) => box(el));
+        seek(pulse + 110);
+        const peak = leave.map(({ el }) => box(el));
+        const landed = leave.map(({ el, delay, duration }) => {
+          seek(delay + duration);
+          return box(el);
+        });
+        const pile = box(document.querySelector('[data-testid="discard"]'));
+        const props = started.map(({ a }) => ({
+          props: [
+            ...new Set((a.effect as KeyframeEffect).getKeyframes().flatMap((k) => Object.keys(k))),
+          ].filter((k) => !["offset", "computedOffset", "easing", "composite"].includes(k)),
+        }));
+        for (const { a } of started) a.finish();
+        return { leave, beat, slots, rest, peak, landed, pile, props };
+      },
+      { view: toView(after), column },
+    );
+    const { leave, beat, slots, rest, peak, landed, pile } = seen;
+    expect(leave.map((l) => l.duration)).toEqual([380, 380, 380]);
+    for (let i = 1; i < 3; i++) {
+      const gap = leave[i].delay - leave[i - 1].delay;
+      expect(gap, `flight ${i} after flight ${i - 1}`).toBeGreaterThanOrEqual(60);
+      expect(gap).toBeLessThanOrEqual(90);
+    }
+    // Through the beat nothing moves, and the column's cards are on its slots.
+    for (const [i, b] of beat[0].entries()) {
+      expect(
+        Math.hypot((b?.x ?? 0) - (beat[1][i]?.x ?? 99), (b?.y ?? 0) - (beat[1][i]?.y ?? 99)),
+      ).toBeLessThan(0.5);
+    }
+    for (const [i, r] of rest.entries()) {
+      const near = slots.some(
+        (s) => Math.hypot((r?.x ?? 0) - (s?.x ?? 99), (r?.y ?? 0) - (s?.y ?? 99)) < 1,
+      );
+      expect(near, `column card ${i} rests on a slot`).toBe(true);
+      expect((peak[i]?.w ?? 0) / (r?.w ?? 1), `pulse ${i}`).toBeCloseTo(1.1, 1);
+      expect(Math.abs((landed[i]?.x ?? 0) - (pile?.x ?? 99)), `lands ${i}`).toBeLessThanOrEqual(
+        0.5,
+      );
+      expect(Math.abs((landed[i]?.y ?? 0) - (pile?.y ?? 99))).toBeLessThanOrEqual(0.5);
+    }
+    expectOnlyTransforms(seen.props);
+    await expect(page.locator(".card[data-copy]")).toHaveCount(0);
+    await expect(page.getByTestId("discard")).toHaveText("7");
+    await expect(page.getByTestId("discard")).toHaveCSS("opacity", "1");
+    for (const sel of column) await expect(page.locator(sel)).toHaveAttribute("data-face", "gone");
+  });
+
   /**
    * Moves on to `view` and saves the frames at each time (ms after the move) side by side, from the
-   * top of the page down to `height`.
+   * top of the page down to `height`, as docs/screenshots/<dir>/strip-<name>.jpg (STRIP=before-
+   * names them before-strip-…, for a run against `main`). Returns each frame's file.
    */
-  async function strip(page: Page, name: string, view: GameView, ms: number[], height = 664) {
+  async function strip(
+    page: Page,
+    name: string,
+    view: GameView,
+    ms: number[],
+    height = 664,
+    dir = "m11",
+  ) {
     await page.evaluate((view) => {
       const w = window as unknown as { flights: { a: Animation }[]; mark: number };
       w.mark = w.flights.length;
@@ -693,7 +913,7 @@ test.describe("with motion allowed", () => {
         const w = window as unknown as { flights: { a: Animation }[]; mark: number };
         for (const { a } of w.flights.slice(w.mark)) a.currentTime = t;
       }, t);
-      frames.push(`test-results/m11/${name}-${i}.png`);
+      frames.push(`test-results/${dir}/${name}-${i}.png`);
       await page.screenshot({
         path: frames[i],
         clip: { x: 0, y: 0, width: 390, height },
@@ -708,8 +928,9 @@ test.describe("with motion allowed", () => {
       ...["-loglevel", "error", "-y"],
       ...frames.flatMap((f) => ["-i", f]),
       ...["-filter_complex", `hstack=inputs=${frames.length}`, "-q:v", "4"],
-      `docs/screenshots/m11/strip-${name}.jpg`,
+      `docs/screenshots/${dir}/${process.env.STRIP ?? ""}strip-${name}.jpg`,
     ]);
+    return frames;
   }
 
   test("screenshots: M11 frame strips", async ({ page }, info) => {
@@ -758,11 +979,59 @@ test.describe("with motion allowed", () => {
     await show(page, { view: toView(before), seat: 0 });
     await strip(page, "final-reveal", toView(after), [0, 500, 1000, 1500, 2000, 2500]);
   });
+
+  test("screenshots: M19 frame strips", async ({ page }, info) => {
+    test.skip(!process.env.SHOTS || info.project.name !== "iphone", "run with SHOTS=1");
+    mkdirSync("test-results/m19", { recursive: true });
+    const swap = [0, 70, 140, 210, 280, 350, 420, 490];
+    await recordFlights(page);
+    // An opponent's swap (UX-8): the card going into their grid, over their strip.
+    let state = firstTurn(2, 5);
+    const me = (state.current + 1) % 2; // the opponent moves first
+    const them = state.current;
+    await show(page, { view: toView(state), seat: me });
+    state = apply(state, { type: "draw", seat: them, source: "deck" });
+    await move(page, toView(state), PILES);
+    state = apply(state, { type: "swap", seat: them, pos: swapTarget(state) });
+    const frames = await strip(page, "opponent-swap", toView(state), swap, 420, "m19");
+    execFileSync("ffmpeg", [
+      ...["-loglevel", "error", "-y", "-i", frames[2], "-q:v", "3"],
+      `docs/screenshots/m19/${process.env.STRIP ?? ""}opponent-swap-140ms.jpg`,
+    ]);
+    // Your swap onto the discard pile (UX-30): the pile keeps its card until the new one lands.
+    state = apply(state, { type: "draw", seat: me, source: "deck" });
+    await move(page, toView(state), PILES);
+    state = apply(state, { type: "swap", seat: me, pos: swapTarget(state, 8) });
+    await strip(page, "swap", toView(state), swap, 664, "m19");
+    // A swap that completes your column (UX-26), every 120 ms.
+    const { held, after } = columnTurn();
+    await show(page, { view: toView(held), seat: held.current });
+    const every = Array.from({ length: 13 }, (_, i) => i * 120);
+    await strip(page, "column", toView(after), every, 664, "m19");
+  });
 });
 
 test("reduced motion: nothing animates", async ({ browser }, info) => {
   const { pages } = await seatedRoom(browser, info, ["Ana", "Ben"]);
   expect(await opponentFlipAnimates(pages)).toBe(false);
+});
+
+test("UX-26: with reduced motion a completed column just goes: no stand-in, no animation", async ({
+  page,
+}) => {
+  await recordFlights(page);
+  const { held, me, after } = columnTurn();
+  await show(page, { view: toView(held), seat: me });
+  const seen = await page.evaluate((view) => {
+    const w = window as unknown as { flights: unknown[] };
+    dispatchEvent(new CustomEvent("skyjo:table", { detail: { view } }));
+    return {
+      animations: w.flights.length,
+      copies: document.querySelectorAll("[data-copy]").length,
+    };
+  }, toView(after));
+  expect(seen).toEqual({ animations: 0, copies: 0 });
+  await expect(page.getByTestId("my-grid").locator('[data-face="gone"]')).toHaveCount(3);
 });
 
 test("UX-27: with reduced motion the round summary shows at once", async ({ page }) => {

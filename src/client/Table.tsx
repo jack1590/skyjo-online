@@ -4,7 +4,15 @@ import type { GameView, PlayerView, ViewSlot } from "../engine/view";
 import { TURN_MS, type Wait } from "../protocol";
 import { Card } from "./Card";
 import { type T, useI18n } from "./i18n";
-import { slotKey, thrown, useCountUp, useFlights, useReducedMotion, useRevealing } from "./motion";
+import {
+  settled,
+  slotKey,
+  thrown,
+  useCountUp,
+  useFlights,
+  useReducedMotion,
+  useRevealing,
+} from "./motion";
 import { nudge, play, type Sound, useMuted, useSounds } from "./sound";
 
 interface TableProps {
@@ -106,6 +114,11 @@ export function Table(props: TableProps) {
   // the summary then counts them up (UX-27).
   const total = (p: PlayerView) => (revealing ? p.total - lastScore(p, view.round) : p.total);
   useSounds(shown, seat, timing, heard);
+  // Used up once the answer has rendered, even when it didn't play that sound for your card (a
+  // column it completed, an error), so it never silences a later one (M10 PO).
+  useEffect(() => {
+    if (!pending) heard.current = null;
+  }, [pending]);
   const [muted, toggleMuted] = useMuted();
   // Tapping an opponent opens their grid full size; your own turn closes it.
   const [zoom, setZoom] = useState<number | null>(null);
@@ -116,19 +129,27 @@ export function Table(props: TableProps) {
   // On short screens the grid can be below the fold: bring it into view when your turn starts.
   const gridRef = useRef<HTMLDivElement>(null);
   const reduced = useReducedMotion();
+  // biome-ignore lint/correctness/useExhaustiveDependencies: timing is read when the turn starts
   useEffect(() => {
     if (!myTurn) return;
-    // Wait for layout to settle (fonts, the first paint) before deciding whether to scroll.
-    let frame = requestAnimationFrame(() => {
+    // Wait for the last move's cards to land (stand-ins don't scroll, UX-8), then for layout to
+    // settle (fonts, the first paint) before deciding whether to scroll.
+    let frame = 0;
+    const id = setTimeout(() => {
       frame = requestAnimationFrame(() => {
-        const grid = gridRef.current;
-        const r = grid?.getBoundingClientRect();
-        if (grid && r && (r.top < 0 || r.bottom > window.innerHeight)) {
-          grid.scrollIntoView({ block: "end", behavior: reduced ? "auto" : "smooth" });
-        }
+        frame = requestAnimationFrame(() => {
+          const grid = gridRef.current;
+          const r = grid?.getBoundingClientRect();
+          if (grid && r && (r.top < 0 || r.bottom > window.innerHeight)) {
+            grid.scrollIntoView({ block: "end", behavior: reduced ? "auto" : "smooth" });
+          }
+        });
       });
-    });
-    return () => cancelAnimationFrame(frame);
+    }, settled(timing.current));
+    return () => {
+      clearTimeout(id);
+      cancelAnimationFrame(frame);
+    };
   }, [myTurn, reduced]);
 
   // Your own clock: a bar for the whole turn, then the seconds, a warning and a nudge.
@@ -161,15 +182,20 @@ export function Table(props: TableProps) {
     onExit();
   };
 
-  // Keep whoever is playing in view in the opponent strip, so their move is visible.
+  // Keep whoever is playing in view in the opponent strip, so their move is visible: once the last
+  // move's cards have landed, as stand-ins in the strip don't scroll with it (UX-8).
   const oppRefs = useRef(new Map<number, HTMLElement>());
+  // biome-ignore lint/correctness/useExhaustiveDependencies: timing is read when the turn passes
   useEffect(() => {
     if (!playing || view.current === seat) return;
-    oppRefs.current.get(view.current)?.scrollIntoView({
-      inline: "center",
-      block: "nearest",
-      behavior: reduced ? "auto" : "smooth",
-    });
+    const id = setTimeout(() => {
+      oppRefs.current.get(view.current)?.scrollIntoView({
+        inline: "center",
+        block: "nearest",
+        behavior: reduced ? "auto" : "smooth",
+      });
+    }, settled(timing.current));
+    return () => clearTimeout(id);
   }, [view.current, playing, seat, reduced]);
 
   /**

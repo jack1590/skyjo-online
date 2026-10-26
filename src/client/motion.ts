@@ -2,7 +2,8 @@
 // and animates those elements from their old position (FLIP) with the Web Animations API.
 // Works for every player's moves (and for spectators), because it only needs views.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { GameView } from "../engine/view";
+import type { GameView, ViewSlot } from "../engine/view";
+import { art, formatCard } from "./Card";
 
 export const slotKey = (seat: number, pos: number) => `slot-${seat}-${pos}`;
 
@@ -19,12 +20,28 @@ export function useReducedMotion(): boolean {
   return reduced;
 }
 
+/** One card's way, from the element it was in to the one it is in now (keys: see flightsBetween). */
+export interface Move {
+  to: string;
+  from: string;
+  /** It left face down, so it turns face up on the way. */
+  turn: boolean;
+  /**
+   * The card a stand-in shows on its way (UX-26), when no element will: a completed column's card,
+   * and what goes onto the pile under it ("down": nobody saw it).
+   */
+  card?: ViewSlot;
+  /** A card of a completed column (R9): it leaves for the pile once the rest has landed (UX-26). */
+  column?: true;
+}
+
 interface Flights {
-  /** target element key → key of the element it came from */
-  moves: Map<string, string>;
-  /** targets of moves whose card was face down where it left from, so it turns face up on the way */
-  turns: Set<string>;
-  /** element keys whose card turned face up in place, in seat order from the ender's left */
+  /** Every card that travelled, in the order they land: the discard pile's are stacked so. */
+  moves: Move[];
+  /**
+   * Element keys whose card turned face up in place, in seat order from the ender's left; a
+   * completed column's card too, before it leaves.
+   */
   flips: string[];
   /** The round just ended: the final reveal's flips are staggered (UX-27). */
   reveal: boolean;
@@ -32,23 +49,37 @@ interface Flights {
 
 /** What moved between two views, as element keys ("deck", "drawn", "discard", slotKey). */
 export function flightsBetween(prev: GameView, cur: GameView): Flights {
-  const moves = new Map<string, string>();
-  const turns = new Set<string>();
+  const moves: Move[] = [];
   const flips: string[] = [];
   const n = cur.players.length;
   const reveal =
     cur.phase !== prev.phase && (cur.phase === "roundOver" || cur.phase === "gameOver");
   if (prev.round !== cur.round || prev.players.length !== n) {
-    return { moves, turns, flips, reveal: false }; // a fresh deal: nothing travels
+    return { moves, flips, reveal: false }; // a fresh deal: nothing travels
   }
+  // Completed columns (R9), the mover's first, as the engine stacks them on the pile. A column's
+  // card is the one its face-up cards share (the view never shows a card that left face down).
+  const removed: { seat: number; pos: number; card: ViewSlot }[] = [];
+  for (const seat of new Set([prev.current, ...cur.players.keys()])) {
+    const [was, now] = [prev.players[seat].grid, cur.players[seat].grid];
+    for (let col = 0; col < 4; col++) {
+      const column = [col, col + 4, col + 8];
+      if (!column.every((i) => was[i] !== null && now[i] === null)) continue;
+      const up = column.flatMap((i) => (typeof was[i] === "number" ? [was[i]] : []));
+      const card = up.find((c) => up.indexOf(c) !== up.lastIndexOf(c)) ?? up[0] ?? cur.discardTop;
+      for (const pos of column) removed.push({ seat, pos, card });
+    }
+  }
+  // When a column leaves, the pile will show it, not what went there before: those fly as copies.
+  const copied = removed.length > 0;
   // A card thrown away on this phone (`thrown`, the only place phase with no card in hand) is
   // still held until the server answers, but it lies on the discard pile.
   const away = prev.phase === "place" && prev.drawn === null;
   const held = away ? prev.discardTop : prev.drawn;
   if (prev.drawn === null && cur.drawn !== null) {
     // From a pile, or back from the discard pile (Undo), face up.
-    moves.set("drawn", cur.drawnFrom === "discard" || away ? "discard" : "deck");
-    if (cur.drawnFrom !== "discard" && !away) turns.add("drawn");
+    const from = cur.drawnFrom === "discard" || away ? "discard" : "deck";
+    moves.push({ to: "drawn", from, turn: from === "deck" });
   }
   if (held !== null && cur.drawn === null) {
     // The turn ended: the held card went into the grid (swap) or onto the discard pile. At round
@@ -57,34 +88,50 @@ export function flightsBetween(prev: GameView, cur: GameView): Flights {
     const before = prev.players[seat].grid;
     const after = cur.players[seat].grid;
     const changed = after.flatMap((slot, i) => (slot !== null && slot !== before[i] ? [i] : []));
-    const pos = changed.find((i) => after[i] === held) ?? changed[0] ?? -1;
+    // A swap that completed a column went into the one slot of it that didn't show the card
+    // (UX-26). Not a face-down one when the card was thrown here: that's the card you turned over.
+    const into = removed.find(
+      (r) =>
+        r.seat === seat &&
+        r.card === held &&
+        before[r.pos] !== held &&
+        !(away && before[r.pos] === "down"),
+    )?.pos;
+    const pos = changed.find((i) => after[i] === held) ?? into ?? changed[0] ?? -1;
     const revealedOnly = before[pos] === "down" && cur.discardTop === held;
     const swapped =
-      pos !== -1 && (prev.drawnFrom === "discard" || (after[pos] === held && !revealedOnly));
+      pos === into ||
+      (pos !== -1 && (prev.drawnFrom === "discard" || (after[pos] === held && !revealedOnly)));
     if (swapped) {
       // A thrown card the server swapped in (your clock ran out) leaves from the pile.
-      moves.set(slotKey(seat, pos), away ? "discard" : "drawn");
-      moves.set("discard", slotKey(seat, pos));
-      if (before[pos] === "down") turns.add("discard");
+      const from = away ? "discard" : "drawn";
+      moves.push({
+        to: slotKey(seat, pos),
+        from,
+        turn: false,
+        ...(pos === into && { card: held }),
+      });
+      const out = slotKey(seat, pos);
+      const turn = !copied && before[pos] === "down";
+      moves.push({ to: "discard", from: out, turn, ...(copied && { card: before[pos] }) });
     } else if (!away) {
-      moves.set("discard", "drawn"); // a thrown card is already there
+      // A thrown card is already there.
+      moves.push({ to: "discard", from: "drawn", turn: false, ...(copied && { card: held }) });
     }
+  }
+  for (const { seat, pos, card } of removed) {
+    moves.push({ to: "discard", from: slotKey(seat, pos), turn: false, card, column: true });
   }
   // Seat order from the ender's left, then row by row: the final reveal's order (UX-27).
   for (let i = 1; i <= n; i++) {
     const seat = ((cur.ender ?? 0) + i) % n;
     cur.players[seat].grid.forEach((slot, pos) => {
-      const was = prev.players[seat].grid[pos];
       const key = slotKey(seat, pos);
-      // A completed column leaves for the discard pile.
-      if (slot === null && was !== null) {
-        moves.set("discard", key);
-        if (was === "down") turns.add("discard");
-        else turns.delete("discard");
-      } else if (was === "down" && typeof slot === "number" && !moves.has(key)) flips.push(key);
+      const turned = prev.players[seat].grid[pos] === "down" && slot !== "down";
+      if (turned && !moves.some((m) => m.to === key)) flips.push(key);
     });
   }
-  return { moves, turns, flips, reveal };
+  return { moves, flips, reveal };
 }
 
 /**
@@ -136,6 +183,11 @@ export const flightMs = (d: number) => Math.min(460, Math.max(260, 180 + 0.55 * 
 /** UX-23: a card leaving a grid is picked up for 80 ms first; the one coming in starts at 90 ms. */
 export const LIFT_MS = 80;
 export const IN_MS = 90;
+/**
+ * UX-26: once the rest of a change has landed, a beat; then a completed column's cards pulse, and
+ * leave for the pile one `gap` after another, each flying `fly` ms.
+ */
+export const COLUMN = { beat: 120, pulse: 220, gap: 70, fly: 380 } as const;
 
 /** How far along its way a flight is (UX-22): it starts gently instead of snapping, then slows. */
 const travel = bezier(0.3, 0, 0.2, 1);
@@ -150,6 +202,8 @@ const bump = (t: number) =>
 const TIMES = [0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.88, 0.94, 1];
 
 type Rect = Pick<DOMRect, "x" | "y" | "width" | "height">;
+/** Rounded, so a CSS value is never written as 1e-7 (nor -0). */
+const round = (v: number) => Math.round(v * 1e4) / 1e4 || 0;
 /**
  * One frame of a flight, at `offset` of its time: the card's centre in px from where it lands,
  * its lean (deg), its scale, and how far it is turned away (deg: 180 shows its back).
@@ -170,13 +224,14 @@ interface Frame {
  * the way (UX-23). A card that left face down (`turn`) turns face up on the way: within that first
  * half after a lift, else edge-on halfway, taking at least a medium card's flip (UX-25, UX-24).
  * A card that lay tilted (`tilt`, deg: one thrown on the pile, UX-19) straightens on its way.
+ * `ms` sets how long it flies (a column's cards, UX-26).
  */
-export function path(from: Rect, to: Rect, { lift = 0, turn = false, tilt = 0 } = {}) {
+export function path(from: Rect, to: Rect, { lift = 0, turn = false, tilt = 0, ms = 0 } = {}) {
   const dx = from.x + from.width / 2 - (to.x + to.width / 2);
   const dy = from.y + from.height / 2 - (to.y + to.height / 2);
   const s = from.width / to.width;
   const d = Math.hypot(dx, dy);
-  const fly = Math.max(flightMs(d), turn && !lift ? FLIP_MS.md : 0);
+  const fly = ms || Math.max(flightMs(d), turn && !lift ? FLIP_MS.md : 0);
   const duration = lift + fly;
   const arc = Math.abs(dy) > 80 ? Math.min(24, 0.12 * d) : 0;
   const lean = Math.abs(dx) < 1 ? 0 : -3 * Math.sign(dx);
@@ -196,8 +251,6 @@ export function path(from: Rect, to: Rect, { lift = 0, turn = false, tilt = 0 } 
       turn: back * (1 - turned(Math.min(1, lift ? 2 * t : t))),
     });
   }
-  // Rounded, so a CSS value is never written as 1e-7 (nor -0).
-  const r = (v: number) => Math.round(v * 1e4) / 1e4 || 0;
   return {
     /** When a card that turns is edge-on: a quarter into its flight after a lift, else halfway. */
     edge: (lift + (lift ? 0.25 : 0.5) * fly) / duration,
@@ -205,11 +258,11 @@ export function path(from: Rect, to: Rect, { lift = 0, turn = false, tilt = 0 } 
     hit: lift + 0.94 * fly,
     frames: frames.map((f) => ({
       offset: f.offset,
-      x: r(f.x),
-      y: r(f.y),
-      rotate: r(f.rotate),
-      scale: r(f.scale),
-      turn: r(f.turn),
+      x: round(f.x),
+      y: round(f.y),
+      rotate: round(f.rotate),
+      scale: round(f.scale),
+      turn: round(f.turn),
     })),
     duration,
   };
@@ -233,7 +286,9 @@ export function flipFrames(size: keyof typeof FLIP_MS, w: number): Keyframe[] {
 const FLIGHT = "flight";
 const FLIP = "flip";
 const BACK = "back";
-const ours = (a: Animation) => a.id === FLIGHT || a.id === FLIP || a.id === BACK;
+/** A completed column's card on its way to the pile (UX-26). */
+const LEAVE = "column";
+const ours = (a: Animation) => [FLIGHT, FLIP, BACK, LEAVE].includes(a.id);
 
 /** One animation to start: its element, keyframes and timing, and its role (`data-motion`). */
 interface Job {
@@ -243,6 +298,8 @@ interface Job {
   role?: string;
   /** For a card that turns over: the offset at which it is edge-on, when its back hides (UX-24). */
   edge?: number;
+  /** Called once it has ended (or was cancelled). */
+  done?: () => void;
 }
 
 /**
@@ -253,11 +310,12 @@ interface Job {
  */
 function start(jobs: Job[]) {
   for (const { el, role = "" } of jobs) el.dataset.motion = role;
-  for (const { el, keyframes, options, edge } of jobs) {
+  for (const { el, keyframes, options, edge, done: then } of jobs) {
     const done = () => {
       if (!el.getAnimations().some(ours)) delete el.dataset.motion;
+      then?.();
     };
-    const timing = { ...options, fill: "backwards" as const };
+    const timing = { fill: "backwards" as const, ...options };
     el.animate(keyframes, timing).finished.then(done, done);
     if (edge === undefined) continue;
     const shown = [
@@ -268,6 +326,51 @@ function start(jobs: Job[]) {
     ];
     el.animate(shown, { ...timing, id: BACK, pseudoElement: "::before" });
   }
+}
+
+/** A frame (`turn`: with its turn, about a perspective of 6 card widths) as a `transform`. */
+const transform = (f: Omit<Frame, "offset">, w: number, turn: boolean, k = 1) =>
+  `translate(${round(f.x / k)}px, ${round(f.y / k)}px) rotate(${f.rotate}deg) scale(${round(f.scale)})` +
+  (turn ? ` perspective(${round((6 * w) / k)}px) rotateY(${f.turn}deg)` : "");
+
+/** Hidden for `ms` while a stand-in shows its card (UX-8, UX-26). */
+const hide = (el: HTMLElement, ms: number, done?: () => void): Job => ({
+  el,
+  keyframes: [{ opacity: 0 }, { opacity: 0 }],
+  options: { duration: ms, id: FLIGHT },
+  role: "hide",
+  done,
+});
+
+/**
+ * A stand-in for a card on its way (UX-8, UX-26, UX-30): fixed over the page where `box` is, so no
+ * scrolling strip clips it, and never tapped (styles.css). It looks like `look`: a card element, or
+ * a medium card like the pile's showing that card.
+ */
+function standIn(look: HTMLElement | ViewSlot, box: Rect, under = false) {
+  const el = document.createElement("span");
+  if (look instanceof HTMLElement) {
+    el.className = look.className;
+    el.style.backgroundImage = look.style.backgroundImage;
+    el.innerHTML = look.innerHTML;
+    // Its number is sized by the grid it's in (container units), which the stand-in isn't.
+    const [num, copy] = [look, el].map((e) => e.querySelector<HTMLElement>(".num"));
+    if (num && copy) copy.style.fontSize = getComputedStyle(num).fontSize;
+  } else if (look !== null) {
+    el.className = `card md ${look === "down" ? "down" : "up"}`;
+    el.style.backgroundImage = `url(${art(look)})`;
+    if (typeof look === "number") el.innerHTML = `<span class="num">${formatCard(look)}</span>`;
+  }
+  el.dataset.copy = under ? "under" : "";
+  el.setAttribute("aria-hidden", "true");
+  Object.assign(el.style, {
+    left: `${box.x}px`,
+    top: `${box.y}px`,
+    width: `${box.width}px`,
+    height: `${box.height}px`,
+  });
+  document.body.append(el);
+  return el;
 }
 
 /**
@@ -318,6 +421,8 @@ export function useFlights(
   const rects = useRef(new Map<string, Place>());
   const timing = useRef<Timing>(new Map());
   const measureAgain = useRef(() => {});
+  /** Stand-ins on the page (`standIn`), gone with the table. */
+  const copies = useRef(new Set<HTMLElement>());
   const reduced = useReducedMotion();
 
   useLayoutEffect(() => {
@@ -328,7 +433,7 @@ export function useFlights(
     if (reduced) return;
     if (before && before.round !== view.round) {
       // A fresh deal: the last round's reveal must not turn the new cards over.
-      for (const el of els.current.values()) {
+      for (const el of [...els.current.values(), ...copies.current]) {
         for (const a of el.getAnimations({ subtree: true })) if (ours(a)) a.cancel();
       }
     }
@@ -337,30 +442,75 @@ export function useFlights(
     const now = measure(els.current, was);
     rects.current = now;
     if (!before) return;
-    const { moves, turns, flips, reveal } = flightsBetween(before, view);
+    const { moves, flips, reveal } = flightsBetween(before, view);
     const jobs: Job[] = [];
-    for (const [to, from] of moves) {
-      const el = els.current.get(to);
-      const a = was.get(from);
-      const b = now.get(to);
+    const pile = now.get("discard");
+    const column = moves.filter((m) => m.column);
+    const leaves = (key: string) => column.some((m) => m.from === key);
+    // This change's stand-ins that stay until its column is on the pile (UX-26).
+    const made: HTMLElement[] = [];
+    const keep = (el: HTMLElement) => {
+      copies.current.add(el);
+      return el;
+    };
+    const drop = (el: HTMLElement) => () => {
+      el.remove();
+      copies.current.delete(el);
+    };
+    /** How a column's card got to its slot in this change: flown in, or turned over there. */
+    const arrived = new Map<string, { at: Rect; flight: ReturnType<typeof path>; delay: number }>();
+    const turned = new Map<string, { delay: number; size: keyof typeof FLIP_MS }>();
+
+    for (const m of moves) {
+      if (m.column) continue;
+      const el = els.current.get(m.to);
+      const a = was.get(m.from);
+      const b = now.get(m.to);
       if (!el || !a || !b?.width) continue;
       // A swap (UX-23): the card leaving a grid is picked up first, and the one going in waits.
-      const lift = from.startsWith("slot-") ? LIFT_MS : 0;
-      const delay = from === "drawn" && to !== "discard" ? IN_MS : 0;
-      const turn = turns.has(to);
-      const { frames, duration, edge, hit } = path(a, b, { lift, turn, tilt: a.tilt });
+      const lift = m.from.startsWith("slot-") ? LIFT_MS : 0;
+      const delay = m.from === "drawn" && m.to !== "discard" ? IN_MS : 0;
+      const flight = path(a, b, { lift, turn: m.turn, tilt: a.tilt });
+      const { frames, duration, edge, hit } = flight;
+      times.set(m.to, { start: delay, hit: delay + hit, end: delay + duration });
+      if (leaves(m.to)) {
+        arrived.set(m.to, { at: b, flight, delay }); // its column's stand-in flies it in
+        continue;
+      }
+      const options = { duration, delay, id: FLIGHT };
+      const role = delay ? "in" : "";
+      const back = m.turn ? edge : undefined;
+      if (m.card !== undefined || el.closest(".opponents")) {
+        // A stand-in, where no element will show this card (it's under a column, UX-26), or where
+        // the scrolling strip would clip it (UX-8).
+        const copy = keep(standIn(m.card === undefined ? el : m.card, b));
+        const keyframes = frames.map((f) => ({
+          offset: f.offset,
+          transform: transform(f, b.width, m.turn),
+        }));
+        if (m.card === undefined) {
+          jobs.push({ el: copy, keyframes, options, role, edge: back, done: drop(copy) });
+          jobs.push(hide(el, delay + duration));
+        } else {
+          made.push(copy);
+          jobs.push({
+            el: copy,
+            keyframes,
+            options: { ...options, fill: "forwards" },
+            role,
+            edge: back,
+          });
+        }
+        continue;
+      }
       // Around the card's centre, like its own `scale` (the lifted discard, UX-21), so the two
       // compose; that scale also scales the offset.
       const k = Number.parseFloat(getComputedStyle(el).scale) || 1;
       const keyframes = frames.map((f) => ({
         offset: f.offset,
-        transform:
-          `translate(${f.x / k}px, ${f.y / k}px) rotate(${f.rotate}deg) scale(${f.scale})` +
-          (turn ? ` perspective(${(6 * b.width) / k}px) rotateY(${f.turn}deg)` : ""),
+        transform: transform(f, b.width, m.turn, k),
       }));
-      const options = { duration, delay, id: FLIGHT };
-      jobs.push({ el, keyframes, options, role: delay ? "in" : "", edge: turn ? edge : undefined });
-      times.set(to, { start: delay, hit: delay + hit, end: delay + duration });
+      jobs.push({ el, keyframes, options, role, edge: back });
     }
     for (const [key, delay] of flipDelays(
       flips,
@@ -371,9 +521,102 @@ export function useFlights(
       const w = now.get(key)?.width;
       if (!el || !w) continue;
       const size = el.classList.contains("sm") ? "sm" : el.classList.contains("md") ? "md" : "lg";
-      const options = { duration: FLIP_MS[size], delay, id: FLIP };
-      jobs.push({ el, keyframes: flipFrames(size, w), options, edge: 0.5 });
       times.set(key, { start: delay, hit: delay + FLIP_MS[size], end: delay + FLIP_MS[size] });
+      if (leaves(key)) {
+        turned.set(key, { delay, size }); // its column's stand-in turns over first
+        continue;
+      }
+      // A turn in place stays among the cards around it ("flip": no z-index). Raising every card
+      // of an 8-seat reveal cost WebKit a 75–90 ms frame as it started (M11 PO).
+      const options = { duration: FLIP_MS[size], delay, id: FLIP };
+      jobs.push({ el, keyframes: flipFrames(size, w), options, edge: 0.5, role: "flip" });
+    }
+
+    // A completed column (UX-26): a beat once the rest has landed, then its cards pulse, and leave
+    // as stand-ins one after another; the pile shows its own card again once they're all on it.
+    const discard = els.current.get("discard");
+    const pulse = settled(times) + COLUMN.beat;
+    const leave = pulse + COLUMN.pulse;
+    const end = leave + (column.length - 1) * COLUMN.gap + COLUMN.fly;
+    if (column.length && pile && discard) {
+      times.set("column", { start: pulse, hit: pulse, end });
+      column.forEach((m, i) => {
+        const el = els.current.get(m.from);
+        const at = now.get(m.from);
+        if (!el || !at) return;
+        const go = leave + i * COLUMN.gap;
+        // Where it rests, from the pile it is laid out over (`scale` its own size there).
+        const [cx, cy] = [at.x + at.width / 2, at.y + at.height / 2];
+        const [px, py] = [pile.x + pile.width / 2, pile.y + pile.height / 2];
+        const onto = (f: Omit<Frame, "offset">, scale = f.scale) => ({
+          ...f,
+          x: f.x + cx - px,
+          y: f.y + cy - py,
+          scale: (scale * at.width) / pile.width,
+        });
+        const rest = (t: number, scale = 1) => ({
+          t,
+          ...onto({ x: 0, y: 0, rotate: 0, scale, turn: 0 }),
+        });
+        type Pose = ReturnType<typeof rest> & { easing?: string };
+        let poses: Pose[] = [rest(0)];
+        let edge: number | undefined;
+        const into = arrived.get(m.from);
+        const flip = turned.get(m.from);
+        if (into) {
+          const { flight, delay } = into;
+          poses = [
+            { t: 0, ...onto(flight.frames[0]) },
+            ...flight.frames.map((f) => ({ t: delay + f.offset * flight.duration, ...onto(f) })),
+          ];
+        } else if (flip) {
+          const ms = FLIP_MS[flip.size];
+          const up = flip.size !== "sm";
+          const mid = rest(flip.delay + ms / 2, up ? 1.08 : 1);
+          poses = [
+            { ...rest(0), turn: 180 },
+            { ...rest(flip.delay), turn: 180, easing: FLIP_EASE },
+            { ...mid, y: mid.y - (up ? 4 : 0), turn: 90, easing: FLIP_EASE },
+            rest(flip.delay + ms),
+          ];
+          edge = (flip.delay + ms / 2) / go;
+        }
+        poses.push(rest(pulse), rest(pulse + COLUMN.pulse / 2, 1.1), rest(leave), rest(go));
+        const copy = keep(standIn(m.card ?? null, pile));
+        made.push(copy);
+        const lead = poses.map(({ t, easing, ...f }) => ({
+          offset: t / go,
+          transform: transform(f, pile.width, true),
+          ...(easing && { easing }),
+        }));
+        // The card flown in passes over the column's others (UX-23), then stacks in turn.
+        if (into) copy.style.zIndex = "4";
+        const done = () => copy.style.removeProperty("z-index");
+        jobs.push({ el: copy, keyframes: lead, options: { duration: go, id: FLIGHT }, edge, done });
+        const { frames } = path(at, pile, { ms: COLUMN.fly });
+        const keyframes = frames.map((f) => ({
+          offset: f.offset,
+          transform: transform(f, pile.width, false),
+        }));
+        const options = { delay: go, duration: COLUMN.fly, id: LEAVE, fill: "forwards" as const };
+        jobs.push({ el: copy, keyframes, options });
+        jobs.push(hide(el, go));
+      });
+      jobs.push(
+        hide(discard, end, () => {
+          for (const el of made) drop(el)();
+        }),
+      );
+    }
+
+    // The pile shows the card a flight will cover until it lands (UX-30), or the column does.
+    const lands = column.length ? end : times.get("discard")?.end;
+    if (pile && lands && before.discardTop !== null && !moves.some((m) => m.from === "discard")) {
+      const under = keep(standIn(before.discardTop, pile, true));
+      if (column.length) made.push(under);
+      const options = { duration: lands, id: FLIGHT };
+      const done = column.length ? undefined : drop(under);
+      jobs.push({ el: under, keyframes: [{ opacity: 1 }, { opacity: 1 }], options, done });
     }
     start(jobs);
     measureAgain.current(); // and again once they land
@@ -409,7 +652,9 @@ export function useFlights(
     window.addEventListener("scroll", remeasure, true); // capture: .table scrolls, not the window
     window.addEventListener("resize", remeasure);
     measureAgain.current = remeasure;
+    const left = copies.current;
     return () => {
+      for (const el of left) el.remove();
       on = false;
       measureAgain.current = () => {};
       cancelAnimationFrame(frame);

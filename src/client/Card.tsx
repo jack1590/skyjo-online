@@ -7,7 +7,9 @@ import neg from "./art/band-neg.webp";
 import zero from "./art/band-zero.webp";
 import { useI18n } from "./i18n";
 
-function art(card: number): string {
+/** A card's picture: its back, or its face's colour band. */
+export function art(card: number | "down"): string {
+  if (card === "down") return back;
   if (card < 0) return neg;
   if (card === 0) return zero;
   if (card <= 4) return low;
@@ -55,7 +57,7 @@ export function Card({
   const attrs = {
     className: `card ${size} ${face}${highlight ? " hl" : ""}`,
     style: {
-      backgroundImage: slot === null ? undefined : `url(${slot === "down" ? back : art(slot)})`,
+      backgroundImage: slot === null ? undefined : `url(${art(slot)})`,
       rotate: tilt ? `${tilt}deg` : undefined,
     },
     "data-face": face,
