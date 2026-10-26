@@ -77,7 +77,8 @@ test("README card-flight GIF", async ({ browser }, info) => {
     recordVideo: { dir: "test-results/readme-video", size: { width: 390, height: 664 } },
   });
   const [ana, ben] = pages;
-  // The video starts with the page: skip the lobby, up to the tap on Start, then the deal (UX-28).
+  // The video starts with the page: skip the lobby (its link shows the test server), up to the tap
+  // on Start; the GIF opens on the deal (UX-28).
   const dealt = (Date.now() - t0) / 1000;
   await startGame(ana);
   const grid = ana.getByTestId("my-grid");

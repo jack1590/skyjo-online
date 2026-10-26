@@ -1101,6 +1101,15 @@ test.describe("with motion allowed", () => {
     expectOnlyTransforms(seen.props);
     await expect(page.getByTestId("clock")).toBeVisible();
 
+    // Ben's flip, mid-deal, leaves yours on their way: only your cards hide under them.
+    const left = await page.evaluate(
+      (view) => {
+        dispatchEvent(new CustomEvent("skyjo:table", { detail: { view } }));
+        return document.querySelectorAll('.card[data-copy=""]').length;
+      },
+      toView(apply(game[end + 1], { type: "flip", seat: 1, pos: 0 })),
+    );
+    expect(left).toBe(12);
     // At 100 ms (paused there), a tap on a card of yours not yet landed turns it over: it shows,
     // lifted, while the rest of the deal goes on.
     const card = page.getByTestId("my-grid").locator("button").nth(2);

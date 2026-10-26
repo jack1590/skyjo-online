@@ -489,6 +489,13 @@ export function useFlights(
   });
   const reduced = useReducedMotion();
 
+  // Mounted again (React's StrictMode does it in dev), the table starts over: a new game deals.
+  useLayoutEffect(
+    () => () => {
+      prev.current = null;
+    },
+    [],
+  );
   useLayoutEffect(() => {
     const before = prev.current;
     prev.current = view;
@@ -513,7 +520,7 @@ export function useFlights(
     const now = measure(els.current, was);
     rects.current = now;
     // A new game's deal (UX-28), once the page has loaded: earlier, positions may be an unstyled
-    // page's (`settle`, below), and a page still loading is a reload, not a game starting.
+    // page's (`settle`, below).
     const deal = isDeal(before, view) && (before !== null || document.readyState === "complete");
     if (!before && !deal) return;
     const jobs: Job[] = [];
