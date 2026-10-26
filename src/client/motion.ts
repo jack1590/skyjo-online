@@ -229,6 +229,13 @@ export function useFlights(view: GameView, tapped?: { current: string | null }) 
         }
       });
     };
+    // WebKit can run the app before the stylesheet has loaded, so the first positions may be an
+    // unstyled page's: read them again now, and at once when the page has loaded.
+    const settle = () => {
+      rects.current = measure(els.current, rects.current);
+    };
+    settle();
+    window.addEventListener("load", settle);
     window.addEventListener("scroll", remeasure, true); // capture: .table scrolls, not the window
     window.addEventListener("resize", remeasure);
     measureAgain.current = remeasure;
@@ -236,6 +243,7 @@ export function useFlights(view: GameView, tapped?: { current: string | null }) 
       on = false;
       measureAgain.current = () => {};
       cancelAnimationFrame(frame);
+      window.removeEventListener("load", settle);
       window.removeEventListener("scroll", remeasure, true);
       window.removeEventListener("resize", remeasure);
     };
