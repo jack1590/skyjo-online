@@ -202,6 +202,27 @@ test.describe("M18: discard mode shows where to tap", () => {
   });
 });
 
+test("UX-29: in discard mode, your top row's outlines stay clear of your clock's bar", async ({
+  page,
+}) => {
+  const table = placing();
+  await show(page, { ...table, wait: [{ seat: table.seat ?? 0, inMs: 25_000, reason: "timer" }] });
+  await page.getByTestId("discard").click();
+  const gap = await page.evaluate(() => {
+    const bar = document.querySelector('[data-testid="clock"]')?.getBoundingClientRect();
+    const outlines = [...document.querySelectorAll('[data-testid="my-grid"] .card.hl')].map(
+      (el) => {
+        const style = getComputedStyle(el);
+        const out = Number.parseFloat(style.outlineOffset) + Number.parseFloat(style.outlineWidth);
+        return el.getBoundingClientRect().top - out;
+      },
+    );
+    return bar && outlines.length ? Math.min(...outlines) - bar.bottom : null;
+  });
+  expect(gap).not.toBeNull();
+  expect(gap ?? -1).toBeGreaterThanOrEqual(0);
+});
+
 test("screenshots: M18 place and discard mode", async ({ page }, info) => {
   test.skip(!process.env.SHOTS || info.project.name !== "iphone", "run with SHOTS=1");
   const shot = (name: string) =>

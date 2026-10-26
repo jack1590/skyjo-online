@@ -404,7 +404,6 @@ dialog.zoom::backdrop {
   grid-template-columns: repeat(4, auto);
   justify-content: center;
   gap: 8px;
-  perspective: 700px;
 }
 
 .opp.active {
@@ -703,14 +702,12 @@ dialog.zoom::backdrop {
 
 .grid-wrap {
   flex: 1;
+  /* Room above the top row for discard mode's outlines, which reach 5px out: they stay clear of
+     your clock's bar (UX-29). */
+  padding-top: 6px;
   /* Three rows of 44px-wide cards plus gaps. */
-  min-height: calc(3 * 44px * 7 / 5 + 16px);
+  min-height: calc(3 * 44px * 7 / 5 + 16px + 6px);
   container-type: size;
-}
-
-.grid,
-.mini {
-  perspective: 700px;
 }
 
 .grid {
@@ -836,8 +833,36 @@ dialog.zoom::backdrop {
     0 14px 24px rgb(0 0 0 / 0.6);
 }
 
+/* A card in motion (motion.ts) passes over the table, and one going into a grid over the one
+   leaving it, so no card slides under another (UX-7, UX-23). The grid is no stacking context, or
+   its cards couldn't rise above the piles. */
+.card[data-motion] {
+  z-index: 2;
+}
+
+.card[data-motion="in"] {
+  z-index: 3;
+}
+
+/* Its back (UX-24): a face of its own, mirrored as the far side of the card is, that motion.ts
+   shows while the card is turned away and hides once it is edge-on. An opacity, not
+   backface-visibility, which WebKit ignored here (Playwright's iPhone project). */
+.card[data-motion]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: #23384f url("./art/back.webp") center / 112%;
+  transform: scaleX(-1);
+  opacity: 0;
+}
+
 /* Discard mode (UX-18): your face-down cards glow past the gold rim of the card back; the others
    step back. */
+.grid.discarding {
+  isolation: isolate;
+}
+
 .grid.discarding .card.up {
   opacity: 0.45;
 }
@@ -849,8 +874,8 @@ dialog.zoom::backdrop {
   border-radius: inherit;
   box-shadow: 0 0 12px 2px var(--accent);
   pointer-events: none;
-  /* Under every card (the grid's perspective makes it the stacking context), so neighbouring
-     glows never paint over a card. */
+  /* Under every card (the grid isolates itself as the stacking context), so neighbouring glows
+     never paint over a card. */
   z-index: -1;
   animation: pulse 1.2s ease-in-out infinite;
 }

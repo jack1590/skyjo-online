@@ -3,7 +3,6 @@
 // Works for every player's moves (and for spectators), because it only needs views.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { GameView } from "../engine/view";
-import back from "./art/back.webp";
 
 export const slotKey = (seat: number, pos: number) => `slot-${seat}-${pos}`;
 
@@ -23,6 +22,8 @@ export function useReducedMotion(): boolean {
 interface Flights {
   /** target element key → key of the element it came from */
   moves: Map<string, string>;
+  /** targets of moves whose card was face down where it left from, so it turns face up on the way */
+  turns: Set<string>;
   /** element keys whose card turned face up in place, in seat order from the ender's left */
   flips: string[];
   /** The round just ended: the final reveal's flips are staggered (UX-27). */
@@ -32,15 +33,17 @@ interface Flights {
 /** What moved between two views, as element keys ("deck", "drawn", "discard", slotKey). */
 export function flightsBetween(prev: GameView, cur: GameView): Flights {
   const moves = new Map<string, string>();
+  const turns = new Set<string>();
   const flips: string[] = [];
   const n = cur.players.length;
   const reveal =
     cur.phase !== prev.phase && (cur.phase === "roundOver" || cur.phase === "gameOver");
   if (prev.round !== cur.round || prev.players.length !== n) {
-    return { moves, flips, reveal: false }; // a fresh deal: nothing travels
+    return { moves, turns, flips, reveal: false }; // a fresh deal: nothing travels
   }
   if (prev.drawn === null && cur.drawn !== null) {
     moves.set("drawn", cur.drawnFrom === "discard" ? "discard" : "deck");
+    if (cur.drawnFrom !== "discard") turns.add("drawn");
   }
   if (prev.drawn !== null && cur.drawn === null) {
     // The turn ended: the held card went into the grid (swap) or onto the discard pile. At round
@@ -56,6 +59,7 @@ export function flightsBetween(prev: GameView, cur: GameView): Flights {
     if (swapped) {
       moves.set(slotKey(seat, pos), "drawn");
       moves.set("discard", slotKey(seat, pos));
+      if (before[pos] === "down") turns.add("discard");
     } else {
       moves.set("discard", "drawn");
     }
@@ -67,91 +71,195 @@ export function flightsBetween(prev: GameView, cur: GameView): Flights {
       const was = prev.players[seat].grid[pos];
       const key = slotKey(seat, pos);
       // A completed column leaves for the discard pile.
-      if (slot === null && was !== null) moves.set("discard", key);
-      else if (was === "down" && typeof slot === "number" && !moves.has(key)) flips.push(key);
+      if (slot === null && was !== null) {
+        moves.set("discard", key);
+        if (was === "down") turns.add("discard");
+        else turns.delete("discard");
+      } else if (was === "down" && typeof slot === "number" && !moves.has(key)) flips.push(key);
     });
   }
-  return { moves, flips, reveal };
+  return { moves, turns, flips, reveal };
 }
+
+/** How long a card takes to turn over where it lies, by its size (UX-24). */
+export const FLIP_MS = { lg: 380, md: 340, sm: 260 } as const;
 
 /** The final reveal (UX-27): flip i of n starts at i·step, all within 2.5 s. */
 export const revealStep = (n: number) => Math.min(110, 2500 / n);
-const FLIP_MS = 300;
-/**
- * How long the round summary waits for a final reveal of n flips: 600 ms past the last one. With
- * nothing left to turn it still waits as long, for the last move's flights.
- */
-export const revealMs = (n: number) => Math.max(0, n - 1) * revealStep(n) + FLIP_MS + 600;
+/** The round summary shows this long after the final reveal's last card has turned (UX-27). */
+export const SUMMARY_MS = 600;
+/** When a change's last animation ends (ms), from its timing; 0 when nothing moved. */
+export const settled = (timing: Timing) => Math.max(0, ...[...timing.values()].map((t) => t.end));
 
-const EASE = "cubic-bezier(0.2, 0.8, 0.2, 1)";
-/** Marks this file's animations, so measuring can tell a card in flight from one at rest. */
+/** When each flip starts: the final reveal's `step` apart, after the card you tapped (UX-27). */
+export function flipDelays(flips: string[], step: number, tapped?: string | null) {
+  const order =
+    tapped && flips.includes(tapped) ? [tapped, ...flips.filter((k) => k !== tapped)] : flips;
+  return order.map((key, i) => [key, i * step] as const);
+}
+
+/** CSS's `cubic-bezier(x1, y1, x2, y2)`, as a function of the fraction of time gone. */
+export function bezier(x1: number, y1: number, x2: number, y2: number) {
+  const at = (a: number, b: number, u: number) =>
+    3 * a * u * (1 - u) ** 2 + 3 * b * u ** 2 * (1 - u) + u ** 3;
+  return (t: number) => {
+    if (t <= 0) return 0;
+    if (t >= 1) return 1;
+    let [lo, hi] = [0, 1];
+    for (let i = 0; i < 30; i++) {
+      const u = (lo + hi) / 2;
+      if (at(x1, x2, u) < t) lo = u;
+      else hi = u;
+    }
+    return at(y1, y2, (lo + hi) / 2);
+  };
+}
+
+/** UX-22: a flight of d px lasts 260–460 ms. */
+export const flightMs = (d: number) => Math.min(460, Math.max(260, 180 + 0.55 * d));
+/** UX-23: a card leaving a grid is picked up for 80 ms first; the one coming in starts at 90 ms. */
+export const LIFT_MS = 80;
+export const IN_MS = 90;
+
+/** How far along its way a flight is (UX-22): it starts gently instead of snapping, then slows. */
+const travel = bezier(0.3, 0, 0.2, 1);
+const FLIP_EASE = "cubic-bezier(0.45, 0, 0.25, 1)";
+/** How far a card has turned (0–1, edge-on at 0.5): each half eases like a flip (UX-24). */
+const half = bezier(0.45, 0, 0.25, 1);
+const turned = (u: number) => (u < 0.5 ? half(2 * u) / 2 : 0.5 + half(2 * u - 1) / 2);
+/** 0, up to 1 halfway, back to 0 as the card lands at 0.88: a flight's lift, lean and arc. */
+const bump = (t: number) =>
+  t < 0.5 ? Math.sin(Math.PI * t) : t < 0.88 ? Math.cos(((t - 0.5) / 0.38) * (Math.PI / 2)) : 0;
+/** The times of a flight's frames: its landing at 0.88, squashed at 0.94, at rest at 1. */
+const TIMES = [0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.88, 0.94, 1];
+
+type Rect = Pick<DOMRect, "x" | "y" | "width" | "height">;
+/**
+ * One frame of a flight, at `offset` of its time: the card's centre in px from where it lands,
+ * its lean (deg), its scale, and how far it is turned away (deg: 180 shows its back).
+ */
+interface Frame {
+  offset: number;
+  x: number;
+  y: number;
+  rotate: number;
+  scale: number;
+  turn: number;
+}
+
+/**
+ * A card's flight from `from` to `to` (UX-22): it lifts to 1.06, leans 3° the way it goes and, on
+ * a long trip up or down, arcs up, all at their most halfway; then it lands and settles. With
+ * `lift`, it is first picked up for that many ms where it is and stays up for the first half of
+ * the way (UX-23). A card that left face down (`turn`) turns face up on the way: within that first
+ * half after a lift, else edge-on halfway, taking at least a medium card's flip (UX-25, UX-24).
+ */
+export function path(from: Rect, to: Rect, { lift = 0, turn = false } = {}) {
+  const dx = from.x + from.width / 2 - (to.x + to.width / 2);
+  const dy = from.y + from.height / 2 - (to.y + to.height / 2);
+  const s = from.width / to.width;
+  const d = Math.hypot(dx, dy);
+  const fly = Math.max(flightMs(d), turn && !lift ? FLIP_MS.md : 0);
+  const duration = lift + fly;
+  const arc = Math.abs(dy) > 80 ? Math.min(24, 0.12 * d) : 0;
+  const lean = Math.abs(dx) < 1 ? 0 : -3 * Math.sign(dx);
+  const back = turn ? 180 : 0;
+  const frames: Frame[] = lift
+    ? [{ offset: 0, x: dx, y: dy, rotate: 0, scale: s, turn: back }]
+    : [];
+  for (const t of TIMES) {
+    const p = travel(t);
+    const up = lift && t < 0.5 ? 1 : bump(t);
+    frames.push({
+      offset: (lift + t * fly) / duration,
+      x: dx * (1 - p),
+      y: dy * (1 - p) - arc * bump(t),
+      rotate: lean * bump(t),
+      scale: (s + (1 - s) * p) * (1 + 0.06 * up) * (t === 0.94 ? 0.97 : 1),
+      turn: back * (1 - turned(Math.min(1, lift ? 2 * t : t))),
+    });
+  }
+  // Rounded, so a CSS value is never written as 1e-7 (nor -0).
+  const r = (v: number) => Math.round(v * 1e4) / 1e4 || 0;
+  return {
+    /** When a card that turns is edge-on: a quarter into its flight after a lift, else halfway. */
+    edge: (lift + (lift ? 0.25 : 0.5) * fly) / duration,
+    /** When it hits (ms): the bottom of its settle, 0.06 of its flight from touching down. */
+    hit: lift + 0.94 * fly,
+    frames: frames.map((f) => ({
+      offset: f.offset,
+      x: r(f.x),
+      y: r(f.y),
+      rotate: r(f.rotate),
+      scale: r(f.scale),
+      turn: r(f.turn),
+    })),
+    duration,
+  };
+}
+
+/**
+ * A card turning face up where it lies (UX-24): from its back, edge-on halfway, then its face. Large
+ * and medium cards rise 4 px and grow 8% on the way; small ones (opponents') only turn. The
+ * perspective is 6 card widths, so every size turns alike.
+ */
+export function flipFrames(size: keyof typeof FLIP_MS, w: number): Keyframe[] {
+  const at = (y: number, turn: number, scale: number) => ({
+    transform: `perspective(${6 * w}px) translateY(${y}px) rotateY(${turn}deg) scale(${scale})`,
+    easing: FLIP_EASE,
+  });
+  const lift = size !== "sm";
+  return [at(0, 180, 1), at(lift ? -4 : 0, 90, lift ? 1.08 : 1), at(0, 0, 1)];
+}
+
+/** Mark this file's animations, so measuring can tell a card in motion from one at rest. */
 const FLIGHT = "flight";
-const BACK = `url(${back})`;
+const FLIP = "flip";
+const BACK = "back";
+const ours = (a: Animation) => a.id === FLIGHT || a.id === FLIP || a.id === BACK;
 
-/**
- * The transform that puts `el`, at rest at `to`, over `from`. Around the card's centre, like its
- * own `scale` (the lifted discard, UX-21), so the two compose; that scale also scales the offset.
- */
-function offset(el: HTMLElement, from: DOMRect, to: DOMRect) {
-  const k = Number.parseFloat(getComputedStyle(el).scale) || 1;
-  const dx = (from.x + from.width / 2 - (to.x + to.width / 2)) / k;
-  const dy = (from.y + from.height / 2 - (to.y + to.height / 2)) / k;
-  return { dx, dy, s: from.width / to.width };
-}
-
-function fly(el: HTMLElement, from: DOMRect, to: DOMRect) {
-  const { dx, dy, s } = offset(el, from, to);
-  el.animate([{ transform: `translate(${dx}px, ${dy}px) scale(${s})` }, { transform: "none" }], {
-    duration: 380,
-    easing: EASE,
-    id: FLIGHT,
-  });
+/** One animation to start: its element, keyframes and timing, and its role (`data-motion`). */
+interface Job {
+  el: HTMLElement;
+  keyframes: Keyframe[];
+  options: KeyframeAnimationOptions;
+  role?: string;
+  /** For a card that turns over: the offset at which it is edge-on, when its back hides (UX-24). */
+  edge?: number;
 }
 
 /**
- * Plays `el` through three transforms (start, halfway, end) and turns it over halfway, when it is
- * edge-on: its back before, its face after. Its number hides with the back. The picture changes in
- * an effect of its own, so the transform stays on the compositor.
+ * Starts the jobs and keeps each card marked in motion until it stops (`data-motion`, see
+ * styles.css: above the table, "in" above the rest, and its back face). Every card is marked
+ * before any starts: animating a pseudo-element reads styles, so marking cards in between would
+ * recompute them once per card (300–470 ms frames at the start of an 8-seat reveal, 4× CPU).
  */
-function turnOver(el: HTMLElement, [a, b, c]: string[], options: KeyframeAnimationOptions) {
-  const face = el.style.backgroundImage;
-  const timing = { ...options, id: FLIGHT };
-  el.animate([{ transform: a }, { transform: b }, { transform: c }], timing);
-  const swap = <T>(back: T, front: T) => [
-    back,
-    { ...back, offset: 0.5 },
-    { ...front, offset: 0.5 },
-    front,
-  ];
-  el.animate(swap({ backgroundImage: BACK }, { backgroundImage: face }), timing);
-  el.querySelector(".num")?.animate(swap({ opacity: 0 }, { opacity: 1 }), timing);
+function start(jobs: Job[]) {
+  for (const { el, role = "" } of jobs) el.dataset.motion = role;
+  for (const { el, keyframes, options, edge } of jobs) {
+    const done = () => {
+      if (!el.getAnimations().some(ours)) delete el.dataset.motion;
+    };
+    const timing = { ...options, fill: "backwards" as const };
+    el.animate(keyframes, timing).finished.then(done, done);
+    if (edge === undefined) continue;
+    const shown = [
+      { opacity: 1 },
+      { opacity: 1, offset: edge },
+      { opacity: 0, offset: edge },
+      { opacity: 0 },
+    ];
+    el.animate(shown, { ...timing, id: BACK, pseudoElement: "::before" });
+  }
 }
 
-/** A deck draw (UX-25): leaves the top of the deck face down, lifts, and turns face up halfway. */
-function draw(el: HTMLElement, from: DOMRect, to: DOMRect) {
-  const { dx, dy, s } = offset(el, from, to);
-  const at = (x: number, y: number, scale: number, turn: number) =>
-    `perspective(500px) translate(${x}px, ${y}px) scale(${scale}) rotateY(${turn}deg)`;
-  turnOver(
-    el,
-    [at(dx, dy, s, 0), at(dx / 2, dy / 2 - 12, ((s + 1) / 2) * 1.08, 90), at(0, 0, 1, 0)],
-    {
-      duration: 420,
-      easing: "ease-in-out",
-    },
-  );
-}
+/**
+ * When each animation of the last change starts, hits home and ends (ms), by element key; for its
+ * sounds and the round summary.
+ */
+export type Timing = Map<string, { start: number; hit: number; end: number }>;
 
-/** Turns a card face up in place; `delay` staggers the final reveal (UX-27). */
-const flipIn = (el: HTMLElement, delay: number) =>
-  turnOver(el, ["rotateY(0deg)", "rotateY(90deg)", "rotateY(0deg)"], {
-    duration: FLIP_MS,
-    delay,
-    easing: "ease-in-out",
-    fill: "backwards", // face down while it waits its turn
-  });
-
-const flying = (el: HTMLElement) => el.getAnimations().some((a) => a.id === FLIGHT);
+const flying = (el: HTMLElement) => el.getAnimations().some(ours);
 
 /**
  * Where each card sits. A card in flight keeps the place it was last measured at rest, so no
@@ -167,24 +275,28 @@ const measure = (els: Map<string, HTMLElement>, old: Map<string, DOMRect>) =>
 /**
  * Registers card elements under keys and animates what changed whenever the view changes.
  * Positions are re-measured after scrolls and resizes, so flights start where cards really were.
- * Does nothing (and measures nothing) when the user prefers reduced motion.
+ * Does nothing (and measures nothing) when the user prefers reduced motion. `timing` holds when
+ * the last change's animations start and end, for its sounds.
  */
 export function useFlights(view: GameView, tapped?: { current: string | null }) {
   const els = useRef(new Map<string, HTMLElement>());
   const refs = useRef(new Map<string, (el: HTMLElement | null) => void>());
   const prev = useRef<GameView | null>(null);
   const rects = useRef(new Map<string, DOMRect>());
+  const timing = useRef<Timing>(new Map());
   const measureAgain = useRef(() => {});
   const reduced = useReducedMotion();
 
   useLayoutEffect(() => {
     const before = prev.current;
     prev.current = view;
+    const times: Timing = new Map();
+    timing.current = times;
     if (reduced) return;
     if (before && before.round !== view.round) {
       // A fresh deal: the last round's reveal must not turn the new cards over.
       for (const el of els.current.values()) {
-        for (const a of el.getAnimations({ subtree: true })) if (a.id === FLIGHT) a.cancel();
+        for (const a of el.getAnimations({ subtree: true })) if (ours(a)) a.cancel();
       }
     }
     // Every new position is read before any flight starts, so none holds a first frame (UX-1).
@@ -192,22 +304,45 @@ export function useFlights(view: GameView, tapped?: { current: string | null }) 
     const now = measure(els.current, was);
     rects.current = now;
     if (!before) return;
-    const { moves, flips, reveal } = flightsBetween(before, view);
+    const { moves, turns, flips, reveal } = flightsBetween(before, view);
+    const jobs: Job[] = [];
     for (const [to, from] of moves) {
       const el = els.current.get(to);
       const a = was.get(from);
       const b = now.get(to);
       if (!el || !a || !b?.width) continue;
-      (to === "drawn" && from === "deck" ? draw : fly)(el, a, b);
+      // A swap (UX-23): the card leaving a grid is picked up first, and the one going in waits.
+      const lift = from.startsWith("slot-") ? LIFT_MS : 0;
+      const delay = from === "drawn" && to !== "discard" ? IN_MS : 0;
+      const turn = turns.has(to);
+      const { frames, duration, edge, hit } = path(a, b, { lift, turn });
+      // Around the card's centre, like its own `scale` (the lifted discard, UX-21), so the two
+      // compose; that scale also scales the offset.
+      const k = Number.parseFloat(getComputedStyle(el).scale) || 1;
+      const keyframes = frames.map((f) => ({
+        offset: f.offset,
+        transform:
+          `translate(${f.x / k}px, ${f.y / k}px) rotate(${f.rotate}deg) scale(${f.scale})` +
+          (turn ? ` perspective(${(6 * b.width) / k}px) rotateY(${f.turn}deg)` : ""),
+      }));
+      const options = { duration, delay, id: FLIGHT };
+      jobs.push({ el, keyframes, options, role: delay ? "in" : "", edge: turn ? edge : undefined });
+      times.set(to, { start: delay, hit: delay + hit, end: delay + duration });
     }
-    const step = reveal ? revealStep(flips.length) : 0;
-    // The card you tapped to end the round turns at once; the reveal follows it (UX-27).
-    const mine = tapped?.current;
-    const order = mine && flips.includes(mine) ? [mine, ...flips.filter((k) => k !== mine)] : flips;
-    order.forEach((key, i) => {
+    for (const [key, delay] of flipDelays(
+      flips,
+      reveal ? revealStep(flips.length) : 0,
+      tapped?.current,
+    )) {
       const el = els.current.get(key);
-      if (el) flipIn(el, i * step);
-    });
+      const w = now.get(key)?.width;
+      if (!el || !w) continue;
+      const size = el.classList.contains("sm") ? "sm" : el.classList.contains("md") ? "md" : "lg";
+      const options = { duration: FLIP_MS[size], delay, id: FLIP };
+      jobs.push({ el, keyframes: flipFrames(size, w), options, edge: 0.5 });
+      times.set(key, { start: delay, hit: delay + FLIP_MS[size], end: delay + FLIP_MS[size] });
+    }
+    start(jobs);
     measureAgain.current(); // and again once they land
   }, [view, reduced, tapped]);
 
@@ -221,9 +356,7 @@ export function useFlights(view: GameView, tapped?: { current: string | null }) 
         rects.current = measure(els.current, rects.current);
         // Cards in flight kept their old place: read them all once more when they've landed (not
         // every frame, which would be main-thread work during a whole final reveal).
-        const flights = [...els.current.values()].flatMap((el) =>
-          el.getAnimations().filter((a) => a.id === FLIGHT),
-        );
+        const flights = [...els.current.values()].flatMap((el) => el.getAnimations().filter(ours));
         if (flights.length) {
           void Promise.allSettled(flights.map((a) => a.finished)).then(() => on && remeasure());
         }
@@ -250,7 +383,7 @@ export function useFlights(view: GameView, tapped?: { current: string | null }) 
   }, [reduced]);
 
   /** Stable ref callback per key, so React doesn't detach and reattach every card each render. */
-  return (key: string) => {
+  const reg = (key: string) => {
     let ref = refs.current.get(key);
     if (!ref) {
       ref = (el) => {
@@ -261,28 +394,29 @@ export function useFlights(view: GameView, tapped?: { current: string | null }) 
     }
     return ref;
   };
+  return { reg, timing };
 }
 
 /**
  * True while a final reveal plays (UX-27), so the round summary waits for it: from the view that
- * ends the round until 600 ms after its last flip (`revealMs`). Never with reduced motion.
+ * ends the round until `SUMMARY_MS` after its last animation ends (useFlights' `timing`, set in
+ * its layout effect before this effect runs). Never with reduced motion.
  */
-export function useRevealing(view: GameView): boolean {
+export function useRevealing(view: GameView, timing: { current: Timing }): boolean {
   const reduced = useReducedMotion();
   const [last, setLast] = useState(view);
-  const [hold, setHold] = useState(0);
+  const [hold, setHold] = useState(false);
   // Derived during render, not in an effect, so the summary's first render already waits.
   if (view !== last) {
     setLast(view);
-    const { flips, reveal } = flightsBetween(last, view);
-    if (reveal && !reduced) setHold(revealMs(flips.length));
+    if (flightsBetween(last, view).reveal && !reduced) setHold(true);
   }
   useEffect(() => {
     if (!hold) return;
-    const id = setTimeout(() => setHold(0), hold);
+    const id = setTimeout(() => setHold(false), settled(timing.current) + SUMMARY_MS);
     return () => clearTimeout(id);
-  }, [hold]);
-  return hold > 0;
+  }, [hold, timing]);
+  return hold;
 }
 
 /** Eases from `from` to `to` over 0.8 s (or jumps under reduced motion). */

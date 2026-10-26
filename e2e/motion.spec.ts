@@ -43,21 +43,32 @@ const recordFlights = (page: Page) =>
     };
   });
 
-/** A card's centre and width, its picture, and how visible its number is. */
+/**
+ * A card's centre, width and height; which way it faces (its transform turns its face away:
+ * "back") and whether its back face is drawn; its scale (from its transform, so a lean
+ * doesn't widen it); its z-index; whether it is what a tap at its centre hits; and how many other
+ * cards lie under its centre.
+ */
 interface Box {
   x: number;
   y: number;
   w: number;
-  bg: string;
-  num: string | null;
+  h: number;
+  face: "front" | "back";
+  backShown: boolean;
+  scale: number;
+  z: string;
+  hit: boolean;
+  over: number;
 }
 type Boxes = Record<string, Box | null>;
 
 /**
  * Moves the harness table on to `view` (src/client/App.tsx) and returns each selector's box just
- * before the move, then at each fraction `at` of the flights it started (paused there). Then every
- * flight lands, as if the players took their time, unless `land` is false: then they stay paused
- * at the last fraction.
+ * before the move, then at each fraction `at` of the flights it started (paused there, each at that
+ * fraction of its own active time, after its delay). Then every flight lands, as if the players
+ * took their time, unless `land` is false: then they stay paused at the last fraction. Also returns
+ * the started animations' timing and the properties their keyframes animate.
  */
 async function move(
   page: Page,
@@ -73,32 +84,67 @@ async function move(
         const el = document.querySelector(sel);
         if (!el) return null;
         const r = el.getBoundingClientRect();
-        const num = el.querySelector(".num");
+        const [x, y] = [r.x + r.width / 2, r.y + r.height / 2];
+        const style = getComputedStyle(el);
+        const m = new DOMMatrix(style.transform);
+        const back = getComputedStyle(el, "::before");
+        const under = [...document.querySelectorAll(".card")].filter((c) => {
+          const b = c.getBoundingClientRect();
+          return c !== el && x > b.left && x < b.right && y > b.top && y < b.bottom;
+        });
         return {
-          x: r.x + r.width / 2,
-          y: r.y + r.height / 2,
+          x,
+          y,
           w: r.width,
-          bg: getComputedStyle(el).backgroundImage,
-          num: num && getComputedStyle(num).opacity,
+          h: r.height,
+          face: m.m11 < 0 ? "back" : "front",
+          backShown: back.content !== "none" && Number(back.opacity) > 0.5,
+          scale: Math.hypot(m.m21, m.m22, m.m23),
+          z: style.zIndex,
+          hit: el.contains(document.elementFromPoint(x, y)),
+          over: under.length,
         };
       };
       const boxes = () => Object.fromEntries(Object.entries(read).map(([k, s]) => [k, box(s)]));
       const before = boxes();
       const start = w.flights.length;
       dispatchEvent(new CustomEvent("skyjo:table", { detail: { view } }));
-      const started = w.flights.slice(start).map((f) => f.a);
+      const flights = w.flights.slice(start);
+      const started = flights.map((f) => f.a);
+      const timing = flights.map(({ el, a }) => {
+        const t = a.effect?.getTiming();
+        return {
+          el: Object.keys(read).find((k) => document.querySelector(read[k]) === el) ?? null,
+          delay: Number(t?.delay),
+          duration: Number(t?.duration),
+          props: [
+            ...new Set(
+              (a.effect as KeyframeEffect)
+                .getKeyframes()
+                .flatMap((k) => Object.keys(k))
+                .filter((k) => !["offset", "computedOffset", "easing", "composite"].includes(k)),
+            ),
+          ],
+        };
+      });
       const during = at.map((f) => {
         for (const a of started) {
+          const t = a.effect?.getTiming();
           a.pause();
-          a.currentTime = f * Number(a.effect?.getTiming().duration);
+          a.currentTime = Number(t?.delay) + f * Number(t?.duration);
         }
         return boxes();
       });
       if (land) for (const a of started) a.finish();
-      return { before, during };
+      return { before, during, timing, after: boxes() };
     },
     { view, read, at, land },
-  ) as Promise<{ before: Boxes; during: Boxes[] }>;
+  ) as Promise<{
+    before: Boxes;
+    during: Boxes[];
+    after: Boxes;
+    timing: { el: string | null; delay: number; duration: number; props: string[] }[];
+  }>;
 }
 
 const PILES = {
@@ -116,15 +162,27 @@ function expectOver(box: Box | null | undefined, to: Box | null | undefined, wha
   expect(off, `${what}: ${JSON.stringify({ box, to })}`).toBeLessThanOrEqual(2);
 }
 
+/** CI guard (M11): every animation keyframes only `transform` and/or `opacity`. */
+function expectOnlyTransforms(timing: { props: string[] }[]) {
+  for (const { props } of timing) {
+    expect(props.length, "animates something").toBeGreaterThan(0);
+    expect(
+      props.every((p) => p === "transform" || p === "opacity"),
+      props.join(),
+    ).toBe(true);
+  }
+}
+
 /**
- * A face-down slot to swap into that keeps the round going and removes no column. Not one hiding
- * the held card's value: that swap's view is the same as a discard-and-flip, so no phone can tell.
+ * A face-down slot (from position `from` on) to swap into that keeps the round going and removes
+ * no column. Not one hiding the held card's value: that swap's view is the same as a
+ * discard-and-flip, so no phone can tell.
  */
-function swapTarget(state: GameState): number {
+function swapTarget(state: GameState, from = 0): number {
   const seat = state.current;
   const grid = state.players[seat].grid;
   const pos = grid.findIndex((slot, i) => {
-    if (!slot || slot.up || slot.card === state.drawn) return false;
+    if (i < from || !slot || slot.up || slot.card === state.drawn) return false;
     const next = apply(state, { type: "swap", seat, pos: i });
     return next.phase === "draw" && next.players[seat].grid.every((s) => s !== null);
   });
@@ -180,13 +238,15 @@ test.describe("with motion allowed", () => {
       const draw = await move(page, toView(state), PILES);
       const [frame0] = draw.during;
       expectOver(frame0.drawn, draw.before.deck, `draw ${swaps}: frame 0 over the deck`);
-      expect(frame0.drawn?.bg, "frame 0 shows the card back").toBe(draw.before.deck?.bg);
-      expect(frame0.drawn?.num, "and no number").toBe("0");
+      expect(frame0.drawn?.face, "frame 0 shows the card's back").toBe("back");
+      expect(frame0.drawn?.backShown, "drawn as a face of its own (UX-24)").toBe(true);
+      expectOnlyTransforms(draw.timing);
 
       const pos = swapTarget(state);
       state = apply(state, { type: "swap", seat, pos });
       const swap = await move(page, toView(state), { ...PILES, slot: slot(seat, pos) });
       expectOver(swap.during[0].slot, swap.before.drawn, `swap ${swaps}: frame 0 at the held card`);
+      expectOnlyTransforms(swap.timing);
     }
   });
 
@@ -247,6 +307,140 @@ test.describe("with motion allowed", () => {
     }
   });
 
+  test("UX-22: a flight covers 20–50% of its way at 25% of its time, is lifted ≥ 1.04 halfway, lands within 0.5 px, and lasts clamp(260, 180 + 0.55·d, 460) ms; only transforms move", async ({
+    page,
+  }) => {
+    await recordFlights(page);
+    let state = firstTurn(2, 5);
+    const me = state.current;
+    await show(page, { view: toView(state), seat: me });
+    state = apply(state, { type: "draw", seat: me, source: "deck" });
+    await move(page, toView(state), PILES);
+    // Thrown away: the held card flies to the discard pile, the same size all the way.
+    const pos = state.players[me].grid.findIndex((s) => s && !s.up);
+    state = apply(state, { type: "discardAndFlip", seat: me, pos });
+    const at = [0, 0.25, 0.5, 1 - 1 / 460];
+    const fly = await move(page, toView(state), { discard: PILES.discard }, at);
+    const [start, quarter, half, end] = fly.during.map((f) => f.discard);
+    const rest = fly.after.discard;
+    if (!start || !quarter || !half || !end || !rest) throw new Error("no discard pile");
+    const covered = (quarter.x - start.x) / (rest.x - start.x);
+    expect(covered).toBeGreaterThanOrEqual(0.2);
+    expect(covered).toBeLessThanOrEqual(0.5);
+    expect(half.scale).toBeGreaterThanOrEqual(1.04);
+    expect(half.backShown, "a face-up card shows no back on its way").toBe(false);
+    // From the held card, 6 px up (UX-4), to the pile: a short trip sideways doesn't arc.
+    const along = (half.x - start.x) / (rest.x - start.x);
+    expect(half.y).toBeCloseTo(start.y + along * (rest.y - start.y), 0);
+    const off = Math.max(
+      Math.abs(end.x - rest.x),
+      Math.abs(end.y - rest.y),
+      Math.abs(end.w - rest.w),
+    );
+    expect(off, "lands within 0.5 px").toBeLessThanOrEqual(0.5);
+    const d = Math.abs(rest.x - start.x);
+    const flight = fly.timing.find((t) => t.el === "discard");
+    expect(flight?.duration).toBeCloseTo(Math.min(460, Math.max(260, 180 + 0.55 * d)), 0);
+    expectOnlyTransforms(fly.timing);
+  });
+
+  test("UX-23, UX-7: a swap: the card leaving lifts for 80 ms, back up, and passes over your other cards; the one going in starts ≥ 80 ms later, above it; all done in 560 ms", async ({
+    page,
+  }) => {
+    await recordFlights(page);
+    let state = firstTurn(2, 5);
+    const me = state.current;
+    await show(page, { view: toView(state), seat: me });
+    state = apply(state, { type: "draw", seat: me, source: "deck" });
+    await move(page, toView(state), PILES);
+    // A face-down card in the bottom row, so the card leaving crosses the rows above.
+    const pos = swapTarget(state, 8);
+    state = apply(state, { type: "swap", seat: me, pos });
+    const read = { ...PILES, slot: `[data-testid="my-grid"] > :nth-child(${pos + 1})` };
+    const swap = await move(page, toView(state), read, [0.1, 0.2, 0.4, 0.5], false);
+    const out = swap.timing.find((t) => t.el === "discard");
+    const into = swap.timing.find((t) => t.el === "slot");
+    if (!out || !into) throw new Error(`no swap: ${JSON.stringify(swap.timing)}`);
+    expect(into.delay - out.delay, "the card going in waits").toBeGreaterThanOrEqual(80);
+    expect(Math.max(out.delay + out.duration, into.delay + into.duration)).toBeLessThanOrEqual(560);
+    const [lifting, early, crossing, mid] = swap.during;
+    // At 10% (inside its 80 ms lift) it is still over its slot, picked up, its back showing.
+    const [slot, lifted] = [swap.before.slot, lifting.discard];
+    expect(
+      Math.hypot((lifted?.x ?? 0) - (slot?.x ?? 99), (lifted?.y ?? 0) - (slot?.y ?? 99)),
+    ).toBeLessThanOrEqual(2);
+    expect((lifted?.w ?? 0) / (slot?.w ?? 1)).toBeGreaterThan(1);
+    expect(early.discard?.face, "its back shows at 20%").toBe("back");
+    expect(early.discard?.backShown).toBe(true);
+    expect(mid.discard?.backShown, "face up by mid-flight").toBe(false);
+    expect(mid.slot?.backShown, "the card going in is face up all the way").toBe(false);
+    // Mid-flight it is over your other cards, and on top of them (UX-7).
+    expect(crossing.discard?.over, "over another card").toBeGreaterThan(0);
+    for (const [i, frame] of [crossing, mid].entries()) {
+      expect(frame.discard?.hit, `the card leaving is on top (${i})`).toBe(true);
+      expect(frame.slot?.hit, `the card going in is on top (${i})`).toBe(true);
+    }
+    expect(Number(mid.slot?.z)).toBeGreaterThan(Number(mid.discard?.z));
+    expect(Number(mid.discard?.z)).toBeGreaterThan(0);
+    expectOnlyTransforms(swap.timing);
+    // Where the two cross, the one going in is painted over the one leaving: step the swap's
+    // clock until they overlap and hit-test the overlap.
+    const crossed = await page.evaluate((slot) => {
+      const w = window as unknown as { flights: { a: Animation }[] };
+      const swap = w.flights.map((f) => f.a).filter((a) => a.playState === "paused");
+      const [out, into] = ['[data-testid="discard"]', slot].map((sel) =>
+        document.querySelector(sel),
+      );
+      let found: { t: number; top: string } | null = null;
+      for (let t = 0; t <= 560 && !found && out && into; t += 10) {
+        for (const a of swap) a.currentTime = t;
+        const [o, i] = [out, into].map((el) => el.getBoundingClientRect());
+        const [x0, x1] = [Math.max(o.left, i.left), Math.min(o.right, i.right)];
+        const [y0, y1] = [Math.max(o.top, i.top), Math.min(o.bottom, i.bottom)];
+        if (x1 - x0 < 10 || y1 - y0 < 10) continue;
+        const hit = document.elementFromPoint((x0 + x1) / 2, (y0 + y1) / 2);
+        found = { t, top: into.contains(hit) ? "in" : out.contains(hit) ? "out" : String(hit) };
+      }
+      for (const a of swap) a.finish();
+      return found;
+    }, read.slot);
+    expect(crossed, "the two cards cross").not.toBeNull();
+    expect(crossed?.top, `at ${crossed?.t} ms`).toBe("in");
+  });
+
+  test("UX-24: a flip turns from its back: under 15% of its width at 50% ± 8% of its time, its back up at 25%, a large card ×1.05 or more halfway; 380 ms in your grid, 260 ms in an opponent's", async ({
+    page,
+  }) => {
+    await recordFlights(page);
+    const state = firstTurn(2, 5);
+    const at = [0.25, 0.42, 0.5, 0.58];
+    for (const mine of [true, false]) {
+      const them = state.current;
+      const me = mine ? them : (them + 1) % 2;
+      await show(page, { view: toView(state), seat: me });
+      let next = apply(state, { type: "draw", seat: them, source: "deck" });
+      await move(page, toView(next), PILES);
+      const pos = next.players[them].grid.findIndex((s) => s && !s.up);
+      next = apply(next, { type: "discardAndFlip", seat: them, pos });
+      const card = mine
+        ? `[data-testid="my-grid"] > :nth-child(${pos + 1})`
+        : `[data-testid="opponent"] .mini > :nth-child(${pos + 1})`;
+      const flip = await move(page, toView(next), { card }, at);
+      const [quarter, ...edge] = flip.during.map((f) => f.card);
+      const rest = flip.after.card;
+      if (!quarter || !rest) throw new Error("no card");
+      expect(quarter.face, "its back at 25%").toBe("back");
+      expect(quarter.backShown).toBe(true);
+      expect(edge[2]?.backShown, "its face once past edge-on").toBe(false);
+      for (const [i, frame] of edge.entries()) {
+        expect(frame?.w ?? 1, `edge-on at ${at[i + 1]}`).toBeLessThan(0.15 * rest.w);
+      }
+      if (mine) expect(edge[1]?.scale ?? 0, "lifted halfway").toBeGreaterThanOrEqual(1.05);
+      expect(flip.timing.find((t) => t.el === "card")?.duration).toBe(mine ? 380 : 260);
+      expectOnlyTransforms(flip.timing);
+    }
+  });
+
   test("UX-27: the final reveal turns cards in seat order from the ender's left, row by row, and the summary waits until 600 ms after the last", async ({
     page,
   }) => {
@@ -265,17 +459,19 @@ test.describe("with motion allowed", () => {
       const panels = [...document.querySelectorAll('[data-testid="opponent"]')];
       const flips = w.flights
         .slice(start)
-        .filter(({ el, a }) => {
-          const keyframes = (a.effect as KeyframeEffect).getKeyframes();
-          return el.matches(".card") && keyframes.some((k) => k.backgroundImage);
-        })
+        .filter(({ a }) => a.id === "flip")
         .map(({ el, a }) => ({
           panel: panels.findIndex((p) => p.contains(el)),
           pos: [...(el.parentElement?.children ?? [])].indexOf(el),
           delay: Number(a.effect?.getTiming().delay),
           end: Number(a.effect?.getComputedTiming().endTime),
         }));
-      return { atOnce: !!document.querySelector(".overlay"), flips };
+      const animated = w.flights.slice(start).map(({ a }) => ({
+        props: [
+          ...new Set((a.effect as KeyframeEffect).getKeyframes().flatMap((k) => Object.keys(k))),
+        ].filter((k) => !["offset", "computedOffset", "easing", "composite"].includes(k)),
+      }));
+      return { atOnce: !!document.querySelector(".overlay"), flips, animated };
     }, toView(after));
 
     // Seats after the ender's, then row by row (grid positions are row-major).
@@ -297,8 +493,9 @@ test.describe("with motion allowed", () => {
         flips[i - 1].delay,
       );
     }
+    expectOnlyTransforms(shown.animated);
     const lastFlip = Math.max(...flips.map((f) => f.end));
-    expect(lastFlip).toBeLessThanOrEqual(2500 + 300);
+    expect(lastFlip).toBeLessThanOrEqual(2500 + 380);
     expect(shown.atOnce).toBe(false);
     await page.clock.runFor(lastFlip + 550);
     await page.waitForTimeout(100); // time for React to show it, if it were early
@@ -366,9 +563,7 @@ test.describe("with motion allowed", () => {
       const grid = document.querySelector('[data-testid="my-grid"]');
       return w.flights
         .slice(start)
-        .filter(
-          ({ el, a }) => el.parentElement === grid && a.effect?.getTiming().fill === "backwards",
-        )
+        .filter(({ el, a }) => el.parentElement === grid && a.id === "flip")
         .map(({ el, a }) => [
           [...(grid?.children ?? [])].indexOf(el),
           Number(a.effect?.getTiming().delay),
@@ -380,8 +575,11 @@ test.describe("with motion allowed", () => {
     for (const [p, delay] of delays) if (p !== pos) expect(delay).toBeGreaterThan(0);
   });
 
-  /** Moves on to `view` and saves its flights at each time (fractions, or ms with `ms`) as a strip. */
-  async function strip(page: Page, name: string, view: GameView, at: number[], ms = false) {
+  /**
+   * Moves on to `view` and saves the frames at each time (ms after the move) side by side, from the
+   * top of the page down to `height`.
+   */
+  async function strip(page: Page, name: string, view: GameView, ms: number[], height = 664) {
     await page.evaluate((view) => {
       const w = window as unknown as { flights: { a: Animation }[]; mark: number };
       w.mark = w.flights.length;
@@ -389,20 +587,15 @@ test.describe("with motion allowed", () => {
       for (const { a } of w.flights.slice(w.mark)) a.pause();
     }, view);
     const frames: string[] = [];
-    for (const [i, t] of at.entries()) {
-      await page.evaluate(
-        ({ t, ms }) => {
-          const w = window as unknown as { flights: { a: Animation }[]; mark: number };
-          for (const { a } of w.flights.slice(w.mark)) {
-            a.currentTime = ms ? t : t * Number(a.effect?.getTiming().duration);
-          }
-        },
-        { t, ms },
-      );
-      frames.push(`test-results/m9/${name}-${i}.png`);
+    for (const [i, t] of ms.entries()) {
+      await page.evaluate((t) => {
+        const w = window as unknown as { flights: { a: Animation }[]; mark: number };
+        for (const { a } of w.flights.slice(w.mark)) a.currentTime = t;
+      }, t);
+      frames.push(`test-results/m11/${name}-${i}.png`);
       await page.screenshot({
         path: frames[i],
-        clip: { x: 0, y: 0, width: 390, height: 480 },
+        clip: { x: 0, y: 0, width: 390, height },
         scale: "css",
       });
     }
@@ -414,21 +607,17 @@ test.describe("with motion allowed", () => {
       ...["-loglevel", "error", "-y"],
       ...frames.flatMap((f) => ["-i", f]),
       ...["-filter_complex", `hstack=inputs=${frames.length}`, "-q:v", "4"],
-      `docs/screenshots/m9/strip-${name}.jpg`,
+      `docs/screenshots/m11/strip-${name}.jpg`,
     ]);
   }
 
-  test("screenshots: M9 frame strips and stills", async ({ page }, info) => {
+  test("screenshots: M11 frame strips", async ({ page }, info) => {
     test.skip(!process.env.SHOTS || info.project.name !== "iphone", "run with SHOTS=1");
-    mkdirSync("test-results/m9", { recursive: true });
-    const quarters = [0, 0.25, 0.5, 0.75, 1];
-    const shot = (name: string) =>
-      page.screenshot({
-        path: `docs/screenshots/m9/${name}.jpg`,
-        type: "jpeg",
-        quality: 80,
-        scale: "css",
-      });
+    mkdirSync("test-results/m11", { recursive: true });
+    // Every 70 ms through a swap (560 ms at most), every 65 ms through a short trip.
+    const swap = [0, 70, 140, 210, 280, 350, 420, 490];
+    const short = [0, 65, 130, 195, 260, 325];
+    const TOP = 420; // the opponents and the piles
     await recordFlights(page);
     let state = firstTurn(2, 5);
     const me = (state.current + 1) % 2; // the opponent moves first
@@ -437,40 +626,36 @@ test.describe("with motion allowed", () => {
     state = apply(state, { type: "draw", seat: them, source: "deck" });
     await move(page, toView(state), PILES);
     state = apply(state, { type: "swap", seat: them, pos: swapTarget(state) });
-    await move(page, toView(state), PILES);
-    // Right after the opponent's swap, take the discard; then swap it into the top row.
+    await strip(page, "opponent-swap", toView(state), swap, TOP);
+    // Take the discard, then swap it into a face-down card in your bottom row.
     state = apply(state, { type: "draw", seat: me, source: "discard" });
-    await strip(page, "take-discard", toView(state), quarters);
-    await shot("place-from-discard-en");
-    const top = (s: GameState) => s.players[s.current].grid.findIndex((c, i) => i < 4 && c?.up);
-    state = apply(state, { type: "swap", seat: me, pos: top(state) });
-    await strip(page, "swap-from-discard", toView(state), quarters);
+    await strip(page, "take-discard", toView(state), short, TOP);
+    state = apply(state, { type: "swap", seat: me, pos: swapTarget(state, 8) });
+    await strip(page, "swap-from-discard", toView(state), swap);
     state = apply(state, { type: "draw", seat: them, source: "deck" });
     await move(page, toView(state), PILES);
     state = apply(state, { type: "swap", seat: them, pos: swapTarget(state) });
     await move(page, toView(state), PILES);
-    // A deck draw, then a swap into the top row.
+    // A deck draw, then a swap into your bottom row.
     state = apply(state, { type: "draw", seat: me, source: "deck" });
-    await strip(page, "draw-deck", toView(state), quarters);
-    await shot("place-from-deck-en");
-    state = apply(state, { type: "swap", seat: me, pos: top(state) });
-    await strip(page, "swap", toView(state), quarters);
+    await strip(page, "draw-deck", toView(state), short, TOP);
+    state = apply(state, { type: "swap", seat: me, pos: swapTarget(state, 8) });
+    await strip(page, "swap", toView(state), swap);
+    // Their turn, then yours: a deck draw thrown away, and a card turned over in your grid.
+    state = apply(state, { type: "draw", seat: them, source: "deck" });
+    await move(page, toView(state), PILES);
+    state = apply(state, { type: "swap", seat: them, pos: swapTarget(state) });
+    await move(page, toView(state), PILES);
+    state = apply(state, { type: "draw", seat: me, source: "deck" });
+    await move(page, toView(state), PILES);
+    const down = state.players[me].grid.findIndex((s) => s && !s.up);
+    state = apply(state, { type: "discardAndFlip", seat: me, pos: down });
+    await strip(page, "flip", toView(state), [0, 60, 125, 190, 255, 320, 380]);
 
     // The final reveal, every 500 ms.
     const { before, after } = race(3, 5);
     await show(page, { view: toView(before), seat: 0 });
-    await strip(page, "final-reveal", toView(after), [0, 500, 1000, 1500, 2000, 2500], true);
-
-    // The caption and prompt of a card taken from the discard, in es and pt.
-    const discard = firstTurn(4, 5);
-    const taken = toView(
-      apply(discard, { type: "draw", seat: discard.current, source: "discard" }),
-    );
-    for (const locale of ["es", "pt"]) {
-      await page.addInitScript((l) => localStorage.setItem("skyjo:locale", l), locale);
-      await show(page, { view: taken, seat: discard.current });
-      await shot(`place-from-discard-${locale}`);
-    }
+    await strip(page, "final-reveal", toView(after), [0, 500, 1000, 1500, 2000, 2500]);
   });
 });
 

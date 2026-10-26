@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type Action, apply, createGame, type GameState } from "../engine/game";
 import { toView } from "../engine/view";
-import { revealMs, revealStep } from "./motion";
+import { FLIP_MS, flipDelays, IN_MS, LIFT_MS, path, revealStep, slotKey } from "./motion";
 import { type Sound, soundsBetween } from "./sound";
 
 /** A fake AudioContext that records what the unlock does to it. */
@@ -157,6 +157,78 @@ describe("soundsBetween", () => {
     ).toEqual(["discard", "flip"]);
   });
 
+  /** A card's sounds and announcements, as useFlights times a flight that starts at `start`. */
+  const flight = (start: number, { hit, duration }: { hit: number; duration: number }) => ({
+    start,
+    hit: start + hit,
+    end: start + duration,
+  });
+  const card = (x: number, y: number, width: number) => ({
+    x: x - width / 2,
+    y: y - (width * 7) / 10,
+    width,
+    height: (width * 7) / 5,
+  });
+  // A phone's piles (medium cards).
+  const drawn = card(195, 250, 58);
+  const pile = card(297, 250, 58);
+
+  it("UX-23: a swap's sounds peak as its cards land: the discard 210 ms and the place 160 ms before (±30 ms of touching down and of settling); the card going in starts ≥ 80 ms after the one leaving, and all is done in 560 ms", () => {
+    const s = apply(table(GRID, [0, 1], 0), draw);
+    const before = toView(s);
+    const after = toView(apply(s, { type: "swap", seat: 0, pos: 5 }));
+    // A slot low and high in your grid, then one in an opponent's.
+    for (const slot of [card(150, 560, 80), card(240, 400, 80), card(60, 90, 26)]) {
+      const out = flight(0, path(slot, pile, { lift: LIFT_MS, turn: true }));
+      const into = flight(IN_MS, path(drawn, slot));
+      const timing = new Map([
+        ["discard", out],
+        [slotKey(0, 5), into],
+      ]);
+      expect(into.start - out.start).toBeGreaterThanOrEqual(80);
+      expect(Math.max(out.end, into.end)).toBeLessThanOrEqual(560);
+      const at = new Map(soundsBetween(before, after, 1, timing));
+      const loudest = {
+        discard: (at.get("discard") ?? -1) + 210,
+        place: (at.get("place") ?? -1) + 160,
+      };
+      for (const [name, f, lift] of [
+        ["discard", out, LIFT_MS],
+        ["place", into, 0],
+      ] as const) {
+        const touchdown = f.start + lift + 0.88 * (f.end - f.start - lift);
+        expect(Math.abs(loudest[name] - touchdown), `${name} vs touching down`).toBeLessThanOrEqual(
+          30,
+        );
+        expect(Math.abs(loudest[name] - f.end), `${name} vs settled`).toBeLessThanOrEqual(30);
+      }
+    }
+  });
+
+  it("UX-22: a draw sounds as the card reaches your hand; without motion, at once", () => {
+    const s = table(GRID, [0, 1], 0);
+    const [before, after] = [toView(s), toView(apply(s, draw))];
+    const timing = new Map([["drawn", { start: 0, hit: 320, end: 340 }]]);
+    expect(soundsBetween(before, after, 1, timing)).toEqual([["draw", 320 - 130]]);
+    expect(soundsBetween(before, after, 1)).toEqual([["draw", 0]]);
+  });
+
+  it("M11: 'your turn' sounds once the last card has landed, and a column's chime as its card reaches the pile; without motion, 250 ms after the cards", () => {
+    // Seat 0 completes a column (5, 5, 5 in column 0) by swapping its last card in; seat 1 is next.
+    const s = apply(table([5, 1, 2, 3, 5, 2, 3, 4, 9, 3, 4, 1], [0, 4], 5), draw);
+    const before = toView(s);
+    const after = toView(apply(s, { type: "swap", seat: 0, pos: 8 }));
+    // The column leaves (one card's flight to the pile for now, UX-26), and nothing goes in.
+    const column = flight(0, path(card(60, 560, 80), pile, { lift: LIFT_MS }));
+    const timing = new Map([["discard", column]]);
+    const at = new Map(soundsBetween(before, after, 1, timing));
+    expect(at.get("column")).toBe(column.end);
+    expect(at.get("turn")).toBe(column.end);
+    expect(at.get("turn") ?? 0).toBeGreaterThan((at.get("discard") ?? 0) + 210);
+    const now = new Map(soundsBetween(before, after, 1));
+    expect([now.get("discard"), now.get("column"), now.get("turn")]).toEqual([0, 250, 250]);
+  });
+
   it("a completed column chimes", () => {
     const s = table([5, 1, 2, 3, 5, 2, 3, 4, 9, 3, 4, 1], [0, 4], 5);
     expect(sounds(s, 1, draw, { type: "swap", seat: 0, pos: 8 })).toContain("column");
@@ -194,16 +266,50 @@ describe("soundsBetween", () => {
     return { before, after, over: { ...after, phase: "gameOver" as const, winners: [2] } };
   }
 
+  /** When each final-reveal flip starts and ends, as useFlights plays them. */
+  const reveal = (flips: string[], tapped?: string) =>
+    new Map(
+      flipDelays(flips, revealStep(flips.length), tapped).map(([key, start]) => [
+        key,
+        { start, hit: start + FLIP_MS.sm, end: start + FLIP_MS.sm },
+      ]),
+    );
+  const ORDER = [
+    slotKey(2, 1),
+    slotKey(2, 6),
+    slotKey(2, 10),
+    slotKey(0, 3),
+    slotKey(0, 4),
+    slotKey(0, 9),
+  ];
+
   it("UX-27: with motion, each player's cards turn over with a flip sound as they start, and game over sounds when the summary shows", () => {
     const { before, after, over } = lastTurn();
     const step = revealStep(6);
-    expect(soundsBetween(before, after, 0, true)).toEqual([
+    const timing = reveal(ORDER);
+    expect(soundsBetween(before, after, 0, timing)).toEqual([
       ["discard", 0],
       ["flip", 0],
       ["flip", 3 * step],
     ]);
-    expect(soundsBetween(before, over, 0, true)).toContainEqual(["end", revealMs(6)]);
-    expect(soundsBetween(before, over, 2, true)).toContainEqual(["win", revealMs(6)]);
+    // 250 ms after the summary shows, 600 ms after the last card has turned.
+    const shows = 5 * step + FLIP_MS.sm + 600 + 250;
+    expect(soundsBetween(before, over, 0, timing)).toContainEqual(["end", shows]);
+    expect(soundsBetween(before, over, 2, timing)).toContainEqual(["win", shows]);
+  });
+
+  it("UX-27 (PO, PR #25): on the phone that tapped the last card, the flip sounds follow the order the cards turn: that card first, everyone else a step later", () => {
+    const { before, after } = lastTurn();
+    const step = revealStep(6);
+    // A tapped slot-0-4: it turns at 0, C's cards from 1 step, A's other two from 4 steps.
+    const flips = soundsBetween(before, after, 0, reveal(ORDER, slotKey(0, 4))).filter(
+      ([name]) => name === "flip",
+    );
+    expect(flips).toEqual([
+      ["flip", 0],
+      ["flip", step],
+      ["flip", 4 * step],
+    ]);
   });
 
   it("UX-27: with reduced motion, nothing is staggered, so everything sounds at once", () => {
@@ -211,7 +317,7 @@ describe("soundsBetween", () => {
     expect(soundsBetween(before, over, 0)).toEqual([
       ["discard", 0],
       ["flip", 0],
-      ["end", 0],
+      ["end", 250],
     ]);
   });
 });

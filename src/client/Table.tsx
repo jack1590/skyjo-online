@@ -74,12 +74,12 @@ export function Table(props: TableProps) {
   }, [myTurn]);
   const discardMode = discarding && myTurn && phase === "place" && view.drawnFrom === "deck";
 
-  const reg = useFlights(view, tapped);
-  const revealing = useRevealing(view);
+  const { reg, timing } = useFlights(view, tapped);
+  const revealing = useRevealing(view, timing);
   // While the final reveal plays, totals stay as they were, so the cards tell the result first;
   // the summary then counts them up (UX-27).
   const total = (p: PlayerView) => (revealing ? p.total - lastScore(p, view.round) : p.total);
-  useSounds(view, seat);
+  useSounds(view, seat, timing);
   const [muted, toggleMuted] = useMuted();
   // Tapping an opponent opens their grid full size; your own turn closes it.
   const [zoom, setZoom] = useState<number | null>(null);
