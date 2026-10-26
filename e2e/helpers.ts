@@ -1,10 +1,26 @@
 import {
   type Browser,
   type BrowserContextOptions,
+  test as base,
   expect,
   type Page,
   type TestInfo,
 } from "@playwright/test";
+
+/**
+ * Playwright's `test`, closing every phone when the test ends. Playwright closes only the contexts
+ * it made, so a phone from `phones()` outlived its test: it stayed in its room, and the next
+ * failing test in the worker screenshot it too (7 shots for a 2-phone test, PO PR #29).
+ */
+export const test = base.extend<{ closePhones: undefined }>({
+  closePhones: [
+    async ({ browser }, use) => {
+      await use(undefined);
+      await Promise.all(browser.contexts().map((context) => context.close()));
+    },
+    { auto: true },
+  ],
+});
 
 /** Context options, plus `audio: true` to keep Web Audio (only e2e/sound.spec.ts needs it). */
 type PhoneOptions = BrowserContextOptions & { audio?: boolean };
@@ -12,7 +28,7 @@ type PhoneOptions = BrowserContextOptions & { audio?: boolean };
 /**
  * Separate browser contexts = separate phones (own storage, own token). Web Audio is hidden by
  * default: headless WebKit has no audio device, and a running AudioContext slowed every click
- * enough to time out a 2-phone round (PR #7).
+ * enough to time out a 2-phone round (PR #7). Use `test` from this file, which closes them.
  */
 export async function phones(
   browser: Browser,

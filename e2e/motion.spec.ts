@@ -1,10 +1,10 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { apply, type GameState } from "../src/engine/game";
 import { type GameView, toView } from "../src/engine/view";
-import { firstTurn, knockoutGame, show } from "./harness";
-import { seatedRoom, startGame } from "./helpers";
+import { firstTurn, knockoutGame, playedRound, show } from "./harness";
+import { seatedRoom, startGame, test } from "./helpers";
 
 /** Counts Element.animate calls by id (deterministic across engines, unlike sampling getAnimations()). */
 const countAnimations = (page: Page) =>
@@ -705,6 +705,33 @@ test.describe("with motion allowed", () => {
     expect(tapped.length).toBeGreaterThan(0);
     for (const [, delay] of tapped) expect(delay).toBe(0);
     for (const [p, delay] of delays) if (p !== pos) expect(delay).toBeGreaterThan(0);
+  });
+
+  test("M12: watching 8 seats with the panels scrolled away from the player who moves, no card flies into their grid out of sight, over the header or the piles", async ({
+    page,
+  }) => {
+    const states = playedRound(8, 3);
+    // Seat 6 or 7 (the last row) takes the discard into its grid, which completes no column.
+    const i = states.findIndex(
+      (s, i) =>
+        s.drawnFrom === "discard" &&
+        s.current >= 6 &&
+        states[i + 1].players[s.current].grid.every((slot) => slot !== null),
+    );
+    await page.setViewportSize({ width: 390, height: 664 }); // Pixel's 839 px show 3½ rows
+    await show(page, { view: toView(states[i]), seat: null });
+    const mover = page.getByTestId("opponent").nth(states[i].current);
+    await expect(mover).toBeInViewport(); // the panels follow whoever is playing
+    await page.getByTestId("opponents").evaluate((el) => el.scrollTo(0, 0));
+    await expect(mover).not.toBeInViewport();
+    const copies = await page.evaluate(
+      (view) => {
+        dispatchEvent(new CustomEvent("skyjo:table", { detail: { view } }));
+        return document.querySelectorAll('.card[data-copy=""]').length;
+      },
+      toView(states[i + 1]),
+    );
+    expect(copies).toBe(0);
   });
 
   test("UX-8: a card going into an opponent's grid flies as a stand-in that no ancestor clips; their card stays hidden until it lands there, within 0.5 px", async ({

@@ -4,6 +4,13 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.2.6] - 2026-10-26
+
+### Changed
+
+- When you watch a game (a ninth person, someone who arrived mid-game, or a player who is out), the deck, the discard pile and the card being played now stay on screen at any table size. The players' grids, two to a row, scroll in their own space above the piles and follow whoever is playing. Before, at 7 or 8 players the piles were below the bottom of the screen, so you couldn't see what anyone drew.
+- While you watch a "Play until one is left" game, a player who is out is now one slim line under the players still in ("Dani 172 · Out · watching"), instead of an empty panel the size of a whole grid.
+
 ## [2.2.5] - 2026-10-26
 
 ### Changed

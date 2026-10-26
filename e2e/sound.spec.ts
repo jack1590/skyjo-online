@@ -1,5 +1,5 @@
-import { expect, type Page, test } from "@playwright/test";
-import { seatedRoom, startGame } from "./helpers";
+import { expect, type Page } from "@playwright/test";
+import { seatedRoom, startGame, test } from "./helpers";
 
 /** Counts sounds actually started (Web Audio buffer sources). */
 const countSounds = (page: Page) =>

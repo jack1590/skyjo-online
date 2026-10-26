@@ -1,6 +1,26 @@
-import { expect, type Page, test, type WebSocketRoute } from "@playwright/test";
+import { expect, type Page, type WebSocketRoute } from "@playwright/test";
 import type { RoomView } from "../src/protocol";
-import { botStep, createRoom, join, phones, playToEnd, seatedRoom, startGame } from "./helpers";
+import {
+  botStep,
+  createRoom,
+  join,
+  phones,
+  playToEnd,
+  seatedRoom,
+  startGame,
+  test,
+} from "./helpers";
+
+test.describe("phones close with their test (`test` in helpers.ts; PO PR #29)", () => {
+  // The second test runs right after the first, in the same worker: it sees what the first left.
+  test.describe.configure({ mode: "serial" });
+  test("a test leaves a phone open", async ({ browser }, info) => {
+    await phones(browser, info, 1);
+  });
+  test("the next test starts with no phone left over", async ({ browser }) => {
+    expect(browser.contexts()).toHaveLength(0);
+  });
+});
 
 test("two phones create, join, and play a full game to 100", async ({ browser }, info) => {
   test.skip(info.project.name !== "pixel", "long play-throughs run on Pixel only");
@@ -209,8 +229,18 @@ test("screenshots: M10 Reconnecting…", async ({ browser }, info) => {
 
 /** Plays the opening flip on every phone; returns the phone to move first, then the others. */
 async function pastFlips(pages: Page[]) {
-  while ((await pages[0].getByTestId("table").getAttribute("data-phase")) === "flip") {
-    for (const page of pages) await botStep(page);
+  // Flips only. A botStep loop until pages[0] left the flip also drew for a phone that saw the
+  // round start first, so the mover's first move was gone before a test counted it (UX-19 flake,
+  // run 40296504264).
+  for (const page of pages) {
+    const grid = page.getByTestId("my-grid");
+    for (const up of [1, 2]) {
+      await grid.locator('button[data-face="down"]').first().click({ force: true });
+      await expect(grid.locator('[data-face="up"]')).toHaveCount(up);
+    }
+  }
+  for (const page of pages) {
+    await expect(page.getByTestId("table")).toHaveAttribute("data-phase", "draw");
   }
   const current = Number(await pages[0].getByTestId("table").getAttribute("data-current"));
   return [pages[current], ...pages.filter((_, i) => i !== current)];

@@ -1,10 +1,10 @@
 // Regenerates the README's images of the current game (docs/readme/). Run `npm run shots:readme`
 // whenever the UI changes (the PR checklist in AGENTS.md requires it). Needs ffmpeg for the GIF.
 import { execFileSync } from "node:child_process";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { toView } from "../src/engine/view";
 import { atTurnStart, knockoutGame, lastTurnGame, roundOver, show } from "./harness";
-import { botStep, seatedRoom, startGame } from "./helpers";
+import { botStep, seatedRoom, startGame, test } from "./helpers";
 
 test.skip(!process.env.SHOTS, "run with npm run shots:readme");
 

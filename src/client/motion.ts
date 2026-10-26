@@ -420,6 +420,18 @@ function standIn(
 }
 
 /**
+ * Whether `r`, a place in an opponent's grid (`el`), lies wholly outside the part of their
+ * scrolling box on screen: a stand-in there would show over the header or the piles (M12).
+ */
+function outOfSight(el: HTMLElement, r: Rect) {
+  const box = el.closest(".opponents")?.getBoundingClientRect();
+  if (!box) return false;
+  return (
+    r.y >= box.bottom || r.y + r.height <= box.top || r.x >= box.right || r.x + r.width <= box.left
+  );
+}
+
+/**
  * When each animation of the last change starts, hits home and ends (ms), by element key; for its
  * sounds and the round summary.
  */
@@ -629,7 +641,9 @@ export function useFlights(
         const fill = "forwards" as const;
         jobs.push({ el: copy, keyframes, options: { ...options, fill }, role, done: raise(copy) });
       } else if (el.closest(".opponents")) {
-        // Into an opponent's grid: their scrolling strip would clip it (UX-8).
+        // Into an opponent's grid: their scrolling strip would clip it (UX-8). A grid scrolled out
+        // of sight just shows its new card.
+        if (outOfSight(el, b)) continue;
         const copy = keep(standIn(el, b));
         jobs.push({ el: copy, keyframes, options, role, edge: back, done: drop(copy) });
         jobs.push(hide(el, delay + duration));
@@ -680,6 +694,7 @@ export function useFlights(
         const size = sizeOf(el);
         const num = size === "sm" ? Math.max(12, 0.15 * (el.parentElement?.clientWidth ?? 0)) : 0;
         const card = keep(standIn(m.card ?? null, at, { size, num, hidden: true }));
+        if (outOfSight(el, at)) card.style.visibility = "hidden"; // still times the column
         const rest = (t: number, scale = 1) => ({ t, x: 0, y: 0, rotate: 0, scale, turn: 0 });
         type Pose = ReturnType<typeof rest> & { easing?: string };
         const pose = (t: number, { x, y, rotate, scale, turn }: Frame): Pose => ({

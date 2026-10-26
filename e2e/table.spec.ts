@@ -1,13 +1,14 @@
 // Layout checks at exact game states, through the test-only table harness (src/client/App.tsx):
 // the page renders a static table from an injected view instead of playing up to that state.
 import { expect, type Page, test } from "@playwright/test";
-import { apply } from "../src/engine/game";
-import { toView } from "../src/engine/view";
+import { apply, type GameState } from "../src/engine/game";
+import { type GameView, toView } from "../src/engine/view";
 import {
   atTurnStart,
   firstTurn,
   knockoutGame,
   lastTurnGame,
+  playedRound,
   roundOver,
   type Shown,
   show,
@@ -503,14 +504,96 @@ test("tapping an opponent shows their whole grid at full size", async ({ page })
   await expect(zoom).toBeHidden();
 });
 
-test("a spectator sees everyone in two columns", async ({ page }) => {
-  const state = lastTurnGame(8, 3);
-  await show(page, { view: toView(state), seat: null });
-  await expectMobileFriendly(page);
-  const boxes = await page
-    .getByTestId("opponent")
-    .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().left));
-  expect(new Set(boxes.map(Math.round)).size).toBe(2);
+/**
+ * Moves the harness table on to `view`, then tells whether each element is wholly on screen and
+ * inside every scrolling box around it: its test id, or why not.
+ */
+const onScreen = (page: Page, view: GameView, testIds: string[]) =>
+  page.evaluate(
+    ({ view, ids }) => {
+      dispatchEvent(new CustomEvent("skyjo:table", { detail: { view } }));
+      return ids.map((id) => {
+        const el = document.querySelector(`[data-testid="${id}"]`);
+        if (!el) return `${id}: missing`;
+        const r = el.getBoundingClientRect();
+        const boxes = [{ top: 0, bottom: innerHeight, left: 0, right: innerWidth }];
+        for (let up = el.parentElement; up; up = up.parentElement) {
+          if (getComputedStyle(up).overflowY !== "visible") boxes.push(up.getBoundingClientRect());
+        }
+        const inside = boxes.every(
+          (b) =>
+            r.top >= b.top - 1 &&
+            r.bottom <= b.bottom + 1 &&
+            r.left >= b.left - 1 &&
+            r.right <= b.right + 1,
+        );
+        return inside ? id : `${id}: off screen at ${Math.round(r.top)}–${Math.round(r.bottom)}`;
+      });
+    },
+    { view, ids: testIds },
+  );
+
+test.describe("M12: spectators keep the piles", () => {
+  test.use({ viewport: { width: 390, height: 664 } });
+
+  test("at 8 seats, a spectator sees the deck, the discard and the drawn card on every turn of a played round, and whoever is playing", async ({
+    page,
+  }) => {
+    const states = playedRound(8, 3);
+    await show(page, { view: toView(states[0]), seat: null });
+    let turns = 0;
+    for (const state of states.slice(0, -1)) {
+      const view = toView(state);
+      const ids = ["deck", "discard", ...(view.drawn === null ? [] : ["drawn"])];
+      expect(await onScreen(page, view, ids), `turn ${turns}, ${state.phase}`).toEqual(ids);
+      // The table follows whoever is playing: a full turn of the table is enough.
+      if (state.phase === "draw" && turns++ < 8) {
+        await expect(page.locator('[data-testid="opponent"].active')).toBeInViewport({
+          ratio: 0.99,
+        }); // subpixels
+      }
+    }
+    // Both ways of holding a card were seen: drawn from the deck, and taken from the discard.
+    expect(new Set(states.map((s) => s.drawnFrom))).toEqual(new Set([null, "deck", "discard"]));
+    expect(turns).toBeGreaterThan(40);
+  });
+
+  test("2–8 seats, at the device's own size and at 360 and 390 px wide: two columns, the piles and the held card in view, nothing to tap but the panels; targets ≥ 44 px, no sideways scroll, numbers ≥ 12 px", async ({
+    page,
+  }, info) => {
+    const drew = (players: number) => {
+      const state = firstTurn(players, 5);
+      return toView(apply(state, { type: "draw", seat: state.current, source: "deck" }));
+    };
+    await show(page, { view: drew(2), seat: null });
+    const own = info.project.use.viewport ?? { width: 390, height: 664 };
+    for (const [width, height] of [
+      [own.width, own.height],
+      [360, 740],
+      [390, 664],
+    ]) {
+      await page.setViewportSize({ width, height });
+      for (let players = 2; players <= 8; players++) {
+        const where = `${players} seats at ${width} px`;
+        const ids = ["deck", "discard", "drawn"];
+        expect(await onScreen(page, drew(players), ids), where).toEqual(ids);
+        await expect(page.getByTestId("opponent"), where).toHaveCount(players);
+        // Two panels a row, each half the width.
+        const rows = await page.getByTestId("opponent").evaluateAll((els) => {
+          const tops = els.map((el) => Math.round(el.getBoundingClientRect().top));
+          return [...new Set(tops)].map((top) => tops.filter((t) => t === top).length);
+        });
+        expect(rows, where).toEqual(
+          Array.from({ length: Math.ceil(players / 2) }, (_, i) =>
+            i < Math.floor(players / 2) ? 2 : 1,
+          ),
+        );
+        await expect(page.locator("button.card, input"), where).toHaveCount(0);
+        await expectMobileFriendly(page);
+        expect(await smallestOpponentNumber(page), where).toBeGreaterThanOrEqual(12);
+      }
+    }
+  });
 });
 
 test("round summary: rows, who ended, doubling shown as base ×2 = total; View table hides it", async ({
@@ -586,6 +669,17 @@ test("M17: a player who is out watches: 'Out · watching' on their seat, the spe
   await expect(page.getByRole("checkbox")).toHaveCount(0);
   await expect(page.getByTestId("prompt")).toHaveText("You're watching this game");
   await expectMobileFriendly(page);
+  // M12 (M17 PO): out, Dani is one slim line under the players still in, not a grid's space.
+  const boxes = await page
+    .getByTestId("opponent")
+    .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().toJSON() as DOMRect));
+  const dani = boxes[DANI];
+  const strip = await page.getByTestId("opponents").evaluate((el) => el.clientWidth);
+  expect(dani.height).toBeLessThanOrEqual(44);
+  expect(dani.width).toBeGreaterThanOrEqual(strip - 4 - 1); // the strip's 2 px padding each side
+  for (const other of boxes.filter((_, i) => i !== DANI)) {
+    expect(dani.top).toBeGreaterThanOrEqual(other.bottom);
+  }
 });
 
 test("M17: when everyone still in reaches 100 in the same round, the winner went out too but isn't tagged out", async ({
@@ -700,6 +794,35 @@ test("screenshots: M17 knockout", async ({ page }, info) => {
   await shot("05-out-watching");
   await show(page, { view: over, seat: 2 });
   await shot("06-winner-and-ranking");
+});
+
+test("screenshots: M12 spectators keep the piles", async ({ page }, info) => {
+  test.skip(!process.env.SHOTS || info.project.name !== "iphone", "run with SHOTS=1");
+  const shot = (name: string) =>
+    page.screenshot({
+      path: `docs/screenshots/m12/${name}.jpg`,
+      type: "jpeg",
+      quality: 80,
+      scale: "css",
+      animations: "disabled",
+    });
+  const watch = async (players: number, at: (s: GameState) => boolean) => {
+    const state = playedRound(players, 3).find(at);
+    if (!state) throw new Error("no such turn");
+    await show(page, { view: toView(state), seat: null });
+  };
+  await watch(4, (s) => s.drawnFrom === "deck");
+  await shot("01-spectator-4-drawn-from-deck");
+  // Late in the round, so the table has scrolled down to whoever is playing.
+  await watch(8, (s) => s.drawnFrom === "deck" && s.current >= 5);
+  await shot("02-spectator-8-drawn-from-deck");
+  await watch(8, (s) => s.drawnFrom === "discard" && s.current >= 5);
+  await shot("03-spectator-8-taken-from-discard");
+  await page.setViewportSize({ width: 360, height: 740 });
+  await shot("04-spectator-8-at-360");
+  await page.setViewportSize({ width: 390, height: 664 });
+  await show(page, { view: knockout().round2, seat: DANI });
+  await shot("05-out-player-panel");
 });
 
 test.describe("with motion allowed", () => {

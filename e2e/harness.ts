@@ -36,6 +36,23 @@ export function firstTurn(players: number, seed: number): GameState {
 }
 
 /**
+ * Every state of a round from its first draw to its summary. Turns alternate: one player draws from
+ * the deck and throws it away, flipping a card; the next takes the discard into a face-down slot.
+ */
+export function playedRound(players: number, seed: number): GameState[] {
+  const states = [firstTurn(players, seed)];
+  for (let state = states[0], turn = 0; state.phase === "draw" || state.phase === "place"; ) {
+    const legal = legalActions(state);
+    const grid = state.players[state.current].grid;
+    if (state.phase === "draw") state = apply(state, legal[turn++ % 2]);
+    else if (state.drawnFrom === "deck") state = apply(state, legal[legal.length - 1]);
+    else state = apply(state, legal.find((a) => a.type === "swap" && !grid[a.pos]?.up) ?? legal[0]);
+    states.push(state);
+  }
+  return states;
+}
+
+/**
  * A knockout game (R16) the seeded engine plays the same way, to game over: every state on the
  * way, so a test can pick a round summary, a later round and the end.
  */
