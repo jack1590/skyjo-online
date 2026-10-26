@@ -165,8 +165,9 @@ test.describe("M18: discard mode shows where to tap", () => {
       expect((await top("deck")) - (await top("drawn"))).toBeCloseTo(6, 0);
 
       // Discard mode (UX-18): the card lies on the pile, with Undo where it was (UX-19); the
-      // highlights are exactly your face-down cards; face-up ones dim.
-      await page.getByTestId("discard").click();
+      // highlights are exactly your face-down cards; face-up ones dim. Forced: a page's first
+      // click waits for its first frames: 1.4–5.4 s on CI's WebKit (M20 probe). UX-29 hit-tests it.
+      await page.getByTestId("discard").click({ force: true });
       await expect(page.getByRole("button", { name: undo, exact: true })).toBeVisible();
       await expect(page.getByTestId("drawn")).toHaveCount(0);
       await expectMobileFriendly(page);
@@ -488,7 +489,9 @@ test("8 players: the strip scrolls sideways and keeps whoever is playing in view
 test("tapping an opponent shows their whole grid at full size", async ({ page }) => {
   await show(page, atTurnStart(6));
   const first = page.getByTestId("opponent").first();
-  await first.click();
+  // Forced: a page's first click waits for its first frames on CI's WebKit (M18's, M20 probe). The
+  // second click on the same panel, below, still hit-tests it.
+  await first.click({ force: true });
   const zoom = page.getByTestId("zoom");
   await expect(zoom).toBeVisible();
   await expect(zoom.getByRole("img")).toHaveCount(12);

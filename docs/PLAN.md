@@ -493,7 +493,7 @@ The expert counts slow taps as part of the "not smooth" feeling. All three items
 - **On CI:** the iPhone job took 159 s (step 114 s). It ran on a slow runner whose tests summed 387 s, and M18 took 8.8–14.0 s there (M20's first commit).
 - **Scores:** Rules correctness 5, Mobile UX 5, Visual polish 5, Multiplayer stability 5, Security N/A (client only), Code health 5, Delivery health 4 (M18 on slow runners), Game feel 5.
 
-### M20 — The deal · v2.2.5
+### M20 — The deal · v2.2.5 · ✅ shipped (PR #29)
 
 **First commit of M20's PR, test only (delivery health, PO PR #28).** Make `table.spec.ts`'s M18 tests cheap on CI.
 - **Why:** each takes 0.4 s locally at 1 worker, but 6.7–13.0 s on CI's iPhone job (UX-21's split tests: 0.3 s and 2.8–5.8 s), so they are still its longest table tests. Find the step that is slow on CI's WebKit, from a trace or a timed log, and fix it.
@@ -506,7 +506,40 @@ The expert counts slow taps as part of the "not smooth" feeling. All three items
 - At least 12 animations start at increasing times and are all done within 800 ms.
 - A tap at 100 ms works.
 - Reduced motion turns it off.
+- (PO, PR #29 round 1) A phone whose page was scrolled when the table replaced the lobby still sees the deal. Today the page's scroll clamps back to 0 as the table mounts, and that scroll event ends every stand-in. A host whose Start button is below the fold (iPhone 13, 4 seats: its bottom edge at 696 px of 664) saw no deal in 4 of 6 game starts. Test: in the harness, scroll a taller page to its bottom, shrink it as the deal arrives, and 2 frames later the 12 stand-ins still fly.
+- (PO, PR #29 round 1) Your second opening flip, answered mid-deal, leaves the cards still being dealt hidden. Today it turns your card buttons into spans, the new elements aren't hidden, and up to 10 cards show in place under their stand-ins. Test: the deal, then your 2 flips: your undealt cards stay at opacity 0 while their stand-ins fly.
 - The release checklist is done.
+
+**How it was built (author, PR #29).**
+- **The investigation.** A step-timing reporter on CI (branch `m20-ci-probe`, three iPhone runs, each running the project twice) found two costs, neither in the app:
+  - **Trace recording.** `retain-on-failure` records every test's trace, screencast included, and throws it away when the test passes. On the same runner, the Playwright step took 1.9 min with it and 1.1 min without (a slow runner: Undo 24.9 s), and 1.2 min against 42 s (a fast one). M18's tests took 10.2–12.1 s with it, 4.1–5.4 s without. A trace without screenshots still cost 14% (1.4 against 1.2 min). Traces are now recorded on the first retry only (CI retries once): a failure that repeats comes with one, and every failed attempt now leaves a screenshot.
+  - **The first click after a page load.** Playwright waits for two animation frames before it calls an element stable, and CI's WebKit took 0.6–2.2 s for a page's first two frames (later ones 0.02–0.04 s; locally 0.02–0.1 s). M18's discard click took 1.4–5.4 s. It is forced; UX-29 still hit-tests that tap.
+  - **A harness race**, which the probe hit once ("UX-27: with reduced motion the round summary shows at once", trace off). `App` listened for `skyjo:table` in a passive effect, which can run after a test's first event when the first paint is slow. It is a layout effect now.
+- **The deal** (`useFlights` in `motion.ts`). A new round's first view, or a new game's (all face down, once the page has loaded: earlier, positions may be an unstyled page's), deals the cards each seat holds (`dealing`), so a seat that is out gets none.
+  - Your cards: card i flies as a stand-in from the deck to its slot (M11's `path`, 320 ms, face down), starting at 30·i ms; the last lands at 650 ms. The real card waits hidden in its place, so it takes a tap at once. A tap ends that card's stand-in only; the rest of the deal goes on. A scroll ends them all (stand-ins are fixed to the page). Another player's flip doesn't: only your cards hide under the deal's stand-ins.
+  - Opponents' cards fade in from 0.6× scale, on the same schedule, among their neighbours (`data-motion="flip"`, M19's reveal fix).
+  - An 8-seat deal (12 flights, 12 hidden cards, 84 fades) in WebKit (iPhone 13 project), longest frame in its first second, 9 runs on the author's machine: median 58 ms (52–82), against M19's 8-seat reveal bar of 60 ms.
+  - In `npm run dev`, React's StrictMode mounts the table twice; the second mount starts over, so a new game's deal shows there too.
+  - (PO round 1) A scroll ends stand-ins only when the window has moved from where it was when the cards were read: the clamp as the table replaces a scrolled lobby moved nothing. A card of yours rendered anew mid-deal (your 2nd flip turns your buttons into spans) is hidden again until its stand-in lands, by a layout effect on every render; a landed card's deal is dropped there.
+  - It composes: the deal sound plays as it starts; your grid scrolls into view (M8) once it has landed (`timing`); the round's reveal, if still playing, is cancelled first, as before, and now its held totals end too (`useRevealing`).
+
+**PO, PR #29 round 1: changes requested** (the two acceptance items above, and one test change). Played on `b21675f` with motion and sound on: 4-phone knockout games (Ana in es with sound, Ben hosting in en, Cleo in pt, Dani in en) in WebKit at 390×664 and Chromium at 360×740, through game start, round 2 (a seat out: Ana's phone ran 48 deal animations, 2 opponents' fades) and a rematch; plus 6 starts in a row with the lobbies scrolled or not.
+- **The deal feels like a deal.** The cards leave the deck one by one on an arc and settle into the grid; opponents' grids fill row by row; the deal sound plays at each deal. At 650 ms it isn't long, and it never delays your first flip: a tap at 100–160 ms turned its card over 17–40 ms later. No stand-in or hidden card was left behind and no console error.
+- **Both defects were proven fixable on a scratch copy:** ignore a document scroll that leaves the window where it was when the cards were measured, and hide a card that re-renders while its stand-in flies. With them, every phone saw all 12 stand-ins at all 12 starts (6 per engine), and no card showed under a stand-in.
+- **Rulings.** Your stand-ins don't carry the active grid's gold ring, so each card's ring appears as it lands: it stands, since that's when the card can be tapped. The trace change stands: a failed attempt leaves a screenshot and its error context, a retry leaves a trace, and a flaky test still fails the run (checked on Playwright 1.64.1).
+- **WebKit 8-seat deal**, longest frame, median of 9, same script and machine: this PR 57 and 61 ms, `main` 28 ms for the same new round. That's within M19's 60 ms bar, but at its edge. Not required: fading in only the strip's visible panels would save most of the 84 fades.
+- **Delivery.** CI's iPhone job: 129, 118 and 113 s on fast runners (tests summed 203–240 s; PR #28: 159–166 s), and 138 s on a medium one (attempt 4: 312 s). On that runner M18 took 5.1–6.1 s, against 8.8–14.0 s before, and "tapping an opponent" took 10.5 s: force its first click, since its second click on the same panel still hit-tests it. Locally, `npm run e2e` passed 217 in 55 s; Node 20 passed; the UX-28, M18 and UX-27 tests passed 210 of 210 at `--repeat-each=10` on all 3 devices.
+- **An idea for later (game feel):** a dealer turns the first discard over after the deal (R2). Today it's simply there.
+
+**PO, PR #29 round 2: approved** on `eb0eb05`.
+- **The scrolled lobby.** In 12 starts and rematches of real 4-phone games (6 in WebKit at 390×664, 6 in Chromium at 360×740), all 48 phone-starts saw all 12 stand-ins. That includes every start where the host or other players had scrolled their lobby.
+- **The fast second flip.** In 4 real games, Ana's two opening flips landed 142–222 ms into the deal, with 10 stand-ins still flying and no card showing under one.
+- **The author's change from the PO patch stands.** A landed card's deal entry is dropped, so a later button↔span re-render starts nothing. After every deal, no stand-in, hidden card or animation was left, and there was no console error.
+- **Numbers.**
+  - Locally: `npm run e2e` passed 220 in 52 s; Node 20 passed; the UX-28, M18, UX-27 and opponent-zoom tests passed 270 of 270 at `--repeat-each=10` on all 3 devices.
+  - WebKit 8-seat deal: longest frame 58 ms (median of 9).
+  - CI run 40294846178, on a fast runner (tests summed 187 s): the iPhone job took 108 s (Playwright 55 s), M18 2.6–3.1 s and opponent zoom 4.3 s. There were no retries, and the run took 1.9 min.
+- **Scores:** Rules correctness 5, Mobile UX 5, Visual polish 5, Multiplayer stability 5, Security N/A (client only), Code health 5, Delivery health 5, Game feel 5.
 
 ### UX passes (user request, 2026-10-24) · M9 onward, one patch or minor each
 
@@ -696,8 +729,8 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 11  | ✅ M9                              | UX-1, UX-2, UX-21, UX-25, UX-27 (final reveal)                                                                          | 2.2.1         | no jumps, and a card from the discard stays at the pile                                                          |
 | 12  | ✅ M11                             | UX-22, UX-23, UX-24 (+ UX-9), UX-7                                                                                      | 2.2.2         | the user asked for natural animations; it needs M9's correct start positions                                     |
 | 13  | ✅ M10                             | UX-3, UX-5, UX-19                                                                                                       | 2.2.3         | feedback before the server answers                                                                               |
-| 14  | M19                                | UX-8, UX-26, UX-30                                                                                                      | 2.2.4         | column removal you can follow                                                                                    |
-| 15  | M20                                | UX-28, the deal                                                                                                         | 2.2.5         | polish                                                                                                           |
+| 14  | ✅ M19                             | UX-8, UX-26, UX-30                                                                                                      | 2.2.4         | column removal you can follow                                                                                    |
+| 15  | ✅ M20                             | UX-28, the deal                                                                                                         | 2.2.5         | polish                                                                                                           |
 | 16  | M12                                | Spectators keep the piles                                                                                               | 2.2.6         | minor                                                                                                            |
 | 17  | M13                                | UX-11, UX-14, UX-17, game-over cue                                                                                      | 2.3.0         | minor, new                                                                                                       |
 | 18  | M14                                | UX-15, UX-16, last-round cue                                                                                            | 2.4.0         | minor, new                                                                                                       |

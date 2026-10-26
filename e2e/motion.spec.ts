@@ -6,28 +6,38 @@ import { type GameView, toView } from "../src/engine/view";
 import { firstTurn, knockoutGame, show } from "./harness";
 import { seatedRoom, startGame } from "./helpers";
 
-/** Counts Element.animate calls (deterministic across engines, unlike sampling getAnimations()). */
+/** Counts Element.animate calls by id (deterministic across engines, unlike sampling getAnimations()). */
 const countAnimations = (page: Page) =>
   page.addInitScript(() => {
     const original = Element.prototype.animate;
-    (window as unknown as { animations: number }).animations = 0;
+    const counts: Record<string, number> = {};
+    (window as unknown as { animations: Record<string, number> }).animations = counts;
     Element.prototype.animate = function (...args) {
-      (window as unknown as { animations: number }).animations++;
+      const [, options] = args;
+      const id = (typeof options === "object" && options.id) || "";
+      counts[id] = (counts[id] ?? 0) + 1;
       return original.apply(this, args);
     };
   });
 
-/** Ana flips her first card in a fresh 2-phone game; did Ben's phone animate it? */
-async function opponentFlipAnimates(pages: Page[]): Promise<boolean> {
+/**
+ * A fresh 2-phone game, in which Ana flips her first card: how many animations Ben's phone ran for
+ * the deal (UX-28: the only flights in it) and for flips.
+ */
+async function gameStart(pages: Page[]) {
   await countAnimations(pages[1]);
   await pages[1].reload();
   await startGame(pages[0]);
   // Ben's reloaded page must show the deal before Ana flips, or his first view already holds the
   // flip and there is nothing to animate (10 of 40 runs at 12 workers, PR #21).
   await expect(pages[1].getByTestId("table")).toHaveAttribute("data-phase", "flip");
+  // While her own deal may still be flying in: taps are never blocked (UX-28).
   await pages[0].getByTestId("my-grid").locator("button").first().click();
   await expect(pages[1].getByTestId("opponent").locator('[data-face="up"]')).toHaveCount(1);
-  return pages[1].evaluate(() => (window as unknown as { animations: number }).animations > 0);
+  const counts = await pages[1].evaluate(
+    () => (window as unknown as { animations: Record<string, number> }).animations,
+  );
+  return { deal: counts.flight ?? 0, flip: counts.flip ?? 0 };
 }
 
 /** Every Element.animate call, with its element, for the harness tests below. */
@@ -237,11 +247,13 @@ function columnTurn() {
 test.describe("with motion allowed", () => {
   test.use({ reducedMotion: "no-preference" });
 
-  test("an opponent's flip animates on everyone's phone", async ({ browser }, info) => {
+  test("UX-28: a new game deals on every phone (your 12 cards and their hidden places, their 12), and an opponent's flip animates", async ({
+    browser,
+  }, info) => {
     const { pages } = await seatedRoom(browser, info, ["Ana", "Ben"], {
       reducedMotion: "no-preference",
     });
-    expect(await opponentFlipAnimates(pages)).toBe(true);
+    expect(await gameStart(pages)).toEqual({ deal: 36, flip: 1 });
   });
 
   test("UX-1, UX-25: a deck draw leaves the deck face down, and every swap starts at the held card (8 of 8, yours and the opponent's)", async ({
@@ -980,6 +992,188 @@ test.describe("with motion allowed", () => {
     for (const card of await gone.all()) await expect(card).toHaveCSS("opacity", "1");
   });
 
+  test("UX-28: the deal: your 12 cards fly in from the deck face down, 30 ms apart, and theirs fade and scale in, all within 800 ms; none for a seat that's out; the reveal still playing ends; a tap at 100 ms works", async ({
+    page,
+  }) => {
+    await recordFlights(page);
+    // Knockout seed 1: Dani went out in round 1, so round 2 deals to Ana, Ben and Cris only.
+    const game = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 1);
+    const end = game.findIndex((s) => s.phase === "roundOver");
+    const next = toView(game[end + 1]);
+    expect(next.round).toBe(2);
+    await show(page, { view: toView(game[end - 1]), seat: 0, lead: true });
+    const clock = [{ seat: 0, inMs: 30_000, reason: "timer" as const }]; // M8's opening flip
+    const seen = await page.evaluate(
+      ({ end, next, clock }) => {
+        const w = window as unknown as { flights: { el: Element; a: Animation }[] };
+        const box = (el: Element | null | undefined) => {
+          const r = el?.getBoundingClientRect();
+          return r ? { x: r.x + r.width / 2, y: r.y + r.height / 2, w: r.width } : null;
+        };
+        // The final reveal starts; the next round comes before it ends (another phone advanced).
+        let mark = w.flights.length;
+        dispatchEvent(new CustomEvent("skyjo:table", { detail: { view: end } }));
+        const reveal = w.flights.slice(mark).filter(({ a }) => a.id === "flip");
+        mark = w.flights.length;
+        dispatchEvent(new CustomEvent("skyjo:table", { detail: { view: next, wait: clock } }));
+        const started = w.flights.slice(mark);
+        for (const { a } of started) a.pause();
+        const seek = (t: number) => {
+          for (const { a } of started) a.currentTime = t;
+        };
+        const grid = document.querySelector('[data-testid="my-grid"]');
+        const panels = [...document.querySelectorAll('[data-testid="opponent"]')];
+        const copies = started.filter(({ el }) => el.matches('.card[data-copy=""]'));
+        const timing = ({ a }: { a: Animation }) => ({
+          delay: Number(a.effect?.getTiming().delay),
+          end: Number(a.effect?.getComputedTiming().endTime),
+        });
+        const deck = box(document.querySelector('[data-testid="deck"]'));
+        const slots = [...(grid?.children ?? [])].map(box);
+        // Each copy where it starts, and 1 ms before it lands.
+        const from = copies.map((c) => {
+          seek(timing(c).delay);
+          return box(c.el);
+        });
+        const to = copies.map((c) => {
+          seek(timing(c).end - 1);
+          return box(c.el);
+        });
+        seek(100);
+        const hidden = [...(grid?.children ?? [])].map((el) => getComputedStyle(el).opacity);
+        const theirs = started.filter(({ el }) => el.closest(".opponents"));
+        return {
+          cancelled: reveal.length > 0 && reveal.every(({ a }) => a.playState === "idle"),
+          copies: copies.map((c) => ({ ...timing(c), down: c.el.classList.contains("down") })),
+          ends: started.map((f) => timing(f).end),
+          from,
+          to,
+          deck,
+          slots,
+          hidden,
+          theirs: panels.map((p) => theirs.filter(({ el }) => p.contains(el)).length),
+          fades: theirs.map(({ a }) =>
+            (a.effect as KeyframeEffect)
+              .getKeyframes()
+              .map((k) => [String(k.opacity), String(k.transform)]),
+          ),
+          totals: panels.map((p) => p.querySelector(".opp-total")?.textContent),
+          props: started.map(({ a }) => ({
+            props: [
+              ...new Set(
+                (a.effect as KeyframeEffect).getKeyframes().flatMap((k) => Object.keys(k)),
+              ),
+            ].filter((k) => !["offset", "computedOffset", "easing", "composite"].includes(k)),
+          })),
+        };
+      },
+      { end: toView(game[end]), next, clock },
+    );
+    expect(seen.cancelled, "the reveal's flips").toBe(true);
+    expect(seen.totals, "no total held for the reveal").toEqual(
+      [1, 2, 3].map((i) => String(next.players[i].total)),
+    );
+    // Yours: 12 stand-ins, face down, 30 ms apart, from the deck to your slots.
+    expect(seen.copies.map((c) => c.delay)).toEqual([...Array(12).keys()].map((i) => 30 * i));
+    for (const c of seen.copies) {
+      expect(c.down, "face down").toBe(true);
+      expect(c.end - c.delay).toBeCloseTo(320, 6);
+    }
+    for (const [i, b] of seen.from.entries()) expectOver(b as Box, seen.deck as Box, `from ${i}`);
+    for (const [i, b] of seen.to.entries()) {
+      const slot = seen.slots[i];
+      const off = Math.hypot((b?.x ?? 0) - (slot?.x ?? 99), (b?.y ?? 0) - (slot?.y ?? 99));
+      expect(off, `card ${i} lands on its slot`).toBeLessThanOrEqual(1);
+      expect(Math.abs((b?.w ?? 0) - (slot?.w ?? 99))).toBeLessThanOrEqual(1);
+    }
+    expect(seen.hidden, "your cards wait, hidden, under their stand-ins").toEqual(
+      Array(12).fill("0"),
+    );
+    // Theirs: Ben's and Cris's 12 each fade and scale in; Dani, out, gets none.
+    expect(seen.theirs).toEqual([12, 12, 0]);
+    for (const fade of seen.fades) {
+      expect(fade).toEqual([
+        ["0", "scale(0.6)"],
+        ["1", "none"],
+      ]);
+    }
+    expect(Math.max(...seen.ends)).toBeLessThanOrEqual(800);
+    expectOnlyTransforms(seen.props);
+    await expect(page.getByTestId("clock")).toBeVisible();
+
+    // Ben's flip, mid-deal, leaves yours on their way: only your cards hide under them.
+    const ben = apply(game[end + 1], { type: "flip", seat: 1, pos: 0 });
+    const left = await page.evaluate((view) => {
+      dispatchEvent(new CustomEvent("skyjo:table", { detail: { view } }));
+      return document.querySelectorAll('.card[data-copy=""]').length;
+    }, toView(ben));
+    expect(left).toBe(12);
+    // At 100 ms (paused there), a tap on a card of yours not yet landed turns it over: it shows,
+    // lifted, while the rest of the deal goes on.
+    const card = page.getByTestId("my-grid").locator("button").nth(2);
+    await card.click();
+    await expect(card).toHaveAttribute("data-pending", "true");
+    await expect(card).toHaveCSS("opacity", "1");
+    await expect(page.locator('.card[data-copy=""]')).toHaveCount(11);
+    // Your 2 opening flips, answered mid-deal (PO, PR #29): your cards render anew, as spans, and
+    // those still being dealt stay hidden under their stand-ins.
+    const one = apply(ben, { type: "flip", seat: 0, pos: 0 });
+    const two = apply(one, { type: "flip", seat: 0, pos: 1 });
+    const after = await page.evaluate(
+      (views) => {
+        for (const view of views) {
+          dispatchEvent(new CustomEvent("skyjo:table", { detail: { view } }));
+        }
+        const cards = [...(document.querySelector('[data-testid="my-grid"]')?.children ?? [])];
+        return {
+          tags: [...new Set(cards.map((el) => el.tagName))],
+          opacity: cards.map((el) => getComputedStyle(el).opacity),
+          copies: document.querySelectorAll('.card[data-copy=""]').length,
+        };
+      },
+      [toView(one), toView(two)],
+    );
+    expect(after).toEqual({
+      tags: ["SPAN"],
+      opacity: [...Array(12).keys()].map((pos) => (pos === 2 ? "1" : "0")),
+      copies: 11,
+    });
+  });
+
+  test("UX-28 (PO, PR #29): a page scrolled down when the table replaces a taller one (the lobby) still sees the deal: the scroll clamping back moves nothing", async ({
+    page,
+  }) => {
+    await recordFlights(page);
+    const game = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 1);
+    const end = game.findIndex((s) => s.phase === "roundOver");
+    await show(page, { view: toView(game[end]), seat: 0 });
+    const frames = () =>
+      page.evaluate(
+        () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))),
+      );
+    await page.evaluate(() => {
+      const spacer = document.createElement("div");
+      spacer.id = "spacer";
+      spacer.style.height = "3000px";
+      document.body.append(spacer);
+      scrollTo(0, document.documentElement.scrollHeight);
+    });
+    await frames();
+    expect(await page.evaluate(() => scrollY)).toBeGreaterThan(0);
+    await page.evaluate(
+      (view) => {
+        const w = window as unknown as { flights: { a: Animation }[] };
+        document.getElementById("spacer")?.remove();
+        const mark = w.flights.length;
+        dispatchEvent(new CustomEvent("skyjo:table", { detail: { view } }));
+        for (const { a } of w.flights.slice(mark)) a.pause(); // the animations' clock, not the wall's
+      },
+      toView(game[end + 1]),
+    );
+    await frames(); // the clamped scroll's event has come
+    expect(await page.locator('.card[data-copy=""]').count()).toBe(12);
+  });
+
   /**
    * Moves on to `view` and saves the frames at each time (ms after the move) side by side, from the
    * top of the page down to `height`, as docs/screenshots/<dir>/strip-<name>.jpg (STRIP=before-
@@ -1101,11 +1295,23 @@ test.describe("with motion allowed", () => {
     const every = Array.from({ length: 13 }, (_, i) => i * 120);
     await strip(page, "column", toView(after), every, 664, "m19");
   });
+
+  test("screenshots: M20 deal frame strip", async ({ page }, info) => {
+    test.skip(!process.env.SHOTS || info.project.name !== "iphone", "run with SHOTS=1");
+    mkdirSync("test-results/m20", { recursive: true });
+    await recordFlights(page);
+    // Knockout seed 1: round 1's summary, then round 2, dealt to the three still in, every 60 ms.
+    const game = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 1);
+    const end = game.findIndex((s) => s.phase === "roundOver");
+    await show(page, { view: toView(game[end]), seat: 0 });
+    const every = Array.from({ length: 12 }, (_, i) => i * 60);
+    await strip(page, "deal", toView(game[end + 1]), every, 664, "m20");
+  });
 });
 
 test("reduced motion: nothing animates", async ({ browser }, info) => {
   const { pages } = await seatedRoom(browser, info, ["Ana", "Ben"]);
-  expect(await opponentFlipAnimates(pages)).toBe(false);
+  expect(await gameStart(pages)).toEqual({ deal: 0, flip: 0 });
 });
 
 test("UX-26: with reduced motion a completed column just goes: no stand-in, no animation", async ({
@@ -1124,6 +1330,28 @@ test("UX-26: with reduced motion a completed column just goes: no stand-in, no a
   }, toView(after));
   expect(seen).toEqual({ animations: 0, copies: 0 });
   await expect(page.getByTestId("my-grid").locator('[data-face="gone"]')).toHaveCount(3);
+});
+
+test("UX-28: with reduced motion the deal just shows: no stand-in, no animation", async ({
+  page,
+}) => {
+  await recordFlights(page);
+  const game = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 1);
+  const end = game.findIndex((s) => s.phase === "roundOver");
+  await show(page, { view: toView(game[end]), seat: 0 });
+  const seen = await page.evaluate(
+    (view) => {
+      const w = window as unknown as { flights: unknown[] };
+      dispatchEvent(new CustomEvent("skyjo:table", { detail: { view } }));
+      return {
+        animations: w.flights.length,
+        copies: document.querySelectorAll("[data-copy]").length,
+      };
+    },
+    toView(game[end + 1]),
+  );
+  expect(seen).toEqual({ animations: 0, copies: 0 });
+  await expect(page.getByTestId("my-grid").locator('[data-face="down"]')).toHaveCount(12);
 });
 
 test("UX-27: with reduced motion the round summary shows at once", async ({ page }) => {

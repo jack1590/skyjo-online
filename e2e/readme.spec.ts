@@ -77,11 +77,14 @@ test("README card-flight GIF", async ({ browser }, info) => {
     recordVideo: { dir: "test-results/readme-video", size: { width: 390, height: 664 } },
   });
   const [ana, ben] = pages;
+  // The video starts with the page: skip the lobby (its link shows the test server), up to the tap
+  // on Start; the GIF opens on the deal (UX-28).
+  const dealt = (Date.now() - t0) / 1000;
   await startGame(ana);
-  const tableShown = (Date.now() - t0) / 1000; // the video starts with the page: skip the lobby
   const grid = ana.getByTestId("my-grid");
   const faceDown = grid.locator('button[data-face="down"]');
   const pause = () => ana.waitForTimeout(800);
+  await pause();
   while (await botStep(ben)); // Ben flips his two
   for (let i = 0; i < 2; i++) {
     await faceDown.first().click();
@@ -105,7 +108,7 @@ test("README card-flight GIF", async ({ browser }, info) => {
   const video = ana.video();
   await ana.context().close(); // finishes writing the video
   execFileSync("ffmpeg", [
-    ...["-loglevel", "error", "-y", "-ss", String(tableShown), "-to", String(done)],
+    ...["-loglevel", "error", "-y", "-ss", String(dealt), "-to", String(done)],
     ...["-i", String(await video?.path())],
     ...["-vf", `fps=10,scale=300:-1:flags=lanczos,split[a][b];${PALETTE}`],
     "docs/readme/card-flights.gif",

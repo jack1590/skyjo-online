@@ -159,6 +159,22 @@ export const FLIP_MS = { lg: 380, md: 340, sm: 260 } as const;
 
 /** The final reveal (UX-27): flip i of n starts at i·step, all within 2.5 s. */
 export const revealStep = (n: number) => Math.min(110, 2500 / n);
+/** A table that has just been dealt: nobody has turned a card yet. */
+const freshDeal = (v: GameView) =>
+  v.phase === "flip" && v.players.every((p) => p.grid.every((slot) => slot === "down"));
+/** A deal (UX-28): a new round's first view, or a brand-new game's (not one joined in progress). */
+export const isDeal = (prev: GameView | null, cur: GameView) =>
+  prev ? prev.round !== cur.round && cur.phase === "flip" : freshDeal(cur);
+/** UX-28: in a deal, each seat's cards come row by row, `gap` ms apart, each taking `ms`. */
+export const DEAL = { gap: 30, ms: 320 } as const;
+/** The cards a deal brings, as element keys, with when each starts (ms). Out seats get none (R16). */
+export const dealing = (view: GameView) =>
+  view.players.flatMap((p, seat) =>
+    p.grid.flatMap((slot, pos) =>
+      slot === null ? [] : [[slotKey(seat, pos), pos * DEAL.gap] as const],
+    ),
+  );
+
 /** The round summary shows this long after the final reveal's last card has turned (UX-27). */
 export const SUMMARY_MS = 600;
 /** When a change's last animation ends (ms), from its timing; 0 when nothing moved. */
@@ -310,6 +326,8 @@ interface Job {
   edge?: number;
   /** Called once it has ended (or was cancelled). */
   done?: () => void;
+  /** The card of yours whose deal it is (UX-28). */
+  dealt?: string;
 }
 
 /**
@@ -447,22 +465,57 @@ export function useFlights(
   const refs = useRef(new Map<string, (el: HTMLElement | null) => void>());
   const prev = useRef<GameView | null>(null);
   const rects = useRef(new Map<string, Place>());
+  /** Where the window was scrolled when they were read: a scroll that leaves it there moved nothing. */
+  const scrolled = useRef([0, 0]);
   const timing = useRef<Timing>(new Map());
   const measureAgain = useRef(() => {});
   /** Stand-ins on the page (`standIn`), gone with the table. */
   const copies = useRef(new Set<HTMLElement>());
   /** The last change's stand-ins and the cards they hide, which can outlast it (UX-26). */
   const lingering = useRef<Animation[]>([]);
+  /** The deal's, by your card (UX-28): only yours hide under them, so others' flips leave them be. */
+  const dealt = useRef(new Map<string, Animation[]>());
   /**
    * Ends them at once: before the next move's flights, a tap, or a scroll (stand-ins are fixed to
-   * the page), so the table shows its cards again, at rest.
+   * the page), so the table shows its cards again, at rest. `deal`: which of the deal's too: all,
+   * none, or the card you tapped (the rest of the deal goes on).
    */
-  const endStandIns = useRef(() => {
+  const endStandIns = useRef((deal: boolean | string = true) => {
     for (const a of lingering.current) a.finish();
     lingering.current = [];
+    for (const [key, animations] of dealt.current) {
+      if (deal !== true && deal !== key) continue;
+      for (const a of animations) a.finish();
+      dealt.current.delete(key);
+    }
   });
   const reduced = useReducedMotion();
 
+  // Mounted again (React's StrictMode does it in dev), the table starts over: a new game deals.
+  useLayoutEffect(
+    () => () => {
+      prev.current = null;
+    },
+    [],
+  );
+  // A card of yours rendered anew mid-deal (your 2nd opening flip turns your buttons into spans)
+  // waits hidden too, until its stand-in lands (PO, PR #29). A landed card's deal is over.
+  useLayoutEffect(() => {
+    for (const [key, animations] of dealt.current) {
+      const left = Math.max(
+        ...animations.map(
+          (a) => Number(a.effect?.getComputedTiming().endTime) - Number(a.currentTime ?? 0),
+        ),
+      );
+      if (!(left > 0)) {
+        dealt.current.delete(key);
+        continue;
+      }
+      const el = els.current.get(key);
+      const hidden = animations.some((a) => (a.effect as KeyframeEffect | null)?.target === el);
+      if (el && !hidden) animations.push(...start([hide(el, left)]));
+    }
+  });
   useLayoutEffect(() => {
     const before = prev.current;
     prev.current = view;
@@ -475,17 +528,22 @@ export function useFlights(
         for (const a of el.getAnimations({ subtree: true })) if (ours(a)) a.cancel();
       }
       lingering.current = [];
+      dealt.current.clear();
     }
     const { moves, flips, reveal } = before
       ? flightsBetween(before, view)
       : { moves: [], flips: [], reveal: false };
     // Not for an update that moves nothing (presence, clocks): that would cut a column short.
-    if (moves.length || flips.length) endStandIns.current();
+    if (moves.length || flips.length) endStandIns.current(false);
     // Every new position is read before any flight starts, so none holds a first frame (UX-1).
     const was = rects.current;
     const now = measure(els.current, was);
     rects.current = now;
-    if (!before) return;
+    scrolled.current = [scrollX, scrollY];
+    // A new game's deal (UX-28), once the page has loaded: earlier, positions may be an unstyled
+    // page's (`settle`, below).
+    const deal = isDeal(before, view) && (before !== null || document.readyState === "complete");
+    if (!before && !deal) return;
     const jobs: Job[] = [];
     const pile = now.get("discard");
     const column = moves.filter((m) => m.column);
@@ -508,6 +566,33 @@ export function useFlights(
     /** How a column's card got to its slot in this change: flown in, or turned over there. */
     const arrived = new Map<string, { flight: ReturnType<typeof path>; delay: number }>();
     const turned = new Map<string, { delay: number; size: Size }>();
+
+    // The deal (UX-28): your cards fly in from the deck face down, as stand-ins, so the real ones
+    // (hidden until theirs lands) take a tap at once; opponents' fade and scale in where they lie.
+    const deck = now.get("deck");
+    for (const [key, delay] of deal ? dealing(view) : []) {
+      const el = els.current.get(key);
+      const at = now.get(key);
+      if (!el || !at?.width) continue;
+      times.set(key, { start: delay, hit: delay + DEAL.ms, end: delay + DEAL.ms });
+      const options = { duration: DEAL.ms, delay, id: FLIGHT };
+      if (el.closest(".opponents")) {
+        const keyframes = [
+          { opacity: 0, transform: "scale(0.6)" },
+          { opacity: 1, transform: "none" },
+        ];
+        // Among the cards around it, like a flip: raising 84 cards costs WebKit a frame (M11 PO).
+        jobs.push({ el, keyframes, options: { ...options, easing: "ease-out" }, role: "flip" });
+      } else if (deck) {
+        const copy = keep(standIn(el, at));
+        const keyframes = path(deck, at, { ms: DEAL.ms }).frames.map((f) => ({
+          offset: f.offset,
+          transform: transform(f, at.width, false),
+        }));
+        jobs.push({ el: copy, keyframes, options, done: drop(copy), dealt: key });
+        jobs.push({ ...hide(el, delay + DEAL.ms), dealt: key });
+      }
+    }
 
     for (const m of moves) {
       if (m.column) continue;
@@ -664,24 +749,26 @@ export function useFlights(
 
     // The pile shows the card a flight will cover until it lands (UX-30), or the column does.
     const lands = column.length ? end : times.get("discard")?.end;
-    if (pile && lands && before.discardTop !== null && !moves.some((m) => m.from === "discard")) {
-      const under = keep(standIn(before.discardTop, pile, { under: true }));
+    const covered = before?.discardTop ?? null;
+    if (pile && lands && covered !== null && !moves.some((m) => m.from === "discard")) {
+      const under = keep(standIn(covered, pile, { under: true }));
       if (column.length) made.push(under);
       const options = { duration: lands, id: FLIGHT };
       const done = column.length ? undefined : drop(under);
       jobs.push({ el: under, keyframes: [{ opacity: 1 }, { opacity: 1 }], options, done });
     }
     // Added to, so an update that moves nothing (ended nothing) keeps the last change's.
-    const started = start(jobs);
-    lingering.current.push(
-      ...started.filter((_, i) => jobs[i].el.dataset.copy !== undefined || jobs[i].role === "hide"),
-    );
+    for (const [i, a] of start(jobs).entries()) {
+      const { el, role, dealt: key } = jobs[i];
+      if (key) dealt.current.set(key, [...(dealt.current.get(key) ?? []), a]);
+      else if (el.dataset.copy !== undefined || role === "hide") lingering.current.push(a);
+    }
     measureAgain.current(); // and again once they land
   }, [view, reduced, tapped]);
 
   useLayoutEffect(() => {
     if (!pending || reduced) return;
-    endStandIns.current(); // the card you tapped shows, lifted, where it lies
+    endStandIns.current(pending); // the card you tapped shows, lifted, where it lies
     rects.current = measure(els.current, rects.current);
   }, [pending, reduced]);
 
@@ -709,7 +796,11 @@ export function useFlights(
     settle();
     window.addEventListener("load", settle);
     // Stand-ins are fixed to the page, so a scroll or a resize ends them first.
-    const moved = () => {
+    const moved = (e: Event) => {
+      // The page's scroll clamped as the table replaced a taller lobby, before the cards were read:
+      // nothing moved (PO, PR #29: the deal was lost on a scrolled lobby).
+      const [x, y] = scrolled.current;
+      if (e.target === document && scrollX === x && scrollY === y) return;
       endStandIns.current();
       remeasure();
     };
@@ -758,6 +849,8 @@ export function useRevealing(view: GameView, timing: { current: Timing }): boole
   if (view !== last) {
     setLast(view);
     if (flightsBetween(last, view).reveal && !reduced) setHold(true);
+    // The next round, dealt before this phone's reveal ended (another phone advanced): it is over.
+    else if (view.round !== last.round) setHold(false);
   }
   useEffect(() => {
     if (!hold) return;

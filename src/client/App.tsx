@@ -1,4 +1,4 @@
-import { Component, type ComponentProps, type ReactNode, useEffect, useState } from "react";
+import { Component, type ComponentProps, type ReactNode, useLayoutEffect, useState } from "react";
 import { flushSync } from "react-dom";
 import { Home } from "./Home";
 import { useI18n } from "./i18n";
@@ -20,7 +20,9 @@ const noop = () => undefined;
 
 export function App() {
   const [table, setTable] = useState(harness);
-  useEffect(() => {
+  // A layout effect, so it listens as soon as the table is on the page: a passive one could run
+  // after a test's first event, when CI's WebKit takes long to paint (a flake, M20 probe).
+  useLayoutEffect(() => {
     if (!harness) return;
     const next = (e: Event) =>
       flushSync(() => setTable((t) => ({ ...t, ...(e as CustomEvent<Harness>).detail })));
