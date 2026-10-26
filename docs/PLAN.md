@@ -531,6 +531,16 @@ The expert counts slow taps as part of the "not smooth" feeling. All three items
 - **Delivery.** CI's iPhone job: 129, 118 and 113 s on fast runners (tests summed 203–240 s; PR #28: 159–166 s), and 138 s on a medium one (attempt 4: 312 s). On that runner M18 took 5.1–6.1 s, against 8.8–14.0 s before, and "tapping an opponent" took 10.5 s: force its first click, since its second click on the same panel still hit-tests it. Locally, `npm run e2e` passed 217 in 55 s; Node 20 passed; the UX-28, M18 and UX-27 tests passed 210 of 210 at `--repeat-each=10` on all 3 devices.
 - **An idea for later (game feel):** a dealer turns the first discard over after the deal (R2). Today it's simply there.
 
+**PO, PR #29 round 2: approved** on `eb0eb05`.
+- **The scrolled lobby.** In 12 starts and rematches of real 4-phone games (6 in WebKit at 390×664, 6 in Chromium at 360×740), all 48 phone-starts saw all 12 stand-ins. That includes every start where the host or other players had scrolled their lobby.
+- **The fast second flip.** In 4 real games, Ana's two opening flips landed 142–222 ms into the deal, with 10 stand-ins still flying and no card showing under one.
+- **The author's change from the PO patch stands.** A landed card's deal entry is dropped, so a later button↔span re-render starts nothing. After every deal, no stand-in, hidden card or animation was left, and there was no console error.
+- **Numbers.**
+  - Locally: `npm run e2e` passed 220 in 52 s; Node 20 passed; the UX-28, M18, UX-27 and opponent-zoom tests passed 270 of 270 at `--repeat-each=10` on all 3 devices.
+  - WebKit 8-seat deal: longest frame 58 ms (median of 9).
+  - CI run 40294846178, on a fast runner (tests summed 187 s): the iPhone job took 108 s (Playwright 55 s), M18 2.6–3.1 s and opponent zoom 4.3 s. There were no retries, and the run took 1.9 min.
+- **Scores:** Rules correctness 5, Mobile UX 5, Visual polish 5, Multiplayer stability 5, Security N/A (client only), Code health 5, Delivery health 5, Game feel 5.
+
 ### UX passes (user request, 2026-10-24) · M9 onward, one patch or minor each
 
 The user asked for a UX expert agent to find improvements and ship them step by step, not all at once.
