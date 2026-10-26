@@ -493,7 +493,7 @@ The expert counts slow taps as part of the "not smooth" feeling. All three items
 - **On CI:** the iPhone job took 159 s (step 114 s). It ran on a slow runner whose tests summed 387 s, and M18 took 8.8–14.0 s there (M20's first commit).
 - **Scores:** Rules correctness 5, Mobile UX 5, Visual polish 5, Multiplayer stability 5, Security N/A (client only), Code health 5, Delivery health 4 (M18 on slow runners), Game feel 5.
 
-### M20 — The deal · v2.2.5
+### M20 — The deal · v2.2.5 · ✅ shipped (PR #29)
 
 **First commit of M20's PR, test only (delivery health, PO PR #28).** Make `table.spec.ts`'s M18 tests cheap on CI.
 - **Why:** each takes 0.4 s locally at 1 worker, but 6.7–13.0 s on CI's iPhone job (UX-21's split tests: 0.3 s and 2.8–5.8 s), so they are still its longest table tests. Find the step that is slow on CI's WebKit, from a trace or a timed log, and fix it.
@@ -507,6 +507,16 @@ The expert counts slow taps as part of the "not smooth" feeling. All three items
 - A tap at 100 ms works.
 - Reduced motion turns it off.
 - The release checklist is done.
+
+**How it was built (author, PR #29).**
+- **The investigation.** A step-timing reporter on CI (branch `m20-ci-probe`, three iPhone runs, each running the project twice) found two costs, neither in the app:
+  - **Trace recording.** `retain-on-failure` records every test's trace, screencast included, and throws it away when the test passes. On the same runner, the Playwright step took 1.9 min with it and 1.1 min without (a slow runner: Undo 24.9 s), and 1.2 min against 42 s (a fast one). M18's tests took 10.2–12.1 s with it, 4.1–5.4 s without. A trace without screenshots still cost 14% (1.4 against 1.2 min). Traces are now recorded on the first retry only (CI retries once), so a failure still comes with one.
+  - **The first click after a page load.** Playwright waits for two animation frames before it calls an element stable, and CI's WebKit took 0.6–2.2 s for a page's first two frames (later ones 0.02–0.04 s; locally 0.02–0.1 s). M18's discard click took 1.4–5.4 s. It is forced; UX-29 still hit-tests that tap.
+  - **A harness race**, which the probe hit once ("UX-27: with reduced motion the round summary shows at once", trace off). `App` listened for `skyjo:table` in a passive effect, which can run after a test's first event when the first paint is slow. It is a layout effect now.
+- **The deal** (`useFlights` in `motion.ts`). A new round's first view, or a new game's (all face down, once the page has loaded: earlier, positions may be an unstyled page's, and it's a reload), deals the cards each seat holds (`dealing`), so a seat that is out gets none.
+  - Your cards: card i flies as a stand-in from the deck to its slot (M11's `path`, 320 ms, face down), starting at 30·i ms; the last lands at 650 ms. The real card waits hidden in its place, so it takes a tap at once. A tap ends that card's stand-in only; the rest of the deal goes on. A scroll ends them all (stand-ins are fixed to the page). Another player's flip doesn't: only your cards hide under the deal's stand-ins.
+  - Opponents' cards fade in from 0.6× scale, on the same schedule, among their neighbours (`data-motion="flip"`, M19's reveal fix).
+  - It composes: the deal sound plays as it starts; your grid scrolls into view (M8) once it has landed (`timing`); the round's reveal, if still playing, is cancelled first, as before, and now its held totals end too (`useRevealing`).
 
 ### UX passes (user request, 2026-10-24) · M9 onward, one patch or minor each
 
@@ -696,8 +706,8 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 11  | ✅ M9                              | UX-1, UX-2, UX-21, UX-25, UX-27 (final reveal)                                                                          | 2.2.1         | no jumps, and a card from the discard stays at the pile                                                          |
 | 12  | ✅ M11                             | UX-22, UX-23, UX-24 (+ UX-9), UX-7                                                                                      | 2.2.2         | the user asked for natural animations; it needs M9's correct start positions                                     |
 | 13  | ✅ M10                             | UX-3, UX-5, UX-19                                                                                                       | 2.2.3         | feedback before the server answers                                                                               |
-| 14  | M19                                | UX-8, UX-26, UX-30                                                                                                      | 2.2.4         | column removal you can follow                                                                                    |
-| 15  | M20                                | UX-28, the deal                                                                                                         | 2.2.5         | polish                                                                                                           |
+| 14  | ✅ M19                             | UX-8, UX-26, UX-30                                                                                                      | 2.2.4         | column removal you can follow                                                                                    |
+| 15  | ✅ M20                             | UX-28, the deal                                                                                                         | 2.2.5         | polish                                                                                                           |
 | 16  | M12                                | Spectators keep the piles                                                                                               | 2.2.6         | minor                                                                                                            |
 | 17  | M13                                | UX-11, UX-14, UX-17, game-over cue                                                                                      | 2.3.0         | minor, new                                                                                                       |
 | 18  | M14                                | UX-15, UX-16, last-round cue                                                                                            | 2.4.0         | minor, new                                                                                                       |

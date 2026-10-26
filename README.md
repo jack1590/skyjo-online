@@ -5,7 +5,7 @@ A free, phone-first multiplayer card game based on Skyjo's mechanics. Open a lin
 **Play now: https://skyjo-online.jcarl-30.workers.dev** · [What's new](CHANGELOG.md) · [Releases](https://github.com/jack1590/skyjo-online/releases)
 
 <p align="center">
-  <img src="docs/readme/card-flights.gif" width="260" alt="A two-player game: cards are flipped, drawn from the deck, swapped into the grid and thrown onto the discard pile">
+  <img src="docs/readme/card-flights.gif" width="260" alt="A two-player game: the cards are dealt, then flipped, drawn from the deck, swapped into the grid and thrown onto the discard pile">
 </p>
 
 |                                                                                             Start or join a room                                                                                             |                                                                     Invite friends                                                                     |                                                                            Your turn, 9 seconds left                                                                            |

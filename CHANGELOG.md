@@ -4,6 +4,16 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.2.5] - 2026-10-26
+
+### Changed
+
+- Every round now starts with a deal. Your 12 cards fly in from the deck one after another, face down, and settle into your grid; the other players' cards fade in where they lie. It takes about two thirds of a second, and you can tap your cards right away: a card you tap shows at once, while the rest keep arriving. Players who are out of a knockout game get no cards. With reduced motion turned on in your phone's settings, the cards just appear, as before.
+
+### Fixed
+
+- When the next round starts while your phone is still turning over the last round's cards (another player moved on first), every player's total now shows the new score at once. Before, it showed the total from before that round for a moment.
+
 ## [2.2.4] - 2026-10-26
 
 ### Changed

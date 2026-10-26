@@ -3,7 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 import type { GameView } from "../engine/view";
 import type { Wait } from "../protocol";
-import { flightsBetween, SUMMARY_MS, settled, type Timing, useReducedMotion } from "./motion";
+import {
+  flightsBetween,
+  isDeal,
+  SUMMARY_MS,
+  settled,
+  type Timing,
+  useReducedMotion,
+} from "./motion";
 
 /** tick.mp3, the 5 s warning, is generated for this project (ffmpeg, two decaying sines). */
 const NAMES = [
@@ -120,10 +127,6 @@ export function play(name: Sound, ms = 0): boolean {
   return true;
 }
 
-/** A table that has just been dealt: nobody has turned a card yet. */
-const freshDeal = (v: GameView) =>
-  v.phase === "flip" && v.players.every((p) => p.grid.every((slot) => slot === "down"));
-
 /**
  * What to play between two views of the same table, as seen from `seat` (null = watching), each
  * with its delay in ms. With motion, `timing` says when each card's animation starts and ends
@@ -140,8 +143,8 @@ export function soundsBetween(
   timing?: Timing,
   heard?: { current: Sound | null },
 ): [Sound, number][] {
-  if (!prev) return freshDeal(cur) ? [["deal", 0]] : []; // first view: only a brand-new game sounds
-  if (prev.round !== cur.round) return cur.phase === "flip" ? [["deal", 0]] : [];
+  // A first view sounds only for a brand-new game's deal; a new round sounds its deal (UX-28).
+  if (!prev || prev.round !== cur.round) return isDeal(prev, cur) ? [["deal", 0]] : [];
   const out: [Sound, number][] = [];
   /** Whose card an element shows: a slot's player, or for the piles, the one who moved. */
   const owner = (key: string) =>

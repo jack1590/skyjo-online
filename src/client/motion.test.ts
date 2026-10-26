@@ -1,13 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { type Action, apply, createGame, type GameState } from "../engine/game";
+import { type Action, apply, createGame, type GameState, legalActions } from "../engine/game";
 import { toView } from "../engine/view";
 import {
   bezier,
+  DEAL,
+  dealing,
   FLIP_MS,
   flightMs,
   flightsBetween,
   flipDelays,
   flipFrames,
+  isDeal,
   LIFT_MS,
   path,
   revealStep,
@@ -460,5 +463,38 @@ describe("UX-24: the flip", () => {
       expect(Math.abs(Math.cos((turn(t) * Math.PI) / 180)), `at ${t}`).toBeLessThan(0.15);
     }
     expect(turn(0.25), "its back shows at 25%").toBeGreaterThan(90);
+  });
+});
+
+describe("UX-28: the deal", () => {
+  it("UX-28: a new game's first view is a deal, and a new round's; a game in progress isn't", () => {
+    const game = createGame(["A", "B"], [1, 0, 0, 0]);
+    expect(isDeal(null, toView(game))).toBe(true);
+    const flipped = apply(game, { type: "flip", seat: 0, pos: 0 });
+    expect(isDeal(null, toView(flipped)), "a reload after a flip").toBe(false);
+    expect(isDeal(toView(game), toView(flipped))).toBe(false);
+    const next = { ...toView(flipped), round: 2 };
+    expect(isDeal(toView(flipped), next)).toBe(true);
+    expect(isDeal(next, { ...next })).toBe(false);
+  });
+
+  it("UX-28: each seat's 12 cards start row by row 30 ms apart, 320 ms each: all landed within 800 ms", () => {
+    const cards = dealing(toView(createGame(["A", "B", "C"], [1, 0, 0, 0])));
+    expect(cards).toHaveLength(36);
+    expect(cards.slice(0, 12)).toEqual(GRID.map((_, pos) => [slotKey(0, pos), 30 * pos]));
+    expect(DEAL).toEqual({ gap: 30, ms: 320 });
+    expect(Math.max(...cards.map(([, delay]) => delay)) + DEAL.ms).toBeLessThanOrEqual(800);
+  });
+
+  it("UX-28, R16: a knockout round deals only to the players still in", () => {
+    // Seed 1, played like e2e/harness.ts's knockoutGame: Dani goes out in round 1.
+    let round2 = createGame(["Ana", "Ben", "Cris", "Dani"], [1, 0, 0, 0], { knockout: true });
+    while (round2.round === 1) {
+      const legal = legalActions(round2);
+      round2 = apply(round2, legal[round2.phase === "place" ? legal.length - 1 : 0]);
+    }
+    expect(round2.players[3].out).toBe(1);
+    const seats = new Set(dealing(toView(round2)).map(([key]) => key.split("-")[1]));
+    expect([...seats]).toEqual(["0", "1", "2"]);
   });
 });
