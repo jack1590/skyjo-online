@@ -50,7 +50,8 @@ test("README stills", async ({ browser, page }, info) => {
   await page.getByTestId("opponent").first().click();
   await expect(page.getByTestId("zoom")).toBeVisible();
   await shot(page, "zoom");
-  await show(page, { view: toView(roundOver(2, 11)), seat: 0, lead: true });
+  // Ranked from the lowest total, your row tagged, and the ender doubled (UX-14).
+  await show(page, { view: toView(roundOver(4, 4)), seat: 2, lead: true });
   await shot(page, "summary");
 
   // Play until one is left (R16), seed 1: Dani goes out after round 1; Cris is the one left.
