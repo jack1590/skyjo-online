@@ -590,7 +590,8 @@ export function Table(props: TableProps) {
               name={players[zoom].name}
               on={throwsOn}
               onToggle={toggleThrows}
-              until={tossedAt + TOSS_MS}
+              // A little past the server's 3 s, so a throw at the edge isn't dropped on the way.
+              until={tossedAt + TOSS_MS + 250}
               onToss={(item) => {
                 props.onToss?.(zoom, item);
                 setTossedAt(Date.now());
@@ -609,6 +610,7 @@ export function Table(props: TableProps) {
           warned={warned}
           reduced={reduced}
           spot={spot}
+          names={players.map((p) => p.name)}
         />
       )}
 

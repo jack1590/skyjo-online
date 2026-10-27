@@ -39,10 +39,25 @@ test("M21: items live only in an opponent's sheet, 6 big buttons; spectators get
 test("M21: a throw lands on its target without taking a tap, one per target, and the switch turns them off for good", async ({
   page,
 }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { buzzes: number[][] };
+    w.buzzes = [];
+    Object.defineProperty(navigator, "userActivation", { value: { hasBeenActive: true } });
+    navigator.vibrate = (p) => {
+      w.buzzes.push([p].flat() as number[]);
+      return true;
+    };
+  });
+  // Throws only: your turn starting buzzes too, a single 40.
+  const buzzes = () =>
+    page.evaluate(() =>
+      (window as unknown as { buzzes: number[][] }).buzzes.filter((b) => b.length > 1),
+    );
   const turn = atTurnStart(4);
   const me = turn.seat ?? 0;
   await show(page, turn);
   await throwAt(page, { from: (me + 1) % 4, to: me, item: "beer" });
+  await expect(page.getByRole("status").filter({ hasText: "threw you: Beer" })).toHaveCount(1);
   const toss = page.getByTestId("toss");
   await expect(toss).toHaveCount(1);
   await expect(toss).toHaveAttribute("data-item", "beer");
@@ -55,9 +70,11 @@ test("M21: a throw lands on its target without taking a tap, one per target, and
   expect(landed.y + landed.height / 2).toBeGreaterThanOrEqual(bar.y - 1);
   expect(landed.y + landed.height / 2).toBeLessThanOrEqual(bar.y + bar.height + 1);
   expect(await toss.evaluate((el) => getComputedStyle(el).pointerEvents)).toBe("none");
-  // Another at the same target while it's there is dropped.
+  await expect.poll(buzzes).toEqual([[40, 40, 40, 40]]);
+  // Another at the same target while it's there is dropped, and makes no buzz either.
   await throwAt(page, { from: (me + 2) % 4, to: me, item: "bomb" });
   await expect(toss).toHaveCount(1);
+  expect(await buzzes()).toEqual([[40, 40, 40, 40]]);
   await expect(toss).toHaveCount(0, { timeout: 2_000 });
 
   await page.getByTestId("opponent").first().click();

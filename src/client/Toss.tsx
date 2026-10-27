@@ -13,7 +13,7 @@ import { useI18n } from "./i18n";
 import { play, type Sound } from "./sound";
 
 /** How long an item flies; it lands, and makes its sound, after this. */
-export const FLIGHT_MS = 650;
+const FLIGHT_MS = 650;
 /** The gag after landing: the item squashes, bits fly out and a bubble says something. */
 const GAG_MS = 900;
 /** At most this many throws on screen; more are dropped, not queued. */
@@ -30,7 +30,7 @@ const SOUND: Record<TossItem, Sound> = {
 };
 
 /** The target's phone only. Unlike the turn buzz (40), the nudge (200) and the switch ([30, 60, 30]). */
-const BUZZ: Record<TossItem, number[]> = {
+const HIT_BUZZ: Record<TossItem, number[]> = {
   bomb: [60, 30, 140],
   beer: [40, 40, 40, 40],
   donkey: [30, 50, 30, 50, 90],
@@ -54,7 +54,7 @@ const DROPS = [0, 60, 120, 180, 240, 300].map((deg) => ({
 }));
 
 /** Original art, drawn for this game. */
-export const ART: Record<TossItem, ReactNode> = {
+const ART: Record<TossItem, ReactNode> = {
   bomb: (
     <svg viewBox="0 0 40 40" aria-hidden="true">
       <circle cx="18" cy="23" r="13" fill="#2b2d33" />
@@ -181,11 +181,15 @@ interface TossesProps {
   warned: boolean;
   reduced: boolean;
   spot: (seat: number) => Spot | null;
+  /** Seat names, for the line a screen reader hears when you're hit. */
+  names: string[];
 }
 
 /** Every throw in the air, over the table. Taps go through them. */
-export function Tosses({ toss, on, you, warned, reduced, spot }: TossesProps) {
+export function Tosses({ toss, on, you, warned, reduced, spot, names }: TossesProps) {
+  const { t } = useI18n();
   const [flying, setFlying] = useState<Flying[]>([]);
+  const [said, setSaid] = useState("");
   const last = useRef<string | null>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: a new throw is the trigger
   useEffect(() => {
@@ -195,19 +199,19 @@ export function Tosses({ toss, on, you, warned, reduced, spot }: TossesProps) {
     const to = spot(toss.to);
     if (!on || !to) return;
     const from = spot(toss.from) ?? to;
-    // One at a time per target, and a few at most: a pile-up would hide the table.
-    setFlying((f) =>
-      f.length >= MAX_FLYING || f.some((x) => x.toss.to === toss.to)
-        ? f
-        : [...f, { key, toss, from, to }],
-    );
+    // One at a time per target, and a few at most: a pile-up would hide the table. A dropped throw
+    // makes no sound or buzz either, so nobody can be spammed with them.
+    if (flying.length >= MAX_FLYING || flying.some((x) => x.toss.to === toss.to)) return;
+    setFlying([...flying, { key, toss, from, to }]);
     const lands = reduced ? 0 : FLIGHT_MS;
     play(SOUND[toss.item], lands);
-    if (toss.to === you && !warned && navigator.userActivation?.hasBeenActive) {
-      setTimeout(() => navigator.vibrate?.(BUZZ[toss.item]), lands);
+    if (toss.to !== you) return;
+    setSaid(t("tossedYou", { name: names[toss.from] ?? "", item: t(`item_${toss.item}`) }));
+    if (!warned && navigator.userActivation?.hasBeenActive) {
+      setTimeout(() => navigator.vibrate?.(HIT_BUZZ[toss.item]), lands);
     }
   }, [toss]);
-  return flying.map((f) => (
+  const air = flying.map((f) => (
     <Flight
       key={f.key}
       toss={f.toss}
@@ -217,6 +221,14 @@ export function Tosses({ toss, on, you, warned, reduced, spot }: TossesProps) {
       onDone={() => setFlying((all) => all.filter((x) => x !== f))}
     />
   ));
+  return (
+    <>
+      {air}
+      <span className="sr-only" role="status">
+        {said}
+      </span>
+    </>
+  );
 }
 
 interface FlightProps extends Omit<Flying, "key"> {
