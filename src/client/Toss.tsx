@@ -1,5 +1,5 @@
-// Throws (M21): a player throws a bomb, a beer, a donkey… at another, and the whole table sees it fly
-// and land with a gag. Purely for fun: nothing here touches the game.
+// Throws (M21, M22): a player throws a bomb, a beer, a donkey… at another, and the whole table sees
+// it wind up, fly, hit and leave its mark. Purely for fun: nothing here touches the game.
 import {
   type CSSProperties,
   type ReactNode,
@@ -8,133 +8,286 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { TOSS_ITEMS, type Toss, type TossItem } from "../protocol";
+import foam from "./art/mark-foam.webp";
+import heart from "./art/mark-heart.webp";
+import hoof from "./art/mark-hoof.webp";
+import soot from "./art/mark-soot.webp";
+import splat from "./art/mark-splat.webp";
+import stars from "./art/mark-stars.webp";
+import beer from "./art/toss-beer.webp";
+import bomb from "./art/toss-bomb.webp";
+import donkey from "./art/toss-donkey.webp";
+import kiss from "./art/toss-kiss.webp";
+import slipper from "./art/toss-slipper.webp";
+import tomato from "./art/toss-tomato.webp";
 import { useI18n } from "./i18n";
-import { play, type Sound } from "./sound";
+import { PEAK, play, type Sound } from "./sound";
 
-/** How long an item flies; it lands, and makes its sound, after this. */
-const FLIGHT_MS = 650;
-/** The gag after landing: the item squashes, bits fly out and a bubble says something. */
-const GAG_MS = 900;
-/** At most this many throws on screen; more are dropped, not queued. */
-const MAX_FLYING = 3;
+/** The wind-up at the thrower's name before the item leaves (ms). */
+export const WIND = 120;
+/** Every throw's marks start fading at FADE and are gone at END, whatever the item. */
+export const FADE = 1900;
+export const END = 2200;
+/** At most this many throws land on one player at once, and this many on screen. */
+const PER_TARGET = 3;
+const MAX_FLYING = 6;
+/** The target's phone buzzes at most this often, so a dogpile is one buzz, not three. */
+const BUZZ_GAP = 600;
+/** Where each of a target's throws lands, a little apart (px), and how its mark is turned. */
+const SLOT = [
+  [0, 0],
+  [-26, 4],
+  [26, -4],
+] as const;
+const TILT = [-6, 10, -14];
 const THROWS_KEY = "skyjo:throws";
 
-const SOUND: Record<TossItem, Sound> = {
+const ITEM: Record<TossItem, string> = { bomb, beer, donkey, tomato, slipper, kiss };
+
+const HIT: Record<TossItem, Sound> = {
   bomb: "boom",
-  beer: "splat",
-  donkey: "bray",
-  tomato: "splat",
-  slipper: "splat",
+  beer: "beer",
+  donkey: "donkey",
+  tomato: "tomato",
+  slipper: "slipper",
   kiss: "kiss",
 };
 
 /** The target's phone only. Unlike the turn buzz (40), the nudge (200) and the switch ([30, 60, 30]). */
 const HIT_BUZZ: Record<TossItem, number[]> = {
-  bomb: [60, 30, 140],
+  bomb: [30, 20, 180],
   beer: [40, 40, 40, 40],
-  donkey: [30, 50, 30, 50, 90],
-  tomato: [50],
-  slipper: [25, 20, 60],
-  kiss: [15, 30, 15],
+  donkey: [20, 60, 20, 60, 110],
+  tomato: [70],
+  slipper: [15, 25, 50],
+  kiss: [10, 40, 10],
 };
 
-/** What flies out on impact: sparks, foam, dust, juice, stars, hearts. */
-const SPLASH: Record<TossItem, string> = {
-  bomb: "#ffb02e",
-  beer: "#f6d36b",
-  donkey: "#c9b28f",
-  tomato: "#e2412f",
-  slipper: "#7fd0f5",
-  kiss: "#ff7aa8",
+/**
+ * Each item's flight: how long (ms), the beat between landing and hitting (the bomb's fuse, the
+ * donkey rearing back), how high it arcs for its distance, and how it covers the ground: an ease-in
+ * dives into the target, which reads as weight. The donkey hops instead, the kiss sways.
+ */
+const PLAN: Record<
+  TossItem,
+  {
+    fly: number;
+    beat: number;
+    arc: number;
+    ease: (t: number) => number;
+    hops?: number;
+    sway?: number;
+    trail?: number;
+  }
+> = {
+  bomb: { fly: 620, beat: 220, arc: 0.45, ease: (t) => t ** 1.4, trail: 50 },
+  beer: { fly: 600, beat: 100, arc: 0.4, ease: (t) => t ** 1.3, trail: 45 },
+  tomato: { fly: 560, beat: 0, arc: 0.5, ease: (t) => t ** 1.5, trail: 40 },
+  slipper: { fly: 420, beat: 0, arc: 0.18, ease: (t) => t, trail: 28 },
+  kiss: { fly: 760, beat: 0, arc: 0.3, ease: (t) => 1 - (1 - t) ** 2, sway: 12, trail: 90 },
+  donkey: { fly: 720, beat: 160, arc: 0, ease: (t) => t, hops: 3 },
 };
-const DROPS = [0, 60, 120, 180, 240, 300].map((deg) => ({
-  "--x": `${Math.round(Math.cos((deg * Math.PI) / 180) * 34)}px`,
-  "--y": `${Math.round(Math.sin((deg * Math.PI) / 180) * 34)}px`,
-}));
+const r = (v: number) => Math.round(v * 10) / 10 || 0;
+const o = (v: number) => Math.round(v * 1e4) / 1e4;
 
-/** Original art, drawn for this game. */
-const ART: Record<TossItem, ReactNode> = {
+/**
+ * The item's path from the thrower (dx, dy px from where it lands) to the target: it crouches and
+ * pops at the thrower's name, then flies, biggest at the top of its arc (nearer the camera).
+ * `room` is how far above the higher end the arc may go before it leaves the screen.
+ * `ghost` is the same path for the trail, unseen during the wind-up and on arrival.
+ */
+export function flight(item: TossItem, dx: number, dy: number, room = Infinity) {
+  const p = PLAN[item];
+  const lift = Math.max(24, Math.min(160, Math.max(48, p.arc * Math.hypot(dx, dy)), room));
+  const total = WIND + p.fly;
+  const at = (x: number, y: number, s: string) => `translate(${r(x)}px, ${r(y)}px) scale(${s})`;
+  const frames: Keyframe[] = [
+    { offset: 0, transform: at(dx, dy, "0") },
+    { offset: o(70 / total), transform: at(dx, dy + 4, "0.75, 0.6") },
+    { offset: o(WIND / total), transform: at(dx, dy, "1.1") },
+  ];
+  for (let i = 1; i <= 20; i++) {
+    const t = i / 20;
+    const k = p.ease(t);
+    const up = p.hops ? Math.abs(Math.sin(p.hops * Math.PI * t)) * 34 : 4 * t * (1 - t) * lift;
+    const side = p.sway ? Math.sin(2 * Math.PI * t) * p.sway * (1 - t) : 0;
+    const s = p.hops ? 1 : 1 + 0.6 * t * (1 - t);
+    frames.push({
+      offset: o((WIND + t * p.fly) / total),
+      transform: at(dx * (1 - k) + side, dy * (1 - k) - up, `${r(s)}`),
+    });
+  }
+  const ghost = (opacity: number) =>
+    frames.map((f, i) => ({ ...f, opacity: i < 3 || i === frames.length - 1 ? 0 : opacity }));
+  return { frames, ghost, fly: p.fly, land: total, hit: total + p.beat, trail: p.trail ?? 0 };
+}
+
+/** How the target's panel takes the hit (added on top of whatever it's doing). */
+const KNOCK: Record<TossItem, (face: number) => string[]> = {
+  bomb: () => [
+    "none",
+    "translate(-4px, 2px) rotate(-2deg)",
+    "translate(4px, -2px) rotate(2deg)",
+    "translate(-3px, 1px) rotate(-1deg)",
+    "translate(2px, 0)",
+    "none",
+  ],
+  beer: () => ["none", "rotate(-3deg)", "rotate(2deg)", "none"],
+  tomato: () => ["none", "scale(1.05, 0.94)", "scale(0.98, 1.03)", "none"],
+  slipper: () => ["none", "translateY(5px) rotate(3deg)", "translateY(-2px) rotate(-1deg)", "none"],
+  kiss: () => ["none", "scale(1.06)", "none"],
+  donkey: (f) => [
+    "none",
+    `translateX(${10 * f}px) rotate(${3 * f}deg)`,
+    `translateX(${-4 * f}px)`,
+    "none",
+  ],
+};
+const KNOCK_MS: Record<TossItem, number> = {
+  bomb: 300,
+  beer: 300,
+  tomato: 260,
+  slipper: 320,
+  kiss: 300,
+  donkey: 340,
+};
+const QUAKE = [
+  "none",
+  "translate(-3px, 2px)",
+  "translate(3px, -2px)",
+  "translate(-2px, -1px)",
+  "translate(2px, 1px)",
+  "none",
+];
+
+/** What trails the item: smoke, foam, juice, afterimages, hearts. The donkey leaves dust instead. */
+const GHOST: Partial<Record<TossItem, ReactNode>> = {
+  bomb: <img src={soot} alt="" />,
+  beer: <i />,
+  tomato: <i />,
+  slipper: <img src={slipper} alt="" />,
+  kiss: <img src={heart} alt="" />,
+};
+
+/** Bits that fly out on impact, px from it: up and out, so they clear your cards. */
+const BITS = [
+  [-36, -18],
+  [-20, -36],
+  [4, -40],
+  [26, -30],
+  [38, -6],
+];
+const bits = (colours: string[]) =>
+  BITS.map(([x, y], i) => (
+    <i
+      key={`${x},${y}`}
+      className="bit"
+      style={
+        { "--x": `${x}px`, "--y": `${y}px`, "--c": colours[i % colours.length] } as CSSProperties
+      }
+    />
+  ));
+const PUFFS = [
+  [-34, -30],
+  [0, -44],
+  [34, -26],
+];
+
+/** The flash, ring and bits at the point of impact. */
+function burst(item: TossItem, dx: number, dy: number, fly: number): ReactNode {
+  switch (item) {
+    case "bomb":
+      return (
+        <>
+          <i className="flash" />
+          <i className="shock" />
+          {PUFFS.map(([x, y]) => (
+            <img
+              key={x}
+              className="puff"
+              src={soot}
+              alt=""
+              style={{ "--x": `${x}px`, "--y": `${y}px` } as CSSProperties}
+            />
+          ))}
+        </>
+      );
+    case "beer":
+      return bits(["#fff6d8", "#f6d36b"]);
+    case "tomato":
+      return bits(["#e2412f", "#e2412f", "#ffe9a8"]);
+    case "slipper":
+      return <i className="shock" style={{ "--c": "#fff" } as CSSProperties} />;
+    case "kiss":
+      return <i className="shock" style={{ "--c": "#ff7aa8" } as CSSProperties} />;
+    case "donkey":
+      // A puff of dust where each hop touches down, then dust at the headbutt.
+      return (
+        <>
+          {[1 / 3, 2 / 3].map((t) => (
+            <i
+              key={t}
+              className="dust"
+              style={
+                {
+                  "--x": `${r(dx * (1 - t))}px`,
+                  "--y": `${r(dy * (1 - t) + 24)}px`,
+                  "--at": `${Math.round(WIND + t * fly)}ms`,
+                } as CSSProperties
+              }
+            />
+          ))}
+          {bits(["#d9c7a5"])}
+        </>
+      );
+  }
+}
+
+/** The mark left on the target's panel: soot, foam, a splat, dizzy stars, a kiss, hoof prints. */
+const MARK: Record<TossItem, ReactNode> = {
   bomb: (
-    <svg viewBox="0 0 40 40" aria-hidden="true">
-      <circle cx="18" cy="23" r="13" fill="#2b2d33" />
-      <circle cx="13" cy="18" r="3.5" fill="#fff" opacity=".35" />
-      <rect
-        x="21"
-        y="7"
-        width="7"
-        height="6"
-        rx="1.5"
-        transform="rotate(35 25 10)"
-        fill="#555a63"
-      />
-      <path d="M28 8q3-5 7-3" stroke="#c8a165" strokeWidth="2" fill="none" />
-      <circle cx="35" cy="5" r="3" fill="#ffb02e" />
-      <circle cx="35" cy="5" r="1.5" fill="#fff4c2" />
-    </svg>
+    <>
+      <img className="soot" src={soot} alt="" />
+      <i className="wisp" />
+      <i className="wisp" />
+    </>
   ),
   beer: (
-    <svg viewBox="0 0 40 40" aria-hidden="true">
-      <path d="M28 16h3a5 5 0 0 1 0 12h-3" stroke="#e8eef2" strokeWidth="3.5" fill="none" />
-      <rect x="8" y="12" width="21" height="25" rx="3" fill="#f2a516" />
-      <rect x="11" y="18" width="3" height="15" rx="1.5" fill="#ffd36b" />
-      <circle cx="11" cy="11" r="5" fill="#fff" />
-      <circle cx="18" cy="9" r="6" fill="#fff" />
-      <circle cx="25" cy="11" r="5" fill="#fff" />
-    </svg>
+    <>
+      <img className="foam" src={foam} alt="" />
+      <i className="bub" />
+      <i className="bub" />
+      <i className="bub" />
+    </>
   ),
-  donkey: (
-    <svg viewBox="0 0 40 40" aria-hidden="true">
-      <path d="M10 2l6 15-7 2z" fill="#8a8f98" />
-      <path d="M28 2l-4 15 7 1z" fill="#8a8f98" />
-      <path d="M11.5 5l3.5 10-3 1z" fill="#e7b7c0" />
-      <path d="M26.5 5l-2.5 10 3 .5z" fill="#e7b7c0" />
-      <ellipse cx="20" cy="22" rx="10" ry="9" fill="#9aa0a8" />
-      <ellipse cx="20" cy="31" rx="9" ry="7" fill="#e9e4da" />
-      <path d="M14 14q6-4 12 0" stroke="#4b4f56" strokeWidth="3" fill="none" />
-      <circle cx="15.5" cy="20" r="2" fill="#1d1f24" />
-      <circle cx="24.5" cy="20" r="2" fill="#1d1f24" />
-      <circle cx="16.5" cy="30" r="1.3" fill="#5b5249" />
-      <circle cx="23.5" cy="30" r="1.3" fill="#5b5249" />
-      <rect
-        x="17"
-        y="34"
-        width="6"
-        height="3"
-        rx="1"
-        fill="#fff"
-        stroke="#5b5249"
-        strokeWidth=".8"
-      />
-    </svg>
-  ),
-  tomato: (
-    <svg viewBox="0 0 40 40" aria-hidden="true">
-      <circle cx="20" cy="23" r="14" fill="#e2412f" />
-      <circle cx="14" cy="18" r="3.5" fill="#fff" opacity=".35" />
-      <path d="M20 10l-6-2 4 4-5 2h6l1 4 1-4h6l-5-2 4-4z" fill="#3e9b3a" />
-    </svg>
-  ),
+  tomato: <img className="splat" src={splat} alt="" />,
   slipper: (
-    <svg viewBox="0 0 40 40" aria-hidden="true">
-      <ellipse cx="20" cy="21" rx="10" ry="17" fill="#2c9cdb" transform="rotate(-20 20 21)" />
-      <ellipse cx="20" cy="21" rx="7.5" ry="14" fill="#7fd0f5" transform="rotate(-20 20 21)" />
-      <path
-        d="M15 25L19 12l9 9"
-        stroke="#f25c7a"
-        strokeWidth="3.5"
-        fill="none"
-        strokeLinecap="round"
-      />
-      <circle cx="19" cy="12" r="2.2" fill="#f25c7a" />
-    </svg>
+    <span className="orbit">
+      <img className="stars" src={stars} alt="" />
+    </span>
   ),
   kiss: (
-    <svg viewBox="0 0 40 40" aria-hidden="true">
-      <path d="M4 20q7-10 12-8 4 2 4 2t4-2q5-2 12 8-6 10-16 10T4 20z" fill="#e8336b" />
-      <path d="M4 20q16 4 32 0" stroke="#a51c48" strokeWidth="2" fill="none" />
-      <ellipse cx="13" cy="16" rx="3" ry="1.5" fill="#fff" opacity=".4" />
-    </svg>
+    <>
+      <i className="blush" />
+      <img className="lips" src={kiss} alt="" />
+      {[-18, 0, 18].map((x, i) => (
+        <img
+          key={x}
+          className="heart"
+          src={heart}
+          alt=""
+          style={{ "--x": `${x}px`, "--d": `${i * 150}ms` } as CSSProperties}
+        />
+      ))}
+    </>
+  ),
+  donkey: (
+    <>
+      <img className="hoof" src={hoof} alt="" />
+      <img className="hoof" src={hoof} alt="" />
+    </>
   ),
 };
 
@@ -158,11 +311,17 @@ export function useThrowsOn(): [boolean, () => void] {
   return [on, toggle];
 }
 
-/** A point on screen a throw flies from or to, and the element that shakes when hit. */
+/**
+ * Where a seat's throws fly from and land (x, y on screen), the name that winds up for a throw
+ * (`el`), and the panel that takes the hit and holds the mark, at (px, py) inside it.
+ */
 export interface Spot {
   x: number;
   y: number;
   el: HTMLElement;
+  panel: HTMLElement;
+  px: number;
+  py: number;
 }
 
 interface Flying {
@@ -170,6 +329,7 @@ interface Flying {
   toss: Toss;
   from: Spot;
   to: Spot;
+  slot: number;
 }
 
 interface TossesProps {
@@ -188,9 +348,16 @@ interface TossesProps {
 /** Every throw in the air, over the table. Taps go through them. */
 export function Tosses({ toss, on, you, warned, reduced, spot, names }: TossesProps) {
   const { t } = useI18n();
+  // The ref is the truth (throws can arrive faster than renders); the state draws it.
+  const live = useRef<Flying[]>([]);
   const [flying, setFlying] = useState<Flying[]>([]);
   const [said, setSaid] = useState("");
   const last = useRef<string | null>(null);
+  const buzzed = useRef(-Infinity);
+  const set = (all: Flying[]) => {
+    live.current = all;
+    setFlying(all);
+  };
   // biome-ignore lint/correctness/useExhaustiveDependencies: a new throw is the trigger
   useEffect(() => {
     const key = toss && `${toss.id}-${toss.from}`;
@@ -199,26 +366,42 @@ export function Tosses({ toss, on, you, warned, reduced, spot, names }: TossesPr
     const to = spot(toss.to);
     if (!on || !to) return;
     const from = spot(toss.from) ?? to;
-    // One at a time per target, and a few at most: a pile-up would hide the table. A dropped throw
-    // makes no sound or buzz either, so nobody can be spammed with them.
-    if (flying.length >= MAX_FLYING || flying.some((x) => x.toss.to === toss.to)) return;
-    setFlying([...flying, { key, toss, from, to }]);
-    const lands = reduced ? 0 : FLIGHT_MS;
-    play(SOUND[toss.item], lands);
+    // A few per target and on screen: a pile-up would hide the table. Someone else's extra throw
+    // is dropped, sound and buzz too, so nobody can be spammed; yours always lands on your phone,
+    // in place of the oldest that isn't yours.
+    let all = live.current;
+    const at = () => all.filter((f) => f.toss.to === toss.to);
+    if (at().length >= PER_TARGET || all.length >= MAX_FLYING) {
+      if (toss.from !== you) return;
+      const pool = at().length >= PER_TARGET ? at() : all;
+      const victim = pool.find((f) => f.toss.from !== you);
+      if (!victim) return;
+      all = all.filter((f) => f !== victim);
+    }
+    const slot = [0, 1, 2].find((s) => !at().some((f) => f.slot === s)) ?? 0;
+    set([...all, { key, toss, from, to, slot }]);
+    const plan = flight(toss.item, 0, 0);
+    const hit = reduced ? 0 : plan.hit;
+    if (!reduced) {
+      play("whoosh", WIND - (PEAK.whoosh ?? 0));
+      if (toss.item === "bomb") play("fuse", plan.land);
+    }
+    play(HIT[toss.item], Math.max(0, hit - (PEAK[HIT[toss.item]] ?? 0)));
     if (toss.to !== you) return;
     setSaid(t("tossedYou", { name: names[toss.from] ?? "", item: t(`item_${toss.item}`) }));
-    if (!warned && navigator.userActivation?.hasBeenActive) {
-      setTimeout(() => navigator.vibrate?.(HIT_BUZZ[toss.item]), lands);
+    const buzzAt = performance.now() + hit;
+    if (!warned && navigator.userActivation?.hasBeenActive && buzzAt - buzzed.current >= BUZZ_GAP) {
+      buzzed.current = buzzAt;
+      setTimeout(() => navigator.vibrate?.(HIT_BUZZ[toss.item]), hit);
     }
   }, [toss]);
   const air = flying.map((f) => (
     <Flight
       key={f.key}
-      toss={f.toss}
-      from={f.from}
-      to={f.to}
+      flying={f}
       reduced={reduced}
-      onDone={() => setFlying((all) => all.filter((x) => x !== f))}
+      quake={f.toss.item === "bomb" && f.toss.to === you}
+      onDone={() => set(live.current.filter((x) => x !== f))}
     />
   ));
   return (
@@ -231,69 +414,145 @@ export function Tosses({ toss, on, you, warned, reduced, spot, names }: TossesPr
   );
 }
 
-interface FlightProps extends Omit<Flying, "key"> {
+interface FlightProps {
+  flying: Flying;
   reduced: boolean;
+  /** A bomb at you: the whole table shakes. */
+  quake: boolean;
   onDone: () => void;
 }
 
-function Flight({ toss, from, to, reduced, onDone }: FlightProps) {
+function Flight({ flying, reduced, quake, onDone }: FlightProps) {
   const { t } = useI18n();
-  const ref = useRef<HTMLSpanElement>(null);
-  const [landed, setLanded] = useState(reduced);
+  const { toss, from, to, slot } = flying;
+  const { item } = toss;
+  const fly = useRef<HTMLSpanElement>(null);
+  const ghosts = useRef<(HTMLSpanElement | null)[]>([]);
+  const [sx, sy] = SLOT[slot];
+  const dx = from.x - (to.x + sx);
+  const dy = from.y - (to.y + sy);
+  const [plan] = useState(() => flight(item, dx, dy, Math.min(from.y, to.y + sy) - 16));
+  const land = reduced ? 0 : plan.land;
+  const hit = reduced ? 0 : plan.hit;
+  const face = dx <= 0 ? 1 : -1;
   // biome-ignore lint/correctness/useExhaustiveDependencies: runs once per throw
   useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el || reduced) return;
-    const dx = from.x - to.x;
-    const dy = from.y - to.y;
-    const lift = Math.min(90, Math.hypot(dx, dy) / 4 + 30);
-    const donkey = toss.item === "donkey";
-    // An arc with a spin; the donkey hops over instead, upright.
-    const frames = Array.from({ length: 13 }, (_, i) => {
-      const p = i / 12;
-      const up = donkey ? Math.abs(Math.sin(3 * Math.PI * p)) * 36 : 4 * p * (1 - p) * lift;
-      const turn = donkey ? 0 : 1.5 * p;
-      return {
-        transform: `translate(${dx * (1 - p)}px, ${dy * (1 - p) - up}px) rotate(${turn}turn)`,
-      };
-    });
-    const flight = el.animate(frames, { duration: FLIGHT_MS, easing: "linear" });
-    flight.onfinish = () => {
-      setLanded(true);
-      to.el.animate(
-        [
-          { transform: "none" },
-          { transform: "translateX(-4px) rotate(-2deg)" },
-          { transform: "translateX(4px) rotate(2deg)" },
-          { transform: "none" },
-        ],
-        { duration: 300 },
+    const done = setTimeout(onDone, END);
+    const anims: Animation[] = [];
+    if (!reduced) {
+      const total = plan.land;
+      const linear = { duration: total, easing: "linear" } as const;
+      if (fly.current)
+        anims.push(fly.current.animate(plan.frames, { ...linear, fill: "forwards" }));
+      ghosts.current.forEach((g, i) => {
+        const opacity = 0.5 - 0.12 * (i + 1);
+        if (g)
+          anims.push(
+            g.animate(plan.ghost(opacity), {
+              ...linear,
+              delay: (i + 1) * plan.trail,
+              fill: "both",
+            }),
+          );
+      });
+      const add = { composite: "add" } as const;
+      const frames = (all: string[]) => all.map((transform) => ({ transform }));
+      if (from !== to) {
+        anims.push(
+          from.el.animate(
+            [
+              { transform: "none" },
+              { transform: "scale(0.88)", offset: 0.5 },
+              { transform: "scale(1.1)", offset: 0.8 },
+              { transform: "none" },
+            ],
+            { duration: 240, easing: "ease-out", ...add },
+          ),
+        );
+      }
+      anims.push(
+        to.panel.animate(frames(KNOCK[item](face)), {
+          duration: KNOCK_MS[item],
+          delay: hit,
+          easing: "ease-out",
+          id: "toss-knock",
+          ...add,
+        }),
       );
+      const root = document.getElementById("root");
+      if (quake && root) {
+        anims.push(
+          root.animate(frames(QUAKE), { duration: 250, delay: hit, id: "toss-quake", ...add }),
+        );
+      }
+    }
+    return () => {
+      clearTimeout(done);
+      for (const a of anims) a.cancel();
     };
-    return () => flight.cancel();
   }, []);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: counts from the landing
-  useEffect(() => {
-    if (!landed) return;
-    const id = setTimeout(onDone, GAG_MS);
-    return () => clearTimeout(id);
-  }, [landed]);
+  const vars = { "--land": `${land}ms`, "--hit": `${hit}ms` };
+  const edge = to.x < 70 ? "-15%" : to.x > window.innerWidth - 70 ? "-85%" : "-50%";
   return (
-    <span
-      ref={ref}
-      className={`toss${landed ? " landed" : ""}`}
-      data-item={toss.item}
-      data-testid="toss"
-      aria-hidden="true"
-      style={{ left: to.x, top: to.y, "--splash": SPLASH[toss.item] } as CSSProperties}
-    >
-      {ART[toss.item]}
-      {landed &&
-        DROPS.map((d) => (
-          <span key={d["--x"] + d["--y"]} className="drop" style={d as CSSProperties} />
-        ))}
-      {landed && <span className="gag">{t(`gag_${toss.item}`)}</span>}
-    </span>
+    <>
+      <span
+        className="toss"
+        data-item={item}
+        data-testid="toss"
+        aria-hidden="true"
+        style={
+          {
+            left: to.x + sx,
+            top: to.y + sy,
+            "--fly": `${plan.fly}ms`,
+            "--face": face,
+            "--slot": slot,
+            "--gx": edge,
+            ...vars,
+          } as CSSProperties
+        }
+      >
+        {!reduced &&
+          GHOST[item] &&
+          [0, 1, 2].map((i) => (
+            <span
+              key={i}
+              className="toss-ghost"
+              ref={(el) => {
+                ghosts.current[i] = el;
+              }}
+            >
+              {GHOST[item]}
+            </span>
+          ))}
+        <span className="toss-fly" ref={fly}>
+          <span className="toss-art">
+            <img src={ITEM[item]} alt="" />
+          </span>
+        </span>
+        {!reduced && <span className="toss-fx">{burst(item, dx, dy, plan.fly)}</span>}
+        <b className="toss-gag">{t(`gag_${item}`)}</b>
+      </span>
+      {createPortal(
+        <span
+          className="toss-decal"
+          data-item={item}
+          data-testid="toss-decal"
+          aria-hidden="true"
+          style={
+            {
+              "--dx": `${r(to.px + sx)}px`,
+              "--dy": `${r(to.py + sy)}px`,
+              "--tilt": `${TILT[slot]}deg`,
+              ...vars,
+            } as CSSProperties
+          }
+        >
+          {MARK[item]}
+        </span>,
+        to.panel,
+      )}
+    </>
   );
 }
 
@@ -340,7 +599,7 @@ export function Tray({ name, on, onToggle, until, onToss }: TrayProps) {
               disabled={wait > 0}
               onClick={() => onToss(item)}
             >
-              {ART[item]}
+              <img src={ITEM[item]} alt="" />
             </button>
           ))}
         </div>

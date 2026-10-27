@@ -14,7 +14,9 @@ import {
 
 /**
  * tick.mp3, the 5 s warning, and last.mp3, the last-round chime, are generated for this project
- * (ffmpeg, decaying sines), and so are the throws' boom, splat, bray and kiss (M21).
+ * (ffmpeg, decaying sines). The throws' sounds (M22) are CC0 recordings from freesound.org, edited
+ * for this project (credits in the README): a whoosh at launch, the bomb's fuse, and one impact
+ * per item.
  */
 const NAMES = [
   "flip",
@@ -29,17 +31,35 @@ const NAMES = [
   "out",
   "last",
   "tick",
+  "whoosh",
+  "fuse",
   "boom",
-  "splat",
-  "bray",
+  "beer",
+  "donkey",
+  "tomato",
+  "slipper",
   "kiss",
 ] as const;
 export type Sound = (typeof NAMES)[number];
 
 /** Without motion, sounds that announce something rather than go with a card come this much later. */
 const LATE_MS = 250;
-/** How far into its file a card's sound is loudest (ms), so it can peak as the card lands. */
-const PEAK: Partial<Record<Sound, number>> = { draw: 130, place: 160, discard: 210 };
+/**
+ * How far into its file a sound is loudest (ms, measured), so it can peak as a card lands or a
+ * throw hits. The donkey brays as it gallops in, loudest at the headbutt.
+ */
+export const PEAK: Partial<Record<Sound, number>> = {
+  draw: 130,
+  place: 160,
+  discard: 210,
+  whoosh: 80,
+  boom: 60,
+  beer: 10,
+  donkey: 750,
+  tomato: 20,
+  slipper: 90,
+  kiss: 320,
+};
 /** Several sounds can start together (place + discard + flip + column); keep the sum from clipping. */
 const VOLUME = 0.6;
 
@@ -59,7 +79,7 @@ function readMuted(): boolean {
 }
 let muted = readMuted();
 
-/** Starts downloading the sounds (84 KB; not precached: the game needs the network anyway). */
+/** Starts downloading the sounds (150 KB; not precached: the game needs the network anyway). */
 export function preloadSounds() {
   files ??= Promise.all(
     NAMES.map(

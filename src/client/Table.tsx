@@ -211,19 +211,29 @@ export function Table(props: TableProps) {
   const [throwsOn, toggleThrows] = useThrowsOn();
   const [tossedAt, setTossedAt] = useState(0);
   /**
-   * Where a seat's throws fly from and land (M21): their name. A panel scrolled out of the strip
-   * clamps to the strip's edge: scrolling it would fight the scroll that follows the turn.
+   * Where a seat's throws fly from and land (M21, M22): an opponent's panel head, or your name.
+   * The panel (an opponent's, or your name bar) takes the hit and holds the mark. A panel scrolled
+   * out of the strip clamps to the strip's edge: scrolling it would fight the scroll that follows
+   * the turn.
    */
   const spot = (i: number): Spot | null => {
     const opp = oppRefs.current.get(i);
-    const el = opp?.querySelector<HTMLElement>(".opp-name") ?? (opp ? null : mineHead.current);
-    if (!el || (!opp && i !== props.seat)) return null;
-    const r = el.getBoundingClientRect();
+    const panel = opp ?? (i === props.seat ? mineHead.current : null);
+    if (!panel) return null;
+    const el =
+      panel.querySelector<HTMLElement>(opp ? ".opp-name" : ".me") ??
+      panel.querySelector<HTMLElement>(":scope > *") ??
+      panel;
+    const aim = (opp?.querySelector<HTMLElement>(".opp-head") ?? el).getBoundingClientRect();
+    const p = panel.getBoundingClientRect();
+    const cx = aim.left + aim.width / 2;
+    const cy = aim.top + aim.height / 2;
     const box = opp && strip.current ? strip.current.getBoundingClientRect() : null;
-    const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo + 36), hi - 36);
-    const x = clamp(r.left + r.width / 2, box?.left ?? 0, box?.right ?? window.innerWidth);
-    const y = clamp(r.top + r.height / 2, box?.top ?? 0, box?.bottom ?? window.innerHeight);
-    return { x, y, el };
+    const clamp = (v: number, lo: number, hi: number, m: number) =>
+      Math.min(Math.max(v, lo + m), hi - m);
+    const x = clamp(cx, box?.left ?? 0, box?.right ?? window.innerWidth, 36);
+    const y = clamp(cy, box?.top ?? 0, box?.bottom ?? window.innerHeight, 12);
+    return { x, y, el, panel, px: cx - p.left, py: cy - p.top };
   };
   // biome-ignore lint/correctness/useExhaustiveDependencies: timing is read when the turn passes
   useEffect(() => {
