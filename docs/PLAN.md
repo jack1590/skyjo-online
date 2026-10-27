@@ -1002,7 +1002,7 @@ The client sends it without a `seq`, so a throw never holds up a move.
 - **Beer and flip-flop reuse `splat`.** Give the beer a clink or fizz and the flip-flop a slap, so all 6 items sound different.
 - **The bomb barely reads on landing.** At 40 px, squashed by `toss-land`, it ends as a few dots under "Boom!". A short flash or a larger landing would make it read better.
 
-### M22 — Throws, part 2: make them funny (user feedback, 2026-10-27) · v2.5.1
+### M22 — Throws, part 2: make them funny (user feedback, 2026-10-27) · v2.5.1 · ✅ shipped (PR #38)
 
 **Feedback.** The owner played v2.5.0: "good to start but not fun, poor animations, poor sounds". The PO agrees that M21 shipped a placeholder. A 44 px flat icon flew for 650 ms and popped in under a second. The sounds were synthesized beeps, and nothing stayed on the target long enough to be funny.
 
@@ -1027,6 +1027,21 @@ The client sends it without a `seq`, so a throw never holds up a move.
   - buzz throttling;
   - a card under a landing can still be tapped.
 - The full `npm run e2e` passes. Frame strips are in `docs/screenshots/m22/`. The release checklist is done.
+
+**PO rulings (PR #38, 2 rounds).** Played with motion on, on iPhone 13 and Pixel 7, in real 4-phone rooms and the table harness at 4 and 8 players.
+- **Round 1 changes, done in round 2:**
+  - marks were solid for only about 1 s, so they now fade at 2.6 s and are gone at 3.0 s, from `--fade`;
+  - a dogpile's third gag bubble left the top of the screen, so it is now clamped;
+  - the reduced-motion blush stayed fully opaque, and now settles at 0.35;
+  - the author also enlarged the flip-flop's stars and the donkey's hoof prints.
+- **Your own mark over your top row: keep it.** It never covers a card's centre, taps go through (a top-row card stayed tappable on 18 of 18 moves made under a bomb), and it's the "pie in your face" moment.
+- **The bomb's quake on the target's phone: keep it.** It runs 250 ms at ±3 px, on the target only.
+- **Sounds:** each one peaks on its hit. The fuse overlaps the boom by about 140 ms, at −28 dB against the boom's −12 dB, so the boom masks it.
+- **Licensing:** all 10 freesound sources were checked as CC0 1.0 on their own pages.
+
+**PO follow-ups (non-blocking).**
+- When the top-of-screen clamp applies, the 2nd and 3rd bubbles of a dogpile overlap (tops at 11 and 10 px). Offset the clamped one sideways.
+- When your throw takes the place of someone else's, the dropped throw's sounds were already scheduled and still play. Keep the `play()` handles and stop them.
 
 ### M16 — Launch in the App Store and Google Play (user decision, 2026-10-24) · last
 
