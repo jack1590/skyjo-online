@@ -473,9 +473,9 @@ dialog.zoom::backdrop {
   cursor: pointer;
 }
 
-.tray-item svg {
-  width: 32px;
-  height: 32px;
+.tray-item img {
+  width: 36px;
+  height: 36px;
   display: block;
   margin: auto;
 }
@@ -489,96 +489,782 @@ dialog.zoom::backdrop {
   cursor: default;
 }
 
-/* Above flying cards (z 2–3), under the summary's dim (z 9) and dialogs. */
+/* A throw (M22) sits on its impact point, above flying cards (z 2–3), under the summary's dim (z 9)
+   and dialogs. Everything in it is placed around that point and timed from --land and --hit. Only
+   transform and opacity move; impact effects start unseen, so they fill forwards, never both. */
 .toss {
   position: fixed;
   z-index: 8;
-  width: 44px;
-  height: 44px;
-  margin: -22px 0 0 -22px;
+  width: 0;
+  height: 0;
   pointer-events: none;
 }
 
-.toss > svg {
+.toss-fly,
+.toss-ghost {
+  position: absolute;
+  left: -30px;
+  top: -30px;
+  width: 60px;
+  height: 60px;
+  will-change: transform, opacity;
+}
+
+.toss-ghost {
+  opacity: 0;
+}
+
+.toss-ghost > * {
+  display: block;
+  width: var(--g, 36px);
+  height: var(--g, 36px);
+  margin: calc((60px - var(--g, 36px)) / 2);
+}
+
+.toss-ghost > i {
+  border-radius: 50%;
+  background: var(--trail, #fff);
+}
+
+.toss[data-item="beer"] {
+  --trail: #fff6d8;
+}
+
+.toss[data-item="tomato"] {
+  --trail: #e2412f;
+  --g: 14px;
+}
+
+.toss[data-item="slipper"] {
+  --g: 60px;
+}
+
+.toss[data-item="kiss"] {
+  --g: 20px;
+}
+
+.toss-art {
+  position: relative;
+  display: block;
   width: 100%;
   height: 100%;
+}
+
+.toss-art > img {
   display: block;
-  filter: drop-shadow(0 3px 4px rgb(0 0 0 / 0.45));
+  width: 100%;
+  height: 100%;
 }
 
-.toss.landed > svg {
-  animation: toss-land 0.45s ease-out forwards;
-}
-
-.toss .drop {
+.toss-fx > *,
+.toss-decal > * {
   position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 9px;
-  height: 9px;
-  margin: -4.5px 0 0 -4.5px;
+  opacity: 0;
+}
+
+/* In flight: the bomb wobbles (heavy, not spinning), the beer sloshes, the tomato tumbles, the
+   flip-flop spins like a boomerang, the kiss beats like a heart, the donkey gallops. */
+.toss[data-item="bomb"] .toss-art {
+  animation: air-wobble var(--fly) ease-in-out 120ms both;
+}
+
+.toss[data-item="beer"] .toss-art {
+  animation: air-slosh var(--fly) ease-in-out 120ms both;
+}
+
+.toss[data-item="tomato"] .toss-art {
+  animation: air-tumble var(--fly) cubic-bezier(0.5, 0, 0.9, 0.6) 120ms both;
+}
+
+.toss[data-item="slipper"] .toss-art {
+  animation: air-spin var(--fly) linear 120ms both;
+}
+
+.toss[data-item="kiss"] .toss-art {
+  animation: air-beat var(--fly) ease-in-out 120ms both;
+}
+
+.toss[data-item="donkey"] .toss-art {
+  animation: air-gallop var(--fly) linear 120ms both;
+}
+
+@keyframes air-wobble {
+  0% {
+    transform: rotate(-16deg);
+  }
+  25% {
+    transform: rotate(12deg);
+  }
+  50% {
+    transform: rotate(-9deg);
+  }
+  75% {
+    transform: rotate(6deg);
+  }
+  100% {
+    transform: none;
+  }
+}
+
+@keyframes air-slosh {
+  0% {
+    transform: rotate(calc(var(--face) * -25deg));
+  }
+  35% {
+    transform: rotate(calc(var(--face) * 10deg));
+  }
+  70% {
+    transform: rotate(calc(var(--face) * -6deg));
+  }
+  100% {
+    transform: none;
+  }
+}
+
+@keyframes air-tumble {
+  to {
+    transform: rotate(calc(var(--face) * 1turn));
+  }
+}
+
+@keyframes air-spin {
+  to {
+    transform: rotate(calc(var(--face) * 3turn));
+  }
+}
+
+@keyframes air-beat {
+  0%,
+  40%,
+  80%,
+  100% {
+    transform: scale(1);
+  }
+  20%,
+  60% {
+    transform: scale(1.14);
+  }
+}
+
+@keyframes air-gallop {
+  0%,
+  33.3%,
+  66.6%,
+  100% {
+    transform: scale(calc(var(--face) * 1.18), 0.82);
+  }
+  8%,
+  41%,
+  74% {
+    transform: rotate(calc(var(--face) * 10deg)) scale(calc(var(--face) * 0.92), 1.1);
+  }
+  20%,
+  53%,
+  86% {
+    transform: rotate(calc(var(--face) * -4deg)) scale(var(--face), 1);
+  }
+}
+
+/* Arrival. The bomb bounces, swells and glows on its fuse, then goes off at --hit; the beer tips
+   over the target; the tomato squashes flat; the flip-flop bonks and bounces away; the kiss
+   smacks; the donkey rears back, headbutts and hops. */
+.toss[data-item="bomb"] .toss-art > img {
+  animation: hit-fuse calc(var(--hit) - var(--land)) linear var(--land) forwards;
+}
+
+.toss[data-item="bomb"] .toss-art::before {
+  content: "";
+  position: absolute;
+  right: 6px;
+  top: 0;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
-  background: var(--splash);
-  animation: toss-drop 0.5s ease-out forwards;
+  background: radial-gradient(circle, #fff 0 25%, #ffd34d 45%, transparent 70%);
+  animation:
+    spark 90ms linear infinite alternate,
+    gone 1ms linear var(--hit) forwards;
 }
 
-.toss .gag {
+.toss[data-item="bomb"] .toss-art::after {
+  content: "";
   position: absolute;
-  left: 50%;
-  bottom: 100%;
-  padding: 2px 9px;
-  border-radius: 10px;
+  inset: 14%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgb(255 60 30 / 0.85), transparent 70%);
+  opacity: 0;
+  animation: glow calc(var(--hit) - var(--land)) ease-in var(--land) forwards;
+}
+
+.toss[data-item="beer"] .toss-art > img {
+  transform-origin: 50% 80%;
+  animation: hit-tip 380ms ease-out var(--land) forwards;
+}
+
+.toss[data-item="tomato"] .toss-art > img {
+  transform-origin: 50% 70%;
+  animation: hit-squash 90ms ease-out var(--land) forwards;
+}
+
+.toss[data-item="slipper"] .toss-art > img {
+  animation: hit-bonk 420ms cubic-bezier(0.3, 0.6, 0.6, 1) var(--land) forwards;
+}
+
+.toss[data-item="kiss"] .toss-art > img {
+  animation: hit-smack 160ms ease-out var(--land) forwards;
+}
+
+.toss[data-item="donkey"] .toss-art > img {
+  animation: hit-kick 560ms ease-out var(--land) forwards;
+}
+
+@keyframes hit-fuse {
+  0% {
+    transform: scale(1.2, 0.8);
+  }
+  25% {
+    transform: translateY(-8px) scale(0.94, 1.08);
+  }
+  45% {
+    transform: scale(1.04);
+  }
+  60% {
+    transform: translateX(-2px) scale(1.12);
+  }
+  75% {
+    transform: translateX(2px) scale(1.2);
+  }
+  99% {
+    transform: translateX(-1px) scale(1.3);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.3);
+    opacity: 0;
+  }
+}
+
+@keyframes spark {
+  from {
+    transform: scale(0.6);
+  }
+  to {
+    transform: scale(1.3) rotate(45deg);
+  }
+}
+
+@keyframes glow {
+  0%,
+  40% {
+    opacity: 0;
+  }
+  60% {
+    opacity: 0.7;
+  }
+  70% {
+    opacity: 0.2;
+  }
+  85%,
+  99% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes hit-tip {
+  30% {
+    transform: rotate(calc(var(--face) * 115deg)) translateY(-4px);
+  }
+  70% {
+    transform: rotate(calc(var(--face) * 125deg));
+    opacity: 1;
+  }
+  100% {
+    transform: rotate(calc(var(--face) * 130deg)) translateY(-14px);
+    opacity: 0;
+  }
+}
+
+@keyframes hit-squash {
+  60% {
+    transform: scale(1.5, 0.45);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.8, 0.25);
+    opacity: 0;
+  }
+}
+
+@keyframes hit-bonk {
+  0% {
+    transform: scale(1.35, 0.65);
+  }
+  12% {
+    transform: scale(0.9, 1.1);
+  }
+  30% {
+    transform: translate(calc(var(--face) * -18px), -36px) rotate(calc(var(--face) * -200deg));
+  }
+  100% {
+    transform: translate(calc(var(--face) * -50px), 70px) rotate(calc(var(--face) * -560deg));
+    opacity: 0;
+  }
+}
+
+@keyframes hit-smack {
+  40% {
+    transform: scale(1.35);
+  }
+  100% {
+    transform: scale(0.85, 1.1);
+    opacity: 0;
+  }
+}
+
+@keyframes hit-kick {
+  18% {
+    transform: translateX(calc(var(--face) * -10px)) rotate(calc(var(--face) * -16deg)) scale(0.9);
+  }
+  29% {
+    transform: translateX(calc(var(--face) * 12px)) rotate(calc(var(--face) * 14deg)) scale(1.15);
+  }
+  45% {
+    transform: translateX(calc(var(--face) * 4px)) rotate(calc(var(--face) * 4deg));
+  }
+  70% {
+    transform: translateY(-14px);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-4px) scale(0.9);
+    opacity: 0;
+  }
+}
+
+/* Impact: the bomb's flash and ring, puffs of smoke, bits of foam, juice and dust. */
+.toss-fx .flash {
+  left: -75px;
+  top: -75px;
+  width: 150px;
+  height: 150px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    #fff 0 18%,
+    #ffe27a 32%,
+    rgb(255 140 40 / 0.55) 52%,
+    transparent 70%
+  );
+  animation: fx-flash 220ms ease-out var(--hit) forwards;
+}
+
+.toss-fx .shock {
+  left: -32px;
+  top: -32px;
+  width: 64px;
+  height: 64px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 5px solid var(--c, #ffd27a);
+  animation: fx-ring 300ms cubic-bezier(0.2, 0.7, 0.3, 1) var(--hit) forwards;
+}
+
+.toss-fx .bit {
+  left: -5px;
+  top: -5px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--c);
+  animation: fx-bit 420ms cubic-bezier(0.15, 0.6, 0.35, 1) var(--hit) forwards;
+}
+
+.toss-fx .puff {
+  left: -18px;
+  top: -18px;
+  width: 36px;
+  height: 36px;
+  animation: fx-puff 900ms ease-out calc(var(--hit) + 60ms) forwards;
+}
+
+.toss-fx .dust {
+  left: var(--x);
+  top: var(--y);
+  width: 22px;
+  height: 12px;
+  margin: -6px -11px;
+  border-radius: 50%;
+  background: #d9c7a5;
+  animation: fx-dust 380ms ease-out var(--at) forwards;
+}
+
+@keyframes fx-flash {
+  0% {
+    opacity: 1;
+    transform: scale(0.25);
+  }
+  30% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.6);
+  }
+}
+
+@keyframes fx-ring {
+  0% {
+    opacity: 0.95;
+    transform: scale(0.3);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(2.4);
+  }
+}
+
+@keyframes fx-bit {
+  0% {
+    opacity: 1;
+    transform: none;
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--x), var(--y)) scale(0.4);
+  }
+}
+
+@keyframes fx-puff {
+  0% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  15% {
+    opacity: 0.95;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--x), var(--y)) scale(1.7);
+  }
+}
+
+@keyframes fx-dust {
+  0% {
+    opacity: 0.9;
+    transform: scale(0.4);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-6px) scale(1.8, 1.2);
+  }
+}
+
+/* The gag, stacked a line higher for each throw already on that player. */
+.toss-gag {
+  position: absolute;
+  left: 0;
+  top: var(--gy);
+  translate: var(--gx) 0;
+  transform-origin: 50% 100%;
+  padding: 3px 10px;
+  border: 2px solid #1b1b1b;
+  border-radius: 12px;
   background: #fff;
   color: #1b1b1b;
-  font-size: 15px;
-  font-weight: 800;
+  font-size: 18px;
+  font-weight: 900;
   white-space: nowrap;
-  animation: toss-gag 0.9s ease-out forwards;
+  opacity: 0;
+  animation: fx-gag 1000ms ease-out calc(var(--hit) + 40ms) forwards;
 }
 
-@keyframes toss-land {
-  30% {
-    transform: scale(1.5, 0.7);
-  }
-  to {
-    transform: scale(1.2);
+@keyframes fx-gag {
+  0% {
     opacity: 0;
+    transform: scale(0.3) rotate(-14deg);
   }
-}
-
-@keyframes toss-drop {
-  to {
-    transform: translate(var(--x), var(--y)) scale(0.4);
-    opacity: 0;
-  }
-}
-
-@keyframes toss-gag {
-  from {
-    transform: translate(-50%, 8px) scale(0.5);
-    opacity: 0;
-  }
-  20% {
-    transform: translate(-50%, 0) scale(1.1);
+  15% {
     opacity: 1;
+    transform: scale(1.18) rotate(-5deg);
+  }
+  28% {
+    transform: scale(1) rotate(-4deg);
   }
   80% {
     opacity: 1;
+    transform: translateY(-4px) rotate(-4deg);
   }
-  to {
-    transform: translate(-50%, -6px);
+  100% {
     opacity: 0;
+    transform: translateY(-10px) rotate(-4deg);
   }
 }
 
-@keyframes toss-fade {
-  from,
+/* The mark a throw leaves, inside the target's panel (an opponent's, or your name bar) and clipped
+   to it, so it scrolls with the strip and never spills onto your cards. All of it fades at 1.9 s. */
+.toss-decal {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+  animation: gone 400ms linear var(--fade) forwards;
+}
+
+.toss-decal > * {
+  left: var(--dx);
+  top: var(--dy);
+  rotate: var(--tilt);
+}
+
+.toss-decal .soot {
+  width: 120px;
+  height: 120px;
+  margin: -60px;
+  animation: dc-stamp 200ms ease-out calc(var(--hit) + 60ms) forwards;
+}
+
+.toss-decal .wisp {
+  width: 18px;
+  height: 18px;
+  margin: -9px;
+  border-radius: 50%;
+  background: rgb(60 60 60 / 0.55);
+  animation: dc-rise 900ms ease-out calc(var(--hit) + 250ms) forwards;
+}
+
+.toss-decal .wisp + .wisp {
+  margin-left: 6px;
+  animation-delay: calc(var(--hit) + 550ms);
+}
+
+.toss-decal .splat {
+  width: 84px;
+  height: 84px;
+  margin: -42px;
+  animation:
+    dc-splat 220ms ease-out var(--hit) forwards,
+    dc-slide 1300ms ease-in calc(var(--hit) + 250ms) forwards;
+}
+
+.toss-decal .foam {
+  left: 0;
+  top: -6px;
+  width: 100%;
+  rotate: none;
+  transform-origin: 50% 0;
+  animation:
+    dc-pour 380ms ease-out var(--hit) forwards,
+    dc-slide 1300ms ease-in calc(var(--hit) + 400ms) forwards;
+}
+
+.mine > .toss-decal .foam {
+  left: calc(var(--dx) - 70px);
+  width: 140px;
+}
+
+.toss-decal .bub {
+  width: 7px;
+  height: 7px;
+  margin: 14px 0 0 -3px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 1.5px solid #fff;
+  animation: dc-rise 800ms ease-out calc(var(--hit) + 300ms) forwards;
+}
+
+.toss-decal .bub:nth-of-type(2) {
+  margin-left: -16px;
+  animation-delay: calc(var(--hit) + 450ms);
+}
+
+.toss-decal .bub:nth-of-type(3) {
+  margin-left: 12px;
+  animation-delay: calc(var(--hit) + 600ms);
+}
+
+.toss-decal .orbit {
+  top: calc(var(--dy) - 12px);
+  opacity: 1;
+  /* A tilted orbit, not flattened into a smudge (PO, PR #38). */
+  transform: scaleY(0.75);
+}
+
+.toss-decal .stars {
+  position: absolute;
+  left: -48px;
+  top: -48px;
+  width: 96px;
+  height: 96px;
+  opacity: 0;
+  animation:
+    dc-in 120ms linear var(--hit) forwards,
+    dc-spin 700ms linear var(--hit) infinite;
+}
+
+.toss-decal .lips {
+  width: 52px;
+  height: 52px;
+  margin: -26px;
+  animation: dc-stamp 180ms ease-out var(--hit) forwards;
+}
+
+.toss-decal .heart {
+  width: 18px;
+  height: 18px;
+  margin: -9px;
+  animation: dc-heart 1100ms ease-out calc(var(--hit) + var(--d)) forwards;
+}
+
+.toss-decal .blush {
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  rotate: none;
+  background: radial-gradient(
+    circle at var(--dx) var(--dy),
+    rgb(255 110 160 / 0.55),
+    transparent 65%
+  );
+  animation: dc-blush 700ms ease-out var(--hit) forwards;
+}
+
+.toss-decal .hoof {
+  width: 58px;
+  height: 58px;
+  margin: -29px 0 0 -50px;
+  rotate: -18deg;
+  animation: dc-stamp 160ms ease-out var(--hit) forwards;
+}
+
+.toss-decal .hoof + .hoof {
+  margin: -38px 0 0 -4px;
+  rotate: 12deg;
+  animation-delay: calc(var(--hit) + 90ms);
+}
+
+@keyframes dc-stamp {
+  0% {
+    opacity: 0;
+    transform: scale(1.5);
+  }
+  45% {
+    opacity: 1;
+    transform: scale(0.92);
+  }
+  100% {
+    opacity: 0.92;
+    transform: none;
+  }
+}
+
+@keyframes dc-splat {
+  0% {
+    opacity: 0;
+    transform: scale(0.4, 0.2);
+  }
+  35% {
+    opacity: 1;
+    transform: scale(1.25, 0.85);
+  }
+  65% {
+    transform: scale(0.95, 1.05);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes dc-slide {
+  to {
+    translate: 0 10px;
+  }
+}
+
+@keyframes dc-pour {
+  0% {
+    opacity: 0;
+    transform: translateY(-50%) scaleY(0.5);
+  }
+  45% {
+    opacity: 1;
+    transform: scaleY(1.12);
+  }
+  75% {
+    transform: scaleY(0.96);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes dc-rise {
+  0% {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  30% {
+    opacity: 0.7;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-28px) scale(1.5);
+  }
+}
+
+@keyframes dc-heart {
+  0% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  20% {
+    opacity: 1;
+    transform: translate(calc(var(--x) * 0.3), -10px);
+  }
+  60% {
+    transform: translate(var(--x), -26px) scale(1.05);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(calc(var(--x) * 0.6), -44px) scale(0.9);
+  }
+}
+
+@keyframes dc-blush {
+  25% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.35;
+  }
+}
+
+@keyframes dc-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+@keyframes dc-in {
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes gone {
   to {
     opacity: 0;
-  }
-  25%,
-  75% {
-    opacity: 1;
   }
 }
 
@@ -738,6 +1424,7 @@ dialog.zoom::backdrop {
 }
 
 .mine {
+  position: relative;
   flex: 1;
   /* Never shorter than its 44px-card grid, so the table's scroll height (and padding) covers it. */
   min-height: min-content;
@@ -1372,13 +2059,39 @@ dialog.overlay:focus {
     animation: none;
   }
 
-  /* A throw doesn't fly: it fades in and out where it lands, and its bubble still pops (M21). */
-  .toss.landed > svg {
-    animation: toss-fade 0.9s;
+  /* A throw doesn't fly, shake or burst: the item, its mark and its gag fade in where it lands,
+     and fade out with the mark (M22). */
+  .toss-decal .wisp,
+  .toss-decal .bub,
+  .toss-decal .heart {
+    display: none;
   }
 
-  .toss .drop {
+  .toss[data-item] .toss-art {
+    animation: none;
+  }
+
+  .toss[data-item] .toss-art::before,
+  .toss[data-item] .toss-art::after {
     display: none;
+  }
+
+  .toss[data-item] .toss-art > img,
+  .toss-gag {
+    opacity: 0;
+    animation:
+      dc-in 150ms linear forwards,
+      gone 400ms linear var(--fade) forwards;
+  }
+
+  .toss-decal[data-item] > *,
+  .toss-decal[data-item] .stars {
+    animation: dc-in 200ms linear forwards;
+  }
+
+  /* The blush settles soft, as it does with motion, not a hard pink wash. */
+  .toss-decal[data-item] .blush {
+    animation: dc-blush 700ms ease-out forwards;
   }
 
   /* No shaking: the bar flashes instead. */

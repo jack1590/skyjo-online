@@ -800,7 +800,8 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 18  | ✅ M14                             | UX-15, UX-16, last-round cue                                                                                            | 2.4.0         | minor, new                                                                                                       |
 | 19  | ✅ M15                             | UX-13                                                                                                                   | 2.4.1         | minor                                                                                                            |
 | 20  | M21                                | Throws: bombs, beers, donkeys and more at other players (user request, 2026-10-27)                                      | 2.5.0         | the user asked for it; ahead of M16, which waits on the owner                                                    |
-| 21  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
+| 21  | M22                                | Throws, part 2: stickers, choreography, marks, real sounds (user feedback)                                              | 2.5.1         | the owner found v2.5.0 throws not fun                                                                            |
+| 22  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
 
 Deferred: Turnstile (SEC-4), SEC-12 (until M16) and quick reactions (the user's call). Declined: SEC-7. Versions assume this order; a PR that reorders says so.
 
@@ -1000,6 +1001,47 @@ The client sends it without a `seq`, so a throw never holds up a move.
 - **Dogpiles vanish.** When 3 friends throw at the same player within a second, 1 item lands and 2 are dropped on every phone, sound included. The thrower whose item was dropped sees nothing after the sheet closes, which looks like a bug. Never drop your own throw on your own phone, and let up to 3 items land on one target, a little apart. Ganging up on the leader is the funniest moment the feature has.
 - **Beer and flip-flop reuse `splat`.** Give the beer a clink or fizz and the flip-flop a slap, so all 6 items sound different.
 - **The bomb barely reads on landing.** At 40 px, squashed by `toss-land`, it ends as a few dots under "Boom!". A short flash or a larger landing would make it read better.
+
+### M22 — Throws, part 2: make them funny (user feedback, 2026-10-27) · v2.5.1 · ✅ shipped (PR #38)
+
+**Feedback.** The owner played v2.5.0: "good to start but not fun, poor animations, poor sounds". The PO agrees that M21 shipped a placeholder. A 44 px flat icon flew for 650 ms and popped in under a second. The sounds were synthesized beeps, and nothing stayed on the target long enough to be funny.
+
+**Experts.** A motion designer wrote a per-item choreography with anticipation, a trail, squash and stretch, an impact and an aftermath. A sound designer sourced real CC0 recordings from freesound.org; each license was checked on its own page, and nothing comes from Pixabay. The PO generated the art with Gemini in the cards' paper-cut style, via `npm run art`:
+- 6 item stickers with a white die-cut border, so they read on the dark table;
+- 6 marks with no border, so they read as stains rather than stickers.
+
+**Scope.**
+- Every throw starts with a wind-up at the thrower's name and a whoosh, then a 60 px sticker flies with a trail. Each item flies its own way, lands its own way, and leaves a mark clipped to the target's panel or name bar. The mark fades at 1.9 s and is gone at 2.2 s.
+- The bomb on the target's phone also shakes the table.
+- Up to 3 throws per target and 6 on screen. Your own throw is never dropped on your phone, and a dropped throw stays silent. The target buzzes at most every 600 ms.
+- Reduced motion: no flight or shake. The item, its mark and its bubble fade in where it lands.
+- Only `transform` and `opacity` animate, with no filters on moving layers.
+
+**Acceptance.**
+- A unit test of the flight path.
+- E2E with motion on and the page clock:
+  - a mark sits inside the target's panel at 1.2 s and is gone by 2.5 s;
+  - a bomb at you shakes your table, and one between others doesn't;
+  - 3 throws at one target land and a 4th from someone else doesn't, but yours does;
+  - reduced motion;
+  - buzz throttling;
+  - a card under a landing can still be tapped.
+- The full `npm run e2e` passes. Frame strips are in `docs/screenshots/m22/`. The release checklist is done.
+
+**PO rulings (PR #38, 2 rounds).** Played with motion on, on iPhone 13 and Pixel 7, in real 4-phone rooms and the table harness at 4 and 8 players.
+- **Round 1 changes, done in round 2:**
+  - marks were solid for only about 1 s, so they now fade at 2.6 s and are gone at 3.0 s, from `--fade`;
+  - a dogpile's third gag bubble left the top of the screen, so it is now clamped;
+  - the reduced-motion blush stayed fully opaque, and now settles at 0.35;
+  - the author also enlarged the flip-flop's stars and the donkey's hoof prints.
+- **Your own mark over your top row: keep it.** It never covers a card's centre, taps go through (a top-row card stayed tappable on 18 of 18 moves made under a bomb), and it's the "pie in your face" moment.
+- **The bomb's quake on the target's phone: keep it.** It runs 250 ms at ±3 px, on the target only.
+- **Sounds:** each one peaks on its hit. The fuse overlaps the boom by about 140 ms, at −28 dB against the boom's −12 dB, so the boom masks it.
+- **Licensing:** all 10 freesound sources were checked as CC0 1.0 on their own pages.
+
+**PO follow-ups (non-blocking).**
+- When the top-of-screen clamp applies, the 2nd and 3rd bubbles of a dogpile overlap (tops at 11 and 10 px). Offset the clamped one sideways.
+- When your throw takes the place of someone else's, the dropped throw's sounds were already scheduled and still play. Keep the `play()` handles and stop them.
 
 ### M16 — Launch in the App Store and Google Play (user decision, 2026-10-24) · last
 

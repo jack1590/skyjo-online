@@ -42,6 +42,73 @@ const ICON_PROMPT =
   "(a plain square: no rounded corners, no border, no white margin; the OS masks the shape), " +
   "warm gold and teal accents, flat layered paper-cut style with soft depth. Keep the emblem " +
   "centered inside the middle 70% of the square. Absolutely no text, letters, digits or logos.";
+/**
+ * Throw stickers (M22): items and the marks they leave, cut out of a flat key colour. Green keys
+ * all but the tomato, whose leaves are green.
+ */
+const STICKER_STYLE =
+  "Single sticker-like object, centered, filling about 80% of a square frame, slight 3/4 view, " +
+  "flat layered paper-cut illustration with soft grain and gentle depth shadows, bold readable " +
+  "silhouette, cheerful cartoon look, a thick white die-cut sticker border around it. Background: one perfectly flat, uniform colour KEY " +
+  "with no gradient, no texture, no shadow on it, no floor. No outline glow, no text, no letters.";
+const MARK_STYLE =
+  "A flat cartoon mark seen straight on, as if splashed onto a surface, flat layered paper-cut " +
+  "illustration with soft grain, no border, no outline, no shadow under it. Background: one " +
+  "perfectly flat, uniform colour KEY with no gradient or texture. No text, no letters.";
+type Sticker = [
+  prompt: string,
+  key: "green" | "magenta",
+  size: string,
+  mark?: boolean,
+  ratio?: string,
+];
+const STICKERS: Record<string, Sticker> = {
+  "toss-bomb": [
+    "A round black cartoon bomb with a short lit fuse throwing bright sparks",
+    "green",
+    "192:192",
+  ],
+  "toss-beer": [
+    "A chunky glass beer mug overflowing with white foam, golden beer",
+    "green",
+    "192:192",
+  ],
+  // "Donkey" with "sticker" gets PROHIBITED_CONTENT (a party logo?); a farm burro passes.
+  "toss-donkey": [
+    "A silly grey farm burro face with long floppy ears and a big toothy grin, one eye winking",
+    "green",
+    "192:192",
+  ],
+  "toss-tomato": ["A plump ripe red tomato with a green leafy top", "magenta", "192:192"],
+  "toss-slipper": [
+    "A bright blue rubber flip-flop sandal with a pink strap, seen from above",
+    "green",
+    "192:192",
+  ],
+  "toss-kiss": ["A glossy red lipstick kiss mark, a pair of lips", "green", "192:192"],
+  "mark-splat": [
+    "A big messy red tomato juice splat with seeds and drips",
+    "magenta",
+    "256:256",
+    true,
+  ],
+  "mark-soot": ["A dark grey soot smoke cloud with a few orange embers", "green", "384:384", true],
+  "mark-foam": [
+    "A wide band of white beer foam along the top edge with drips hanging down, golden drops",
+    "magenta",
+    "384:-2",
+    true,
+    "16:9",
+  ],
+  "mark-hoof": ["A single dusty brown donkey hoof print", "green", "192:192", true],
+  "mark-stars": ["A ring of five small yellow cartoon dizzy stars", "green", "192:192", true],
+  "mark-heart": ["A small glossy pink-red cartoon heart", "green", "96:96", true],
+};
+const KEYS = {
+  green: ["pure chroma green #00FF00", "0x00FF00"],
+  magenta: ["pure magenta #FF00FF", "0xFF00FF"],
+};
+
 /** PWA and iOS home-screen icons, all from one square image. */
 const ICONS: [path: string, size: number][] = [
   ["public/icons/icon-512.png", 512],
@@ -91,6 +158,39 @@ for (const [name, prompt] of Object.entries(ART)) {
     `scale=${WIDTH}:-2`,
     "-quality",
     "80",
+    out,
+  ]);
+  console.log(`  wrote ${out}`);
+}
+
+for (const [name, [object, keyColour, size, mark, ratio]] of Object.entries(STICKERS)) {
+  const out = join(OUT, `${name}.webp`);
+  if (requested.length ? !requested.includes(name) : existsSync(out)) continue;
+  console.log(`generating ${name}…`);
+  const png = join(tmp, `${name}.png`);
+  const [described, hex] = KEYS[keyColour];
+  // The model now and then answers with no image; a retry usually gets one.
+  const prompt = `${object}. ${(mark ? MARK_STYLE : STICKER_STYLE).replace("KEY", described)}`;
+  const ask = () => generate(prompt, key, ratio ?? "1:1");
+  writeFileSync(png, await ask().catch(ask));
+  // Key out the background, pull the key colour's spill off the edges, keep alpha in the WebP.
+  const despill = keyColour === "green" ? "despill=type=green," : "";
+  const vf = `colorkey=${hex}:0.32:0.08,${despill}scale=${size}:flags=lanczos,format=rgba`;
+  execFileSync("ffmpeg", [
+    "-loglevel",
+    "error",
+    "-y",
+    "-i",
+    png,
+    "-vf",
+    vf,
+    "-frames:v",
+    "1",
+    // Not libwebp_anim, which ffmpeg sometimes picks: browsers show it, dwebp can't read it.
+    "-c:v",
+    "libwebp",
+    "-quality",
+    "85",
     out,
   ]);
   console.log(`  wrote ${out}`);
