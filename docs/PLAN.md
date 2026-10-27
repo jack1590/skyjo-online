@@ -996,6 +996,11 @@ The client sends it without a `seq`, so a throw never holds up a move.
   - between two phones (Pixel): Ben sees Ana's donkey and his phone gets its vibration, Ana's items rest 3 s, and Ana's move right after a throw goes through.
 - The release checklist, with README images refreshed: the "Tap an opponent" still now shows the items.
 
+**PO follow-ups (PR #37, round 1; non-blocking).** Found playing 4 phones and a spectator on Pixel 7 and iPhone 13 with motion on.
+- **Dogpiles vanish.** When 3 friends throw at the same player within a second, 1 item lands and 2 are dropped on every phone, sound included. The thrower whose item was dropped sees nothing after the sheet closes, which looks like a bug. Never drop your own throw on your own phone, and let up to 3 items land on one target, a little apart. Ganging up on the leader is the funniest moment the feature has.
+- **Beer and flip-flop reuse `splat`.** Give the beer a clink or fizz and the flip-flop a slap, so all 6 items sound different.
+- **The bomb barely reads on landing.** At 40 px, squashed by `toss-land`, it ends as a few dots under "Boom!". A short flash or a larger landing would make it read better.
+
 ### M16 — Launch in the App Store and Google Play (user decision, 2026-10-24) · last
 
 The user decided on 2026-10-24:
