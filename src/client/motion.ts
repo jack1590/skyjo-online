@@ -437,7 +437,14 @@ function outOfSight(el: HTMLElement, r: Rect) {
  */
 export type Timing = Map<string, { start: number; hit: number; end: number }>;
 
-const flying = (el: HTMLElement) => el.getAnimations().some(ours);
+/** A throw's knock on a panel, or its quake of the whole table, mid-move (M22): not its delay. */
+const shaking = (el: Element | null | undefined, id: string) =>
+  !!el?.getAnimations().some((a) => a.id === id && a.effect?.getComputedTiming().progress != null);
+/** In flight, or shaken by a throw: either way not at rest, so not where it will settle. */
+const flying = (el: HTMLElement) =>
+  el.getAnimations().some(ours) ||
+  shaking(el.closest(".opp"), "toss-knock") ||
+  shaking(document.getElementById("root"), "toss-quake");
 
 /** Where a card sits, and how far it lies tilted (deg). */
 type Place = Rect & { tilt?: number };

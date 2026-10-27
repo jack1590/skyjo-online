@@ -135,7 +135,6 @@ test.describe("with motion", () => {
       await panel.evaluate((el) => el.getAnimations().some((a) => a.id === "toss-knock")),
     ).toBe(true);
     expect(await quakes()).toBe(0);
-
     // Three land on one player, a little apart; a fourth is dropped, unless it's yours.
     await throwAt(page, { from: others[1], to: target, item: "kiss" });
     await throwAt(page, { from: others[2], to: target, item: "slipper" });
@@ -154,7 +153,7 @@ test.describe("with motion", () => {
     // A bomb at you shakes your whole table, its mark sits on your name bar, and taps still reach
     // your cards under the blast.
     await throwAt(page, { from: others[4], to: me, item: "bomb" });
-    expect(await quakes()).toBe(1);
+    await expect.poll(quakes).toBe(1);
     await expect(page.locator("section.mine > [data-testid=toss-decal]")).toHaveCount(1);
     const card = await page.getByTestId("my-grid").locator(".card").first().boundingBox();
     if (!card) throw new Error("no card");
@@ -171,6 +170,12 @@ test.describe("with motion", () => {
     await page.clock.runFor(1300);
     await expect(marks).toHaveCount(0);
     await expect(tosses).toHaveCount(0);
+
+    // Only a bomb at you shakes your table: one between two others doesn't. Its flight mounts
+    // with any quake it would start, so once it shows, there would be one.
+    await throwAt(page, { from: others[5], to: others[0], item: "bomb" });
+    await expect(of("bomb")).toHaveCount(1);
+    expect(await quakes()).toBe(0);
   });
 });
 

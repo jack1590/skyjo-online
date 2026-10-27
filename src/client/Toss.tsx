@@ -357,6 +357,9 @@ export function Tosses({ toss, on, you, warned, reduced, spot, names }: TossesPr
   const [said, setSaid] = useState("");
   const last = useRef<string | null>(null);
   const buzzed = useRef(-Infinity);
+  // A buzz still on its way when the throws leave the screen (the summary, leaving) is called off.
+  const buzz = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(buzz.current), []);
   const set = (all: Flying[]) => {
     live.current = all;
     setFlying(all);
@@ -395,7 +398,7 @@ export function Tosses({ toss, on, you, warned, reduced, spot, names }: TossesPr
     const buzzAt = performance.now() + hit;
     if (!warned && navigator.userActivation?.hasBeenActive && buzzAt - buzzed.current >= BUZZ_GAP) {
       buzzed.current = buzzAt;
-      setTimeout(() => navigator.vibrate?.(HIT_BUZZ[toss.item]), hit);
+      buzz.current = setTimeout(() => navigator.vibrate?.(HIT_BUZZ[toss.item]), hit);
     }
   }, [toss]);
   const air = flying.map((f) => (
