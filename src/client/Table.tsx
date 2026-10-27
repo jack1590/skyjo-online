@@ -9,7 +9,7 @@ import {
 } from "react";
 import { type Action, places } from "../engine/game";
 import type { GameView, PlayerView, ViewSlot } from "../engine/view";
-import { TURN_MS, type Wait } from "../protocol";
+import { TOSS_MS, type Toss, type TossItem, TURN_MS, type Wait } from "../protocol";
 import { Card, formatCard } from "./Card";
 import { type Locale, ordinal, type T, useI18n } from "./i18n";
 import {
@@ -22,6 +22,7 @@ import {
   useRevealing,
 } from "./motion";
 import { nudge, play, type Sound, useMuted, useSounds } from "./sound";
+import { type Spot, Tosses, Tray, useThrowsOn } from "./Toss";
 
 interface TableProps {
   view: GameView;
@@ -44,6 +45,10 @@ interface TableProps {
   onAction: (action: Action) => number | null | undefined;
   /** Ticks or unticks Auto-play for your own seat. */
   onAuto?: (on: boolean) => void;
+  /** The latest throw (RoomView.toss, M21). */
+  toss?: Toss;
+  /** Throws an item at a seat; none for spectators. */
+  onToss?: (to: number, item: TossItem) => void;
   onPlayAgain: () => void;
   onExit: () => void;
 }
@@ -201,6 +206,25 @@ export function Table(props: TableProps) {
   // Keep whoever is playing in view in the opponent strip, so their move is visible: once the last
   // move's cards have landed, as stand-ins in the strip don't scroll with it (UX-8).
   const oppRefs = useRef(new Map<number, HTMLElement>());
+  const strip = useRef<HTMLElement>(null);
+  const mineHead = useRef<HTMLDivElement>(null);
+  const [throwsOn, toggleThrows] = useThrowsOn();
+  const [tossedAt, setTossedAt] = useState(0);
+  /**
+   * Where a seat's throws fly from and land (M21): their name. A panel scrolled out of the strip
+   * clamps to the strip's edge: scrolling it would fight the scroll that follows the turn.
+   */
+  const spot = (i: number): Spot | null => {
+    const opp = oppRefs.current.get(i);
+    const el = opp?.querySelector<HTMLElement>(".opp-name") ?? (opp ? null : mineHead.current);
+    if (!el || (!opp && i !== props.seat)) return null;
+    const r = el.getBoundingClientRect();
+    const box = opp && strip.current ? strip.current.getBoundingClientRect() : null;
+    const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo + 36), hi - 36);
+    const x = clamp(r.left + r.width / 2, box?.left ?? 0, box?.right ?? window.innerWidth);
+    const y = clamp(r.top + r.height / 2, box?.top ?? 0, box?.bottom ?? window.innerHeight);
+    return { x, y, el };
+  };
   // biome-ignore lint/correctness/useExhaustiveDependencies: timing is read when the turn passes
   useEffect(() => {
     if (!playing || view.current === seat) return;
@@ -345,6 +369,7 @@ export function Table(props: TableProps) {
       </header>
 
       <section
+        ref={strip}
         className={`opponents${seat === null ? " watch" : others.length > 3 ? " many" : ""}`}
         data-testid="opponents"
       >
@@ -494,6 +519,7 @@ export function Table(props: TableProps) {
         <section className="mine">
           {/* Auto-play lives here: a quiet switch, or while on, a bar holding the same switch. */}
           <div
+            ref={mineHead}
             className={`mine-head${myAuto ? " auto-on" : ""}${nudges ? ` nudge-${nudges % 2}` : ""}`}
             data-testid="mine-head"
           >
@@ -557,7 +583,35 @@ export function Table(props: TableProps) {
       )}
 
       {zoom !== null && players[zoom] && !isOut(players[zoom], view.round) && (
-        <Zoom view={view} seat={zoom} total={total(players[zoom])} onClose={() => setZoom(null)} />
+        <Zoom view={view} seat={zoom} total={total(players[zoom])} onClose={() => setZoom(null)}>
+          {/* Seated players throw, out ones (R16) too; spectators only watch (M21). */}
+          {props.seat !== null && props.onToss && (
+            <Tray
+              name={players[zoom].name}
+              on={throwsOn}
+              onToggle={toggleThrows}
+              // A little past the server's 3 s, so a throw at the edge isn't dropped on the way.
+              until={tossedAt + TOSS_MS + 250}
+              onToss={(item) => {
+                props.onToss?.(zoom, item);
+                setTossedAt(Date.now());
+                setZoom(null);
+              }}
+            />
+          )}
+        </Zoom>
+      )}
+
+      {!summary && (
+        <Tosses
+          toss={props.toss}
+          on={throwsOn}
+          you={props.seat}
+          warned={warned}
+          reduced={reduced}
+          spot={spot}
+          names={players.map((p) => p.name)}
+        />
       )}
 
       {/* The summary waits for the final reveal (UX-27). */}
@@ -625,6 +679,7 @@ export function prompt(t: T, view: GameView, seat: number, myTurn: boolean, disc
  * modal <dialog> gives focus handling, Escape and an inert background; tapping outside closes it.
  */
 interface ZoomProps {
+  children?: ReactNode;
   view: GameView;
   seat: number;
   /** Their total as the table shows it (held during the final reveal). */
@@ -632,7 +687,7 @@ interface ZoomProps {
   onClose: () => void;
 }
 
-function Zoom({ view, seat, total, onClose }: ZoomProps) {
+function Zoom({ children, view, seat, total, onClose }: ZoomProps) {
   const { t } = useI18n();
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -669,6 +724,7 @@ function Zoom({ view, seat, total, onClose }: ZoomProps) {
             />
           ))}
         </div>
+        {children}
       </div>
     </dialog>
   );

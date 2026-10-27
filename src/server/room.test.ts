@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { type Action, apply, createGame, type GameState, legalActions } from "../engine/game";
 import { nextRandom, type Rng } from "../engine/rng";
-import { type ClientMsg, parseClientMsg, TURN_MS } from "../protocol";
+import { type ClientMsg, parseClientMsg, TOSS_MS, TURN_MS } from "../protocol";
 import {
   AUTO_FIRST_MS,
   AUTO_NEXT_MS,
@@ -25,6 +25,7 @@ import {
   RoomError,
   STALE_MS,
   silent,
+  TOSS_SHOW_MS,
 } from "./room";
 
 function setup() {
@@ -1137,6 +1138,59 @@ describe("socket cap", () => {
   });
 });
 
+describe("throws (M21)", () => {
+  it("M21: a seated player throws at another seat mid-game: every view shows it, and nothing is saved", () => {
+    const t = setup();
+    const [a, b] = startedGame(t, 2);
+    const watcher = t.connect("token-w-abcdef");
+    const saved = JSON.stringify(t.room.data);
+    expect(t.send(a, { t: "toss", to: 1, item: "donkey" })).toBe("view");
+    const toss = { id: t.now(), from: 0, to: 1, item: "donkey" };
+    for (const c of [a, b, watcher]) expect(t.room.view(c, t.live).toss).toEqual(toss);
+    expect(JSON.stringify({ ...t.room.data, updatedAt: 0 })).toBe(
+      JSON.stringify({ ...JSON.parse(saved), updatedAt: 0 }),
+    );
+  });
+
+  it("M21: no throws in the lobby, from a spectator, at yourself, or at a seat that isn't there", () => {
+    const t = setup();
+    const [a] = t.seated(2);
+    expect(t.errorOf(() => t.send(a, { t: "toss", to: 1, item: "bomb" }))).toBe("not-allowed");
+    t.send(a, { t: "start" });
+    const watcher = t.connect("token-w-abcdef");
+    expect(t.errorOf(() => t.send(watcher, { t: "toss", to: 0, item: "bomb" }))).toBe(
+      "not-allowed",
+    );
+    for (const to of [0, 2, -1]) {
+      expect(t.errorOf(() => t.send(a, { t: "toss", to, item: "bomb" }))).toBe("not-allowed");
+    }
+  });
+
+  it("M21: a seat throws at most once every TOSS_MS; a throw too soon changes nothing", () => {
+    const t = setup();
+    const [a, b] = startedGame(t, 3);
+    t.send(a, { t: "toss", to: 1, item: "beer" });
+    t.advance(TOSS_MS - 1);
+    expect(t.send(a, { t: "toss", to: 2, item: "bomb" })).toBe("none");
+    expect(t.room.view(b, t.live).toss).toBeUndefined(); // the beer is over; no bomb came
+    // Another seat isn't held back by it.
+    expect(t.send(b, { t: "toss", to: 0, item: "kiss" })).toBe("view");
+    t.advance(1);
+    expect(t.send(a, { t: "toss", to: 2, item: "bomb" })).toBe("view");
+    expect(t.room.view(b, t.live).toss).toMatchObject({ from: 0, to: 2, item: "bomb" });
+  });
+
+  it("M21: views carry a throw for TOSS_SHOW_MS only, so a phone that reconnects later doesn't replay it", () => {
+    const t = setup();
+    const [a, b] = startedGame(t, 2);
+    t.send(a, { t: "toss", to: 1, item: "tomato" });
+    t.advance(TOSS_SHOW_MS - 1);
+    expect(t.room.view(b, t.live).toss).toBeDefined();
+    t.advance(1);
+    expect(t.room.view(b, t.live).toss).toBeUndefined();
+  });
+});
+
 describe("protocol", () => {
   it("parseClientMsg rejects malformed frames", () => {
     for (const raw of [
@@ -1157,6 +1211,10 @@ describe("protocol", () => {
       '{"t":"auto"}',
       '{"t":"auto","on":"yes"}',
       '{"t":"auto","on":1}',
+      '{"t":"toss","to":1}',
+      '{"t":"toss","to":"1","item":"bomb"}',
+      '{"t":"toss","to":1.5,"item":"bomb"}',
+      '{"t":"toss","to":1,"item":"brick"}',
       `{"t":"join","name":"${"x".repeat(2000)}"}`,
     ]) {
       expect(parseClientMsg(raw)).toBeNull();
@@ -1168,6 +1226,11 @@ describe("protocol", () => {
       parseClientMsg('{"t":"act","seq":4,"action":{"type":"swap","seat":3,"pos":2,"x":1}}'),
     ).toEqual({ t: "act", seq: 4, action: { type: "swap", seat: -1, pos: 2 } });
     expect(parseClientMsg('{"t":"start","seq":-1}')).toEqual({ t: "start" });
+    expect(parseClientMsg('{"t":"toss","to":2,"item":"beer","from":5}')).toEqual({
+      t: "toss",
+      to: 2,
+      item: "beer",
+    });
   });
 
   it("a socket flooding more than 120 messages in 10 s is cut off", () => {

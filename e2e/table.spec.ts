@@ -350,7 +350,9 @@ test("M8: your clock: a bar with no number at 25 s, orange with the seconds at 9
   expect(await clock.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(
     "rgb(255, 166, 48)",
   );
-  const said = (await page.getByRole("status").textContent()) ?? "";
+  // The clock's own line; the throws have one too (M21).
+  const status = page.getByTestId("mine-head").getByRole("status");
+  const said = (await status.textContent()) ?? "";
   expect(said).toMatch(/^(10|9) seconds left$/);
   await page.clock.runFor(5_000);
   await expect(pill).toHaveText("Your turn · 4");
@@ -358,7 +360,7 @@ test("M8: your clock: a bar with no number at 25 s, orange with the seconds at 9
   expect(await clock.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(
     "rgb(255, 82, 71)",
   );
-  await expect(page.getByRole("status")).toHaveText(said);
+  await expect(status).toHaveText(said);
 });
 
 test("M8: others see the active panel's ring with the seconds in its last 10 s; spectators too, with no switch", async ({

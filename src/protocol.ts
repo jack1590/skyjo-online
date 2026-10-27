@@ -23,6 +23,20 @@ export const PONG = "pong";
 /** The turn clock (M8): each turn, and the opening flip, gets 30 s before the server plays for it. */
 export const TURN_MS = 30_000;
 
+/** What a player can throw at another (M21), a gag for everyone at the table to see. */
+export const TOSS_ITEMS = ["bomb", "beer", "donkey", "tomato", "slipper", "kiss"] as const;
+export type TossItem = (typeof TOSS_ITEMS)[number];
+/** Each seat throws at most once this often; the client greys the items out meanwhile. */
+export const TOSS_MS = 3_000;
+
+/** A throw, from one seat at another. `id` tells a new throw from a repeated view of the last. */
+export interface Toss {
+  id: number;
+  from: number;
+  to: number;
+  item: TossItem;
+}
+
 export type ClientMsg = (
   | { t: "hello"; token: string }
   | { t: "join"; name: string }
@@ -35,6 +49,8 @@ export type ClientMsg = (
   | { t: "auto"; on: boolean }
   /** In the lobby, whoever may lead switches "Play until one is left" (R16) on or off. */
   | { t: "knockout"; on: boolean }
+  /** Throws an item at another seat, mid-game (M21). */
+  | { t: "toss"; to: number; item: TossItem }
 ) & {
   /** Client counter; the server echoes the highest one handled as `ack`. */
   seq?: number;
@@ -81,6 +97,8 @@ export interface RoomView {
   /** The lobby's "Play until one is left" option (R16), which the next start deals with. */
   knockout: boolean;
   game: GameView | null;
+  /** The latest throw, in views sent within TOSS_SHOW_MS of it (M21). */
+  toss?: Toss;
 }
 
 export type ServerMsg =
@@ -129,6 +147,10 @@ function parseBody(msg: Record<string, unknown>): ClientMsg | null {
     case "auto":
     case "knockout":
       return typeof msg.on === "boolean" ? { t: msg.t, on: msg.on } : null;
+    case "toss":
+      return Number.isInteger(msg.to) && TOSS_ITEMS.includes(msg.item as TossItem)
+        ? { t: "toss", to: msg.to as number, item: msg.item as TossItem }
+        : null;
     case "act": {
       const a = msg.action;
       if (!isObject(a)) return null;

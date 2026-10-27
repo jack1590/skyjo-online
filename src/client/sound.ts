@@ -14,7 +14,7 @@ import {
 
 /**
  * tick.mp3, the 5 s warning, and last.mp3, the last-round chime, are generated for this project
- * (ffmpeg, decaying sines).
+ * (ffmpeg, decaying sines), and so are the throws' boom, splat, bray and kiss (M21).
  */
 const NAMES = [
   "flip",
@@ -29,6 +29,10 @@ const NAMES = [
   "out",
   "last",
   "tick",
+  "boom",
+  "splat",
+  "bray",
+  "kiss",
 ] as const;
 export type Sound = (typeof NAMES)[number];
 
