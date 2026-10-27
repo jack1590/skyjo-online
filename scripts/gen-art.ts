@@ -42,6 +42,37 @@ const ICON_PROMPT =
   "(a plain square: no rounded corners, no border, no white margin; the OS masks the shape), " +
   "warm gold and teal accents, flat layered paper-cut style with soft depth. Keep the emblem " +
   "centered inside the middle 70% of the square. Absolutely no text, letters, digits or logos.";
+/**
+ * Throw stickers (M22): items and the marks they leave, cut out of a flat key colour. Green keys
+ * all but the tomato, whose leaves are green.
+ */
+const STICKER_STYLE =
+  "Single sticker-like object, centered, filling about 80% of a square frame, slight 3/4 view, " +
+  "flat layered paper-cut illustration with soft grain and gentle depth shadows, bold readable " +
+  "silhouette, cheerful cartoon look, a thick white die-cut sticker border around it. Background: one perfectly flat, uniform colour KEY " +
+  "with no gradient, no texture, no shadow on it, no floor. No outline glow, no text, no letters.";
+const STICKERS: Record<string, [prompt: string, key: "green" | "magenta"]> = {
+  "toss-bomb": ["A round black cartoon bomb with a short lit fuse throwing bright sparks", "green"],
+  "toss-beer": ["A chunky glass beer mug overflowing with white foam, golden beer", "green"],
+  "toss-donkey": [
+    // "Donkey" with "sticker" gets PROHIBITED_CONTENT (a party logo?); a farm burro passes.
+    "A silly grey farm burro face with long floppy ears and a big toothy grin, one eye winking",
+    "green",
+  ],
+  "toss-tomato": ["A plump ripe red tomato with a green leafy top", "magenta"],
+  "toss-slipper": [
+    "A bright blue rubber flip-flop sandal with a pink strap, seen from above",
+    "green",
+  ],
+  "toss-kiss": ["A glossy red lipstick kiss mark, a pair of lips", "green"],
+  "mark-splat": ["A messy red tomato juice splat with seeds and drips, top view", "magenta"],
+  "mark-soot": ["A dark grey cartoon soot smoke cloud puff with a few orange embers", "green"],
+  "mark-foam": ["A white beer foam splash dripping downward with golden drops", "green"],
+  "mark-hoof": ["A single dusty brown donkey hoof print in a little dust cloud", "green"],
+  "mark-stars": ["A ring of five small yellow cartoon dizzy stars", "green"],
+};
+const KEYS = { green: ["pure chroma green #00FF00", "0x00FF00"], magenta: ["pure magenta #FF00FF", "0xFF00FF"] };
+
 /** PWA and iOS home-screen icons, all from one square image. */
 const ICONS: [path: string, size: number][] = [
   ["public/icons/icon-512.png", 512],
@@ -93,6 +124,25 @@ for (const [name, prompt] of Object.entries(ART)) {
     "80",
     out,
   ]);
+  console.log(`  wrote ${out}`);
+}
+
+for (const [name, [object, keyColour]] of Object.entries(STICKERS)) {
+  const out = join(OUT, `${name}.webp`);
+  if (requested.length ? !requested.includes(name) : existsSync(out)) continue;
+  console.log(`generating ${name}…`);
+  const png = join(tmp, `${name}.png`);
+  const [described, hex] = KEYS[keyColour];
+  // The model now and then answers with no image; a retry usually gets one.
+  const prompt = `${object}. ${STICKER_STYLE.replace("KEY", described)}`;
+  writeFileSync(
+    png,
+    await generate(prompt, key, "1:1").catch(() => generate(prompt, key, "1:1")),
+  );
+  // Key out the background, pull the key colour's spill off the edges, keep alpha in the WebP.
+  const despill = keyColour === "green" ? "despill=type=green," : "";
+  const vf = `colorkey=${hex}:0.32:0.08,${despill}scale=192:192:flags=lanczos,format=rgba`;
+  execFileSync("ffmpeg", ["-loglevel", "error", "-y", "-i", png, "-vf", vf, "-quality", "85", out]);
   console.log(`  wrote ${out}`);
 }
 
