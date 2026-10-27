@@ -71,7 +71,10 @@ const STICKERS: Record<string, [prompt: string, key: "green" | "magenta"]> = {
   "mark-hoof": ["A single dusty brown donkey hoof print in a little dust cloud", "green"],
   "mark-stars": ["A ring of five small yellow cartoon dizzy stars", "green"],
 };
-const KEYS = { green: ["pure chroma green #00FF00", "0x00FF00"], magenta: ["pure magenta #FF00FF", "0xFF00FF"] };
+const KEYS = {
+  green: ["pure chroma green #00FF00", "0x00FF00"],
+  magenta: ["pure magenta #FF00FF", "0xFF00FF"],
+};
 
 /** PWA and iOS home-screen icons, all from one square image. */
 const ICONS: [path: string, size: number][] = [
@@ -135,10 +138,7 @@ for (const [name, [object, keyColour]] of Object.entries(STICKERS)) {
   const [described, hex] = KEYS[keyColour];
   // The model now and then answers with no image; a retry usually gets one.
   const prompt = `${object}. ${STICKER_STYLE.replace("KEY", described)}`;
-  writeFileSync(
-    png,
-    await generate(prompt, key, "1:1").catch(() => generate(prompt, key, "1:1")),
-  );
+  writeFileSync(png, await generate(prompt, key, "1:1").catch(() => generate(prompt, key, "1:1")));
   // Key out the background, pull the key colour's spill off the edges, keep alpha in the WebP.
   const despill = keyColour === "green" ? "despill=type=green," : "";
   const vf = `colorkey=${hex}:0.32:0.08,${despill}scale=192:192:flags=lanczos,format=rgba`;
