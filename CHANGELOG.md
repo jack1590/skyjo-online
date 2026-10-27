@@ -4,6 +4,15 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.5.0] - 2026-10-27
+
+### Added
+
+- **Throw things at your friends.** Tap an opponent, and under their cards pick a bomb, a beer, a donkey, a tomato, a flip-flop or a kiss. Everyone at the table sees it fly from your name to theirs and land with a gag: "Boom!", "Cheers!", "Hee-haw!", "Splat!", "Bonk!" or "Mwah!" (in Spanish and Portuguese too), with its own sound. The phone that gets hit buzzes, but not in the last 10 seconds of that player's turn, so the clock's warning buzz still stands out.
+- Throws never get in the way of the game. You can throw on anyone's turn, a throw never covers a card you need to tap, and your next move goes through at once. Each player can throw once every 3 seconds, and one item at a time lands on each player.
+- Not in the mood? Switch **Throws** off under any opponent's cards. You then see and hear no throws and can't throw, and your phone remembers it. Spectators watch the throws but can't throw. Players who are out can still throw.
+- With reduced motion on, items don't fly: they appear where they land.
+
 ## [2.4.1] - 2026-10-26
 
 ### Changed

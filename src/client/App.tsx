@@ -35,6 +35,7 @@ export function App() {
         seat={null}
         lead={false}
         onAction={noop}
+        onToss={noop}
         onPlayAgain={noop}
         onExit={noop}
         {...table}

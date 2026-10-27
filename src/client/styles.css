@@ -441,6 +441,147 @@ dialog.zoom::backdrop {
   gap: 8px;
 }
 
+/* Throws (M21): the tray in an opponent's sheet, and items in the air over the table. */
+.tray {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tray-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.tray-items {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+}
+
+.tray-item {
+  min-height: 48px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  cursor: pointer;
+}
+
+.tray-item svg {
+  width: 32px;
+  height: 32px;
+  display: block;
+  margin: auto;
+}
+
+.tray-item:active:not(:disabled) {
+  transform: scale(0.92);
+}
+
+.tray-item:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* Above flying cards (z 2–3), under the summary's dim (z 9) and dialogs. */
+.toss {
+  position: fixed;
+  z-index: 8;
+  width: 44px;
+  height: 44px;
+  margin: -22px 0 0 -22px;
+  pointer-events: none;
+}
+
+.toss > svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  filter: drop-shadow(0 3px 4px rgb(0 0 0 / 0.45));
+}
+
+.toss.landed > svg {
+  animation: toss-land 0.45s ease-out forwards;
+}
+
+.toss .drop {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  margin: -4.5px 0 0 -4.5px;
+  border-radius: 50%;
+  background: var(--splash);
+  animation: toss-drop 0.5s ease-out forwards;
+}
+
+.toss .gag {
+  position: absolute;
+  left: 50%;
+  bottom: 100%;
+  padding: 2px 9px;
+  border-radius: 10px;
+  background: #fff;
+  color: #1b1b1b;
+  font-size: 15px;
+  font-weight: 800;
+  white-space: nowrap;
+  animation: toss-gag 0.9s ease-out forwards;
+}
+
+@keyframes toss-land {
+  30% {
+    transform: scale(1.5, 0.7);
+  }
+  to {
+    transform: scale(1.2);
+    opacity: 0;
+  }
+}
+
+@keyframes toss-drop {
+  to {
+    transform: translate(var(--x), var(--y)) scale(0.4);
+    opacity: 0;
+  }
+}
+
+@keyframes toss-gag {
+  from {
+    transform: translate(-50%, 8px) scale(0.5);
+    opacity: 0;
+  }
+  20% {
+    transform: translate(-50%, 0) scale(1.1);
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  to {
+    transform: translate(-50%, -6px);
+    opacity: 0;
+  }
+}
+
+@keyframes toss-fade {
+  from,
+  to {
+    opacity: 0;
+  }
+  25%,
+  75% {
+    opacity: 1;
+  }
+}
+
 .opp.active {
   border-color: var(--accent);
 }
@@ -1231,6 +1372,15 @@ dialog.overlay:focus {
     animation: none;
   }
 
+  /* A throw doesn't fly: it fades in and out where it lands, and its bubble still pops (M21). */
+  .toss.landed > svg {
+    animation: toss-fade 0.9s;
+  }
+
+  .toss .drop {
+    display: none;
+  }
+
   /* No shaking: the bar flashes instead. */
   .mine-head.nudge-0 {
     animation: flash-0 0.4s;
@@ -1285,11 +1435,13 @@ dialog.overlay:focus {
   top: -10px;
 }
 
-.option .switch:has(input:checked) {
+.option .switch:has(input:checked),
+.tray .switch:has(input:checked) {
   background: var(--accent);
 }
 
-.option .switch:has(input:checked)::after {
+.option .switch:has(input:checked)::after,
+.tray .switch:has(input:checked)::after {
   transform: translateX(16px);
   background: var(--accent-ink);
 }

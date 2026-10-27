@@ -799,7 +799,8 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 17  | ✅ M13                             | UX-11, UX-14, UX-17, game-over cue                                                                                      | 2.3.0         | minor, new                                                                                                       |
 | 18  | ✅ M14                             | UX-15, UX-16, last-round cue                                                                                            | 2.4.0         | minor, new                                                                                                       |
 | 19  | ✅ M15                             | UX-13                                                                                                                   | 2.4.1         | minor                                                                                                            |
-| 20  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
+| 20  | M21                                | Throws: bombs, beers, donkeys and more at other players (user request, 2026-10-27)                                      | 2.5.0         | the user asked for it; ahead of M16, which waits on the owner                                                    |
+| 21  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
 
 Deferred: Turnstile (SEC-4), SEC-12 (until M16) and quick reactions (the user's call). Declined: SEC-7. Versions assume this order; a PR that reorders says so.
 
@@ -964,6 +965,36 @@ The user asked for a game option, **"Play until one is left"**, and approved the
   - The largest single source is `online.spec.ts` "a round runs to its summary…": 51, 25 and 40 s on iPhone in the same three runs.
   - The PR run took 171 s from push to finish, under 3 min.
   - Scores: Rules correctness 5, Mobile UX 5, Visual polish 4, Multiplayer stability 5, Security 5, Code health 5, Delivery health 4, Game feel 4.
+
+### M21 — Throw things at your friends (user request, 2026-10-27) · v2.5.0
+
+The user asked for a feature "like Parchís": throw bombs, beers or donkeys at other players, and make it funny. This is the deferred "quick reactions" idea (§ After M6), now the user's call. The PO had a research agent and a UX expert scope it before building.
+
+**Research (summary).** Online Parchís and Ludo apps let you tap an opponent's avatar and throw from a small tray; the whole table sees the item fly from thrower to target and land with a gag. What players complain about is spam aimed at whoever is thinking, so every big game ended up with a mute (Clash Royale added one 3 months after refusing to). What keeps it funny: rare, seen by everyone, one friendly item in the mix, and it never blocks play. 🫏 (Emoji 15, 2022) shows as an empty box on many LatAm Android 12–13 phones, so the art is our own inline SVG.
+
+**UX (summary).** Two taps, inside a sheet the player opened on purpose: tap an opponent (their full-size grid, which already existed), then an item in a row under it. No items on the table, so no accidental throws. Flights are fixed elements over the cards (z 8, under the summary's dim) that never take a tap. A target in an 8-player strip scrolled out of view gets the throw at the strip's edge; the strip never scrolls for a throw. The thrower is always visible (the item starts at their name).
+
+**Scope.**
+- Six items: bomb ("Boom!"), beer ("Cheers!"), donkey ("Hee-haw!", hops instead of flying), tomato ("Splat!"), flip-flop ("Bonk!", "¡Chanclazo!" in Spanish) and kiss ("Mwah!"), each with a gag bubble in en, es and pt, coloured bits on impact and a sound (`boom`, `splat`, `bray`, `kiss`, generated with ffmpeg at −23 dB mean like `last.mp3`).
+- Whoever is hit gets a vibration of its own per item, unlike the turn buzz, the nudge or the Auto-play buzz. It is skipped in that player's last 10 s, so the nudge stays the only buzz then.
+- A **Throws** switch next to the items, remembered in `localStorage`: off, you see and hear no throws and can't throw.
+- Seated players throw, those who are out too (R16); spectators only watch. Not at yourself. No flights over the summary.
+- Reduced motion: the item fades in where it lands, with its bubble and sound; nothing flies or shakes.
+
+**Server and security.** One new entry point, the `toss` message. It writes no row: the room keeps the throw in memory and returns `"view"`. Its bounds:
+- one throw per seat every 3 s (`TOSS_MS`; a throw too soon returns `"none"`);
+- one `MESSAGES` unit like any message (120 a minute per IP);
+- the per-socket flood limit.
+
+The client sends it without a `seq`, so a throw never holds up a move.
+
+**Acceptance.**
+- Unit tests (`room.test.ts`): a throw shows in every view for 2 s and saves nothing. No throws in the lobby, from a spectator, at yourself or at a seat that isn't there. 3 s per seat, and only for that seat. Parsing rejects bad items and non-integer targets.
+- E2E (`e2e/toss.spec.ts`):
+  - the items are only in an opponent's sheet, 6 buttons of at least 44 × 44, at 2 and 8 players, with no sideways scroll, and spectators get none;
+  - a throw lands on your name bar and lets taps through, a second one at the same target is dropped, and the switch turns throws off across a reload;
+  - between two phones (Pixel): Ben sees Ana's donkey and his phone gets its vibration, Ana's items rest 3 s, and Ana's move right after a throw goes through.
+- The release checklist, with README images refreshed: the "Tap an opponent" still now shows the items.
 
 ### M16 — Launch in the App Store and Google Play (user decision, 2026-10-24) · last
 

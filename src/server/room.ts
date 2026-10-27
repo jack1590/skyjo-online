@@ -18,6 +18,8 @@ import {
   type ErrorCode,
   NAME_MAX,
   type RoomView,
+  TOSS_MS,
+  type Toss,
   TURN_MS,
   type Wait,
 } from "../protocol";
@@ -133,6 +135,8 @@ export const IP_MESSAGES_PER_MINUTE = 120;
 export const MAX_SOCKETS = 20;
 /** A socket that hasn't said hello this long after opening is closed (SEC-6); the client says it at once. */
 export const HELLO_MS = 10_000;
+/** Views carry a throw this long (M21): later ones, such as a reconnecting phone's, leave it out. */
+export const TOSS_SHOW_MS = 2_000;
 
 /** Never said hello, HELLO_MS after opening: it holds no place in the room and is closed. */
 export const silent = (conn: Conn, now: number) =>
@@ -237,6 +241,13 @@ const cleanName = (name: string) =>
   [...name.replace(/\p{C}/gu, "").trim()].slice(0, NAME_MAX).join("").trim();
 
 export class Room {
+  /**
+   * The latest throw and each seat's last one (M21). In memory only: a throw writes no row, and
+   * one lost to hibernation is long over.
+   */
+  private toss: Toss | null = null;
+  private tossed = new Map<number, number>();
+
   constructor(
     readonly data: RoomData,
     private readonly deps: Deps,
@@ -361,6 +372,16 @@ export class Room {
           this.play(game, { ...msg.action, seat });
         }
         return "data";
+      case "toss": {
+        if (game === null || seat === null || msg.to === seat || !seats[msg.to]) {
+          throw new RoomError("not-allowed");
+        }
+        // Too soon: the client greys the items out meanwhile, so only a script gets here.
+        if (now - (this.tossed.get(seat) ?? -TOSS_MS) < TOSS_MS) return "none";
+        this.tossed.set(seat, now);
+        this.toss = { id: now, from: seat, to: msg.to, item: msg.item };
+        return "view";
+      }
     }
   }
 
@@ -408,6 +429,7 @@ export class Room {
       clocks: this.clocks(live),
       knockout: this.data.knockout === true,
       game: this.data.game && toView(this.data.game),
+      ...(this.toss && this.deps.now() - this.toss.id < TOSS_SHOW_MS && { toss: this.toss }),
     };
   }
 

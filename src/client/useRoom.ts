@@ -10,6 +10,7 @@ import {
   PONG,
   type RoomView,
   type ServerMsg,
+  type TossItem,
 } from "../protocol";
 
 /** "missing" and "full" (too many sockets in the room, SEC-2) are final: no retry. */
@@ -182,6 +183,14 @@ export function useRoom(code: string) {
     [answered],
   );
 
+  /** Sends a throw (M21) without a seq: nothing waits on its answer, so it never holds up a move. */
+  const toss = useCallback((to: number, item: TossItem) => {
+    const ws = socket.current;
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ t: "toss", to, item } satisfies ClientMsg));
+    }
+  }, []);
+
   const clearError = useCallback(() => setError(null), []);
-  return { room, status, error, clearError, send, waiting, late };
+  return { room, status, error, clearError, send, toss, waiting, late };
 }
