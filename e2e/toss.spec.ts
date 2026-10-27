@@ -75,7 +75,7 @@ test("M21: a throw lands on its target without taking a tap, one buzz at a time,
   expect(await toss.evaluate((el) => getComputedStyle(el).pointerEvents)).toBe("none");
   await expect.poll(buzzes).toEqual([[40, 40, 40, 40]]);
   // Without motion (M22): nothing flies or shakes, and the mark is on your name bar at once.
-  await expect(page.getByTestId("mine-head").getByTestId("toss-decal")).toHaveCount(1);
+  await expect(page.locator("section.mine > [data-testid=toss-decal]")).toHaveCount(1);
   expect(await page.locator(".toss-fly").evaluate((el) => el.getAnimations().length)).toBe(0);
   expect(await page.evaluate(() => document.getElementById("root")?.getAnimations().length)).toBe(
     0,
@@ -155,7 +155,7 @@ test.describe("with motion", () => {
     // your cards under the blast.
     await throwAt(page, { from: others[4], to: me, item: "bomb" });
     expect(await quakes()).toBe(1);
-    await expect(page.getByTestId("mine-head").getByTestId("toss-decal")).toHaveCount(1);
+    await expect(page.locator("section.mine > [data-testid=toss-decal]")).toHaveCount(1);
     const card = await page.getByTestId("my-grid").locator(".card").first().boundingBox();
     if (!card) throw new Error("no card");
     expect(

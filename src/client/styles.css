@@ -1066,7 +1066,7 @@ dialog.zoom::backdrop {
     dc-slide 1300ms ease-in calc(var(--hit) + 400ms) forwards;
 }
 
-.mine-head .toss-decal .foam {
+.mine > .toss-decal .foam {
   left: calc(var(--dx) - 70px);
   width: 140px;
 }
@@ -1423,6 +1423,7 @@ dialog.zoom::backdrop {
 }
 
 .mine {
+  position: relative;
   flex: 1;
   /* Never shorter than its 44px-card grid, so the table's scroll height (and padding) covers it. */
   min-height: min-content;

@@ -208,11 +208,13 @@ export function Table(props: TableProps) {
   const oppRefs = useRef(new Map<number, HTMLElement>());
   const strip = useRef<HTMLElement>(null);
   const mineHead = useRef<HTMLDivElement>(null);
+  const mine = useRef<HTMLElement>(null);
   const [throwsOn, toggleThrows] = useThrowsOn();
   const [tossedAt, setTossedAt] = useState(0);
   /**
    * Where a seat's throws fly from and land (M21, M22): an opponent's panel head, or your name.
-   * The panel (an opponent's, or your name bar) takes the hit and holds the mark. A panel scrolled
+   * The panel (an opponent's, or your name bar) takes the hit. Your mark spreads over your name bar
+   * and grid, not just the thin bar, so it reads; taps go through it. A panel scrolled
    * out of the strip clamps to the strip's edge: scrolling it would fight the scroll that follows
    * the turn.
    */
@@ -225,7 +227,8 @@ export function Table(props: TableProps) {
       panel.querySelector<HTMLElement>(":scope > *") ??
       panel;
     const aim = (opp?.querySelector<HTMLElement>(".opp-head") ?? el).getBoundingClientRect();
-    const p = panel.getBoundingClientRect();
+    const mark = opp ?? mine.current ?? panel;
+    const p = mark.getBoundingClientRect();
     const cx = aim.left + aim.width / 2;
     const cy = aim.top + aim.height / 2;
     const box = opp && strip.current ? strip.current.getBoundingClientRect() : null;
@@ -233,7 +236,7 @@ export function Table(props: TableProps) {
       Math.min(Math.max(v, lo + m), hi - m);
     const x = clamp(cx, box?.left ?? 0, box?.right ?? window.innerWidth, 36);
     const y = clamp(cy, box?.top ?? 0, box?.bottom ?? window.innerHeight, 12);
-    return { x, y, el, panel, px: cx - p.left, py: cy - p.top };
+    return { x, y, el, panel, mark, px: cx - p.left, py: cy - p.top };
   };
   // biome-ignore lint/correctness/useExhaustiveDependencies: timing is read when the turn passes
   useEffect(() => {
@@ -526,7 +529,7 @@ export function Table(props: TableProps) {
       </p>
 
       {me && seat !== null && (
-        <section className="mine">
+        <section ref={mine} className="mine">
           {/* Auto-play lives here: a quiet switch, or while on, a bar holding the same switch. */}
           <div
             ref={mineHead}

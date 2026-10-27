@@ -4,6 +4,22 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.5.1] - 2026-10-27
+
+### Changed
+
+- **Throws are much more fun.** Every item is a new illustrated sticker, and each one has its own show:
+  - the bomb wobbles through the air, lands, swells with its fuse fizzing, and blows up in a flash and a cloud of smoke that leaves the target sooty;
+  - the beer sloshes in flight and tips over the target, with foam dripping down their panel;
+  - the tomato tumbles in and splats, and the juice slides down;
+  - the flip-flop spins in like a boomerang, bonks the target, bounces off and leaves dizzy stars;
+  - the kiss floats over with a heartbeat, leaves a lipstick print and a blush, and sends up hearts;
+  - the donkey gallops over in hops, headbutts the target and leaves hoof prints.
+- The mark each throw leaves stays on the target for about two seconds, so everyone has time to laugh.
+- If it hits you, your phone buzzes. A bomb also shakes your whole table.
+- **Real sounds:** a whoosh for every throw, a fizzing fuse and a real explosion, a clink and a splash, a wet splat, a slap with a boing, a smooch, and a real donkey braying "hee-haw".
+- Up to three throws can land on one player at once. Yours always shows on your own phone, however busy the table is.
+
 ## [2.5.0] - 2026-10-27
 
 ### Added

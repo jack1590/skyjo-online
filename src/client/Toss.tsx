@@ -319,7 +319,10 @@ export interface Spot {
   x: number;
   y: number;
   el: HTMLElement;
+  /** Takes the hit (the knock). */
   panel: HTMLElement;
+  /** Holds the mark, clipped to it; (px, py) is the landing point inside it. */
+  mark: HTMLElement;
   px: number;
   py: number;
 }
@@ -550,7 +553,7 @@ function Flight({ flying, reduced, quake, onDone }: FlightProps) {
         >
           {MARK[item]}
         </span>,
-        to.panel,
+        to.mark,
       )}
     </>
   );
