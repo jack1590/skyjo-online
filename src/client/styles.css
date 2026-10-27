@@ -970,7 +970,7 @@ dialog.zoom::backdrop {
 .toss-gag {
   position: absolute;
   left: 0;
-  top: calc(-48px - var(--slot) * 24px);
+  top: var(--gy);
   translate: var(--gx) 0;
   transform-origin: 50% 100%;
   padding: 3px 10px;
@@ -1016,7 +1016,7 @@ dialog.zoom::backdrop {
   overflow: hidden;
   border-radius: inherit;
   pointer-events: none;
-  animation: gone 300ms linear 1900ms forwards;
+  animation: gone 400ms linear var(--fade) forwards;
 }
 
 .toss-decal > * {
@@ -1094,15 +1094,16 @@ dialog.zoom::backdrop {
 .toss-decal .orbit {
   top: calc(var(--dy) - 12px);
   opacity: 1;
-  transform: scaleY(0.45);
+  /* A tilted orbit, not flattened into a smudge (PO, PR #38). */
+  transform: scaleY(0.75);
 }
 
 .toss-decal .stars {
   position: absolute;
-  left: -36px;
-  top: -36px;
-  width: 72px;
-  height: 72px;
+  left: -48px;
+  top: -48px;
+  width: 96px;
+  height: 96px;
   opacity: 0;
   animation:
     dc-in 120ms linear var(--hit) forwards,
@@ -1138,15 +1139,15 @@ dialog.zoom::backdrop {
 }
 
 .toss-decal .hoof {
-  width: 40px;
-  height: 40px;
-  margin: -20px 0 0 -34px;
+  width: 58px;
+  height: 58px;
+  margin: -29px 0 0 -50px;
   rotate: -18deg;
   animation: dc-stamp 160ms ease-out var(--hit) forwards;
 }
 
 .toss-decal .hoof + .hoof {
-  margin: -26px 0 0 -2px;
+  margin: -38px 0 0 -4px;
   rotate: 12deg;
   animation-delay: calc(var(--hit) + 90ms);
 }
@@ -2080,12 +2081,17 @@ dialog.overlay:focus {
     opacity: 0;
     animation:
       dc-in 150ms linear forwards,
-      gone 300ms linear 1500ms forwards;
+      gone 400ms linear var(--fade) forwards;
   }
 
   .toss-decal[data-item] > *,
   .toss-decal[data-item] .stars {
     animation: dc-in 200ms linear forwards;
+  }
+
+  /* The blush settles soft, as it does with motion, not a hard pink wash. */
+  .toss-decal[data-item] .blush {
+    animation: dc-blush 700ms ease-out forwards;
   }
 
   /* No shaking: the bar flashes instead. */

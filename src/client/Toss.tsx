@@ -28,8 +28,8 @@ import { PEAK, play, type Sound } from "./sound";
 /** The wind-up at the thrower's name before the item leaves (ms). */
 export const WIND = 120;
 /** Every throw's marks start fading at FADE and are gone at END, whatever the item. */
-export const FADE = 1900;
-export const END = 2200;
+export const FADE = 2600;
+export const END = 3000;
 /** At most this many throws land on one player at once, and this many on screen. */
 const PER_TARGET = 3;
 const MAX_FLYING = 6;
@@ -497,7 +497,7 @@ function Flight({ flying, reduced, quake, onDone }: FlightProps) {
       for (const a of anims) a.cancel();
     };
   }, []);
-  const vars = { "--land": `${land}ms`, "--hit": `${hit}ms` };
+  const vars = { "--land": `${land}ms`, "--hit": `${hit}ms`, "--fade": `${FADE}ms` };
   const edge = to.x < 70 ? "-15%" : to.x > window.innerWidth - 70 ? "-85%" : "-50%";
   return (
     <>
@@ -514,6 +514,8 @@ function Flight({ flying, reduced, quake, onDone }: FlightProps) {
             "--face": face,
             "--slot": slot,
             "--gx": edge,
+            // A line higher for each throw already there, but never off the top of the screen.
+            "--gy": `${Math.max(-48 - slot * 24, 14 - (to.y + sy))}px`,
             ...vars,
           } as CSSProperties
         }

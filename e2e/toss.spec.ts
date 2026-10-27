@@ -85,7 +85,7 @@ test("M21: a throw lands on its target without taking a tap, one buzz at a time,
   await page.clock.runFor(1);
   await expect(toss).toHaveCount(2);
   expect(await buzzes()).toEqual([[40, 40, 40, 40]]);
-  await page.clock.runFor(2300);
+  await page.clock.runFor(3100);
   await expect(toss).toHaveCount(0);
   await expect(page.getByTestId("toss-decal")).toHaveCount(0);
 
@@ -143,6 +143,17 @@ test.describe("with motion", () => {
       els.map((el) => el.getBoundingClientRect().left),
     );
     expect(new Set(lefts).size).toBe(3);
+    // Stacked bubbles stay on screen, even over a panel at the top (PO, PR #38). Laid out, not
+    // drawn: their pop-in transform doesn't count.
+    const tops = await page
+      .locator(".toss-gag")
+      .evaluateAll((els) =>
+        els.map(
+          (el) =>
+            (el.parentElement?.getBoundingClientRect().top ?? 0) + (el as HTMLElement).offsetTop,
+        ),
+      );
+    expect(Math.min(...tops)).toBeGreaterThanOrEqual(0);
     await throwAt(page, { from: others[3], to: target, item: "beer" });
     await expect(of("beer")).toHaveCount(0);
     await throwAt(page, { from: me, to: target, item: "donkey" });
@@ -164,10 +175,10 @@ test.describe("with motion", () => {
       ),
     ).toBe(true);
 
-    // The marks are still there at 1.2 s, and everything is gone by 2.5 s.
-    await page.clock.runFor(1200);
+    // The marks are still there at 2.2 s, long enough to laugh at, and everything is gone by 3.2 s.
+    await page.clock.runFor(2200);
     await expect(marks).toHaveCount(4);
-    await page.clock.runFor(1300);
+    await page.clock.runFor(1000);
     await expect(marks).toHaveCount(0);
     await expect(tosses).toHaveCount(0);
 
