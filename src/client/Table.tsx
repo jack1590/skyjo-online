@@ -214,9 +214,9 @@ export function Table(props: TableProps) {
   /**
    * Where a seat's throws fly from and land (M21, M22): an opponent's panel head, or your name.
    * The panel (an opponent's, or your name bar) takes the hit. Your mark spreads over your name bar
-   * and grid, not just the thin bar, so it reads; taps go through it. A panel scrolled
-   * out of the strip clamps to the strip's edge: scrolling it would fight the scroll that follows
-   * the turn.
+   * and grid, not just the thin bar, so it reads; taps go through it. A panel half out of the strip
+   * takes it on the part still showing, and one all out of it at the strip's edge: scrolling it would
+   * fight the scroll that follows the turn.
    */
   const spot = (i: number): Spot | null => {
     const opp = oppRefs.current.get(i);
@@ -234,9 +234,15 @@ export function Table(props: TableProps) {
     const box = opp && strip.current ? strip.current.getBoundingClientRect() : null;
     const clamp = (v: number, lo: number, hi: number, m: number) =>
       Math.min(Math.max(v, lo + m), hi - m);
-    const x = clamp(cx, box?.left ?? 0, box?.right ?? window.innerWidth, 36);
+    const left = box?.left ?? 0;
+    const right = box?.right ?? window.innerWidth;
+    // The part of an opponent's panel the strip shows, if any.
+    const lo = Math.max(p.left, left);
+    const hi = Math.min(p.right, right);
+    const x =
+      opp && hi > lo ? clamp(cx, lo, hi, Math.min(12, (hi - lo) / 2)) : clamp(cx, left, right, 16);
     const y = clamp(cy, box?.top ?? 0, box?.bottom ?? window.innerHeight, 12);
-    return { x, y, el, panel, mark, px: cx - p.left, py: cy - p.top };
+    return { x, y, el, panel, mark, px: x - p.left, py: y - p.top };
   };
   // biome-ignore lint/correctness/useExhaustiveDependencies: timing is read when the turn passes
   useEffect(() => {

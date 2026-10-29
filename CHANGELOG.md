@@ -4,6 +4,12 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.5.2] - 2026-10-29
+
+### Fixed
+
+- **Throws land on the right player.** When the row of opponents scrolled while something was in the air (as it does when the turn moves on), the throw landed where its target used to be, on the player next to them. It now follows its target. A throw at someone scrolled almost out of view lands on the part of them still showing, not on their neighbour.
+
 ## [2.5.1] - 2026-10-27
 
 ### Changed
