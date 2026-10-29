@@ -799,8 +799,8 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 17  | ✅ M13                             | UX-11, UX-14, UX-17, game-over cue                                                                                      | 2.3.0         | minor, new                                                                                                       |
 | 18  | ✅ M14                             | UX-15, UX-16, last-round cue                                                                                            | 2.4.0         | minor, new                                                                                                       |
 | 19  | ✅ M15                             | UX-13                                                                                                                   | 2.4.1         | minor                                                                                                            |
-| 20  | M21                                | Throws: bombs, beers, donkeys and more at other players (user request, 2026-10-27)                                      | 2.5.0         | the user asked for it; ahead of M16, which waits on the owner                                                    |
-| 21  | M22                                | Throws, part 2: stickers, choreography, marks, real sounds (user feedback)                                              | 2.5.1         | the owner found v2.5.0 throws not fun                                                                            |
+| 20  | ✅ M21                             | Throws: bombs, beers, donkeys and more at other players (user request, 2026-10-27)                                      | 2.5.0         | the user asked for it; ahead of M16, which waits on the owner                                                    |
+| 21  | ✅ M22                             | Throws, part 2: stickers, choreography, marks, real sounds (user feedback)                                              | 2.5.1         | the owner found v2.5.0 throws not fun                                                                            |
 | 22  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
 
 Deferred: Turnstile (SEC-4), SEC-12 (until M16) and quick reactions (the user's call). Declined: SEC-7. Versions assume this order; a PR that reorders says so.
@@ -1042,6 +1042,15 @@ The client sends it without a `seq`, so a throw never holds up a move.
 **PO follow-ups (non-blocking).**
 - When the top-of-screen clamp applies, the 2nd and 3rd bubbles of a dogpile overlap (tops at 11 and 10 px). Offset the clamped one sideways.
 - When your throw takes the place of someone else's, the dropped throw's sounds were already scheduled and still play. Keep the `play()` handles and stop them.
+
+**Fix, v2.5.2 (PR #39, user report).** In an 8-player game a throw sometimes landed on the player next to its target. The landing point was measured once, and the opponent strip then scrolled to follow the turn under the 3 s throw. Now each throw follows its target every frame, and a target half out of the strip takes the throw and its mark on the part still showing. The PO played it at 8 players on iPhone 13 and Pixel 7 with motion on:
+- a tomato, a bomb and a donkey thrown while the strip smooth-scrolled mid-flight all landed on the target and stayed there (sampled every 150 ms);
+- a target with a 30 px sliver showing took the splat on that sliver;
+- the PR's E2E and the PO's checks all failed on v2.5.1's client code, and the PR's E2E passed 15 of 15 runs (5 per device).
+
+**Follow-ups from PR #39 (non-blocking).**
+- **A throw at a target scrolled fully out of the strip lands at the strip's edge, over the neighbour's sliver.** At 8 players your phone shows about 3 of 7 opponents, so most throws between two others land like this. The mark goes onto the hidden panel, which nobody sees, so it reads as "the tomato hit the wrong person", the same complaint as the user's report. Fix: at the edge, show the target's name in the gag bubble (for example "Splat! → Ana") or an edge arrow, and leave the neighbour's panel alone. Don't scroll the strip, which would fight the scroll that follows the turn.
+- Known, rare: during a scroll the launch point moves with the target, so a throw in the air starts a little off its thrower; the 2nd and 3rd stacked throws at a half-hidden target sit ±26 px off the sliver.
 
 ### M16 — Launch in the App Store and Google Play (user decision, 2026-10-24) · last
 
