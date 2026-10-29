@@ -1084,11 +1084,11 @@ The owner rejected v2.5.0's throws as "poor animations, poor sounds", and M22 me
   - `translate: 0 -50%`.
 - **Room for it: what the PO measured** with the table harness (`atTurnStart`). The button needs 56 px (8 + 48) inside `.mine`, right of the grid:
 
-  | Device (viewport)          | Players | Card width | Free right of the grid, inside `.mine` | Fits?  |
-  | -------------------------- | ------- | ---------- | -------------------------------------- | ------ |
-  | iPhone 13 (390 × 664)      | 2, 4    | 52 px      | 67 px                                  | yes    |
-  | iPhone 13                  | 8       | 56 px      | 60 px                                  | yes    |
-  | Pixel 7 (412 × 839)        | 2, 4, 8 | 91 px      | 0 px: the grid fills the width         | **no** |
+  | Device (viewport)           | Players | Card width | Free right of the grid, inside `.mine` | Fits?  |
+  | --------------------------- | ------- | ---------- | -------------------------------------- | ------ |
+  | iPhone 13 (390 × 664)       | 2, 4    | 52 px      | 67 px                                  | yes    |
+  | iPhone 13                   | 8       | 56 px      | 60 px                                  | yes    |
+  | Pixel 7 (412 × 839)         | 2, 4, 8 | 91 px      | 0 px: the grid fills the width         | **no** |
   | Desktop Chrome (1280 × 720) | 2, 4, 8 | 52–57 px   | 142 px or more                         | yes    |
 
   So the grid's width term reserves 56 px **on both sides**, which keeps the grid centred: `--w: max(44px, min(calc((100cqw - 3 * var(--gap) - 2 * 56px) / 4), <height term>))`.
@@ -1175,13 +1175,13 @@ The sticker sits centred over the opponent's panel head, or 24 px above your nam
 
 **Sound** (in `sound.ts`'s `NAMES`). Everyone with Throws on hears them, the reactor included:
 
-| Name      | Length  | Peak (`PEAK`, ms) | Plays                                         |
-| --------- | ------- | ----------------- | --------------------------------------------- |
-| `giggle`  | 1.78 s  | 1210 (bursts from 10) | laugh, at 0                                |
-| `sigh`    | 1.15 s  | 390               | love, at 0                                    |
-| `grumble` | 1.23 s  | 310               | anger, at 0                                   |
-| `flap`    | 0.73 s  | 420               | migajero, at launch and at the exit           |
-| `coo`     | 1.44 s  | 1010 (first coo at 40) | migajero, at landing − 40                |
+| Name      | Length | Peak (`PEAK`, ms)      | Plays                               |
+| --------- | ------ | ---------------------- | ----------------------------------- |
+| `giggle`  | 1.78 s | 1210 (bursts from 10)  | laugh, at 0                         |
+| `sigh`    | 1.15 s | 390                    | love, at 0                          |
+| `grumble` | 1.23 s | 310                    | anger, at 0                         |
+| `flap`    | 0.73 s | 420                    | migajero, at launch and at the exit |
+| `coo`     | 1.44 s | 1010 (first coo at 40) | migajero, at landing − 40           |
 
 **Haptics:**
 - the reactor's phone: a 10 ms tap when sending;
@@ -1194,27 +1194,26 @@ The sticker sits centred over the opponent's panel head, or 24 px above your nam
 
 **Text** (en / es Latin American / pt Brazilian; every key in all three):
 
-| Key               | en                          | es                               | pt                               |
-| ----------------- | --------------------------- | -------------------------------- | -------------------------------- |
-| `reactions`       | Reactions                   | Reacciones                       | Reações                          |
-| `react_laugh`     | Laugh                       | Risa                             | Risada                           |
-| `react_love`      | Love                        | Amor                             | Amor                             |
-| `react_anger`     | Angry                       | Enojo                            | Raiva                            |
-| `react_migajero`  | Pigeon feeder               | Migajero                         | Migalheiro                       |
-| `gag_laugh`       | Hahaha!                     | ¡Jajaja!                         | Kkkkkk!                          |
-| `gag_love`        | Aww!                        | ¡Ay, amor!                       | Own, amor!                       |
-| `gag_anger`       | Grrr!                       | ¡Grrr!                           | Grrr!                            |
-| `migajeroSign`    | PIGEON FEEDER!              | ¡MIGAJERO!                       | MIGALHEIRO!                      |
-| `reactedBy`       | — {name}                    | — {name}                         | — {name}                         |
-| `said_laugh`      | {name} laughs               | {name} se ríe                    | {name} ri                        |
-| `said_love`       | {name} sends love           | {name} manda amor                | {name} manda amor                |
-| `said_anger`      | {name} is angry             | {name} se enoja                  | {name} está com raiva            |
-| `said_migajero`   | {name} calls {to} a pigeon feeder | {name} le dice migajero a {to} | {name} chama {to} de migalheiro |
-| `throws` (relabel) | Fun                        | Bromas                           | Zoeira                           |
-
+| Key                | en                                | es                             | pt                              |
+| ------------------ | --------------------------------- | ------------------------------ | ------------------------------- |
+| `reactions`        | Reactions                         | Reacciones                     | Reações                         |
+| `react_laugh`      | Laugh                             | Risa                           | Risada                          |
+| `react_love`       | Love                              | Amor                           | Amor                            |
+| `react_anger`      | Angry                             | Enojo                          | Raiva                           |
+| `react_migajero`   | Pigeon feeder                     | Migajero                       | Migalheiro                      |
+| `gag_laugh`        | Hahaha!                           | ¡Jajaja!                       | Kkkkkk!                         |
+| `gag_love`         | Aww!                              | ¡Ay, amor!                     | Own, amor!                      |
+| `gag_anger`        | Grrr!                             | ¡Grrr!                         | Grrr!                           |
+| `migajeroSign`     | PIGEON FEEDER!                    | ¡MIGAJERO!                     | MIGALHEIRO!                     |
+| `reactedBy`        | — {name}                          | — {name}                       | — {name}                        |
+| `said_laugh`       | {name} laughs                     | {name} se ríe                  | {name} ri                       |
+| `said_love`        | {name} sends love                 | {name} manda amor              | {name} manda amor               |
+| `said_anger`       | {name} is angry                   | {name} se enoja                | {name} está com raiva           |
+| `said_migajero`    | {name} calls {to} a pigeon feeder | {name} le dice migajero a {to} | {name} chama {to} de migalheiro |
+| `throws` (relabel) | Fun                               | Bromas                         | Zoeira                          |
 - **Why these words:**
   - "Pigeon feeder" keeps the joke in English, someone scattering crumbs for the next player, and matches the pigeon.
-  - "Migalheiro" coins from *migalha* (crumb) exactly as *migajero* does from *migaja*. Brazilians read it at once, and the pigeon and crumbs carry the rest.
+  - "Migalheiro" coins from _migalha_ (crumb) exactly as _migajero_ does from _migaja_. Brazilians read it at once, and the pigeon and crumbs carry the rest.
   - "Kkkkkk" is how Brazilians write a laugh; "Own" is their "aww".
   - "Amor", "Enojo" and "Raiva" avoid gendered adjectives.
 - **The bubble carries the name** when the reactor's panel is clamped: `t("reactionFrom", { name, gag })` = "{name}: {gag}" in all three (add the key).
@@ -1229,13 +1228,13 @@ The sticker sits centred over the opponent's panel head, or 24 px above your nam
   - `mark-heart.webp` is reused.
 - **Sounds** in `public/sfx/`: freesound.org, every license checked as CC0 1.0 on the sound's own page (2026-10-29). Each was trimmed, given a 5 ms fade-in, a fade-out and a high-pass, made mono at 44.1 kHz, set to −19.4 LUFS integrated (M22's impacts measure −18 to −20) with peaks limited to −1.5 dBFS, and encoded at 96 kb/s like the throws:
 
-  | File          | Source                                                            | Author       | Cut                         |
-  | ------------- | ----------------------------------------------------------------- | ------------ | --------------------------- |
-  | `giggle.mp3`  | [388407](https://freesound.org/s/388407/) "Baby Giggles.wav"      | amccoy711    | 7.30 s + 1.75 s, 350 ms fade |
-  | `sigh.mp3`    | [446788](https://freesound.org/s/446788/) "Suspiro Amor.wav"      | IanLyanx     | 0 + 1.10 s, 300 ms fade     |
-  | `grumble.mp3` | [713755](https://freesound.org/s/713755/) "Angry Grr"             | kanyonwyvern | 0.50 s + 1.20 s, 350 ms fade |
-  | `coo.mp3`     | [735366](https://freesound.org/s/735366/) "Domestic Dove Coo"     | haulaway     | 11.90 s + 1.40 s, 300 ms fade |
-  | `flap.mp3`    | [689998](https://freesound.org/s/689998/) "Pigeon, Flies Away, Flapping Wings" | Kinoton | 0.85 s + 0.70 s, 200 ms fade |
+  | File          | Source                                                                         | Author       | Cut                           |
+  | ------------- | ------------------------------------------------------------------------------ | ------------ | ----------------------------- |
+  | `giggle.mp3`  | [388407](https://freesound.org/s/388407/) "Baby Giggles.wav"                   | amccoy711    | 7.30 s + 1.75 s, 350 ms fade  |
+  | `sigh.mp3`    | [446788](https://freesound.org/s/446788/) "Suspiro Amor.wav"                   | IanLyanx     | 0 + 1.10 s, 300 ms fade       |
+  | `grumble.mp3` | [713755](https://freesound.org/s/713755/) "Angry Grr"                          | kanyonwyvern | 0.50 s + 1.20 s, 350 ms fade  |
+  | `coo.mp3`     | [735366](https://freesound.org/s/735366/) "Domestic Dove Coo"                  | haulaway     | 11.90 s + 1.40 s, 300 ms fade |
+  | `flap.mp3`    | [689998](https://freesound.org/s/689998/) "Pigeon, Flies Away, Flapping Wings" | Kinoton      | 0.85 s + 0.70 s, 200 ms fade  |
 
   The README credits name the five authors.
 - **The PO picked the sounds by measurement, not by ear.** It chose them by license, title and description, rating count, and signal-to-noise ratio (39–41 dB after gain, none clipped), and took the loudest window of each. **The implementer listens to all five before wiring them in.** Swap a cut (window or source) that isn't funny, and record the change here.

@@ -35,6 +35,18 @@ const PER_TARGET = 3;
 const MAX_FLYING = 6;
 /** The target's phone buzzes at most this often, so a dogpile is one buzz, not three. */
 const BUZZ_GAP = 600;
+let buzzedAt = -Infinity;
+/**
+ * Buzzes this phone `ms` from now, unless its clock is in its last 10 s (`warned`: the nudge stays
+ * the only buzz then) or it buzzed for a throw or a reaction (M23) less than BUZZ_GAP before.
+ * Returns the timer, to call it off.
+ */
+export function buzzAt(pattern: number[], ms: number, warned: boolean) {
+  const at = performance.now() + ms;
+  if (warned || !navigator.userActivation?.hasBeenActive || at - buzzedAt < BUZZ_GAP) return;
+  buzzedAt = at;
+  return setTimeout(() => navigator.vibrate?.(pattern), ms);
+}
 /** Where each of a target's throws lands, a little apart (px), and how its mark is turned. */
 const SLOT = [
   [0, 0],
@@ -68,10 +80,11 @@ const HIT_BUZZ: Record<TossItem, number[]> = {
 /**
  * Each item's flight: how long (ms), the beat between landing and hitting (the bomb's fuse, the
  * donkey rearing back), how high it arcs for its distance, and how it covers the ground: an ease-in
- * dives into the target, which reads as weight. The donkey hops instead, the kiss sways.
+ * dives into the target, which reads as weight. The donkey hops instead, the kiss sways, and the
+ * migajero's pigeon (M23) flutters along its arc.
  */
 const PLAN: Record<
-  TossItem,
+  TossItem | "pigeon",
   {
     fly: number;
     beat: number;
@@ -80,6 +93,7 @@ const PLAN: Record<
     hops?: number;
     sway?: number;
     trail?: number;
+    flutter?: number;
   }
 > = {
   bomb: { fly: 620, beat: 220, arc: 0.45, ease: (t) => t ** 1.4, trail: 50 },
@@ -88,6 +102,7 @@ const PLAN: Record<
   slipper: { fly: 420, beat: 0, arc: 0.18, ease: (t) => t, trail: 28 },
   kiss: { fly: 760, beat: 0, arc: 0.3, ease: (t) => 1 - (1 - t) ** 2, sway: 12, trail: 90 },
   donkey: { fly: 720, beat: 160, arc: 0, ease: (t) => t, hops: 3 },
+  pigeon: { fly: 700, beat: 0, arc: 0.35, ease: (t) => 1 - (1 - t) ** 1.5, flutter: 4 },
 };
 const r = (v: number) => Math.round(v * 10) / 10 || 0;
 const o = (v: number) => Math.round(v * 1e4) / 1e4;
@@ -98,7 +113,7 @@ const o = (v: number) => Math.round(v * 1e4) / 1e4;
  * `room` is how far above the higher end the arc may go before it leaves the screen.
  * `ghost` is the same path for the trail, unseen during the wind-up and on arrival.
  */
-export function flight(item: TossItem, dx: number, dy: number, room = Infinity) {
+export function flight(item: TossItem | "pigeon", dx: number, dy: number, room = Infinity) {
   const p = PLAN[item];
   const lift = Math.max(24, Math.min(160, Math.max(48, p.arc * Math.hypot(dx, dy)), room));
   const total = WIND + p.fly;
@@ -111,7 +126,9 @@ export function flight(item: TossItem, dx: number, dy: number, room = Infinity) 
   for (let i = 1; i <= 20; i++) {
     const t = i / 20;
     const k = p.ease(t);
-    const up = p.hops ? Math.abs(Math.sin(p.hops * Math.PI * t)) * 34 : 4 * t * (1 - t) * lift;
+    const up = p.hops
+      ? Math.abs(Math.sin(p.hops * Math.PI * t)) * 34
+      : 4 * t * (1 - t) * lift + Math.abs(Math.sin((p.flutter ?? 0) * Math.PI * t)) * 8;
     const side = p.sway ? Math.sin(2 * Math.PI * t) * p.sway * (1 - t) : 0;
     const s = p.hops ? 1 : 1 + 0.6 * t * (1 - t);
     frames.push({
@@ -356,7 +373,6 @@ export function Tosses({ toss, on, you, warned, reduced, spot, names }: TossesPr
   const [flying, setFlying] = useState<Flying[]>([]);
   const [said, setSaid] = useState("");
   const last = useRef<string | null>(null);
-  const buzzed = useRef(-Infinity);
   // A buzz still on its way when the throws leave the screen (the summary, leaving) is called off.
   const buzz = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(buzz.current), []);
@@ -395,11 +411,7 @@ export function Tosses({ toss, on, you, warned, reduced, spot, names }: TossesPr
     play(HIT[toss.item], Math.max(0, hit - (PEAK[HIT[toss.item]] ?? 0)));
     if (toss.to !== you) return;
     setSaid(t("tossedYou", { name: names[toss.from] ?? "", item: t(`item_${toss.item}`) }));
-    const buzzAt = performance.now() + hit;
-    if (!warned && navigator.userActivation?.hasBeenActive && buzzAt - buzzed.current >= BUZZ_GAP) {
-      buzzed.current = buzzAt;
-      buzz.current = setTimeout(() => navigator.vibrate?.(HIT_BUZZ[toss.item]), hit);
-    }
+    buzz.current = buzzAt(HIT_BUZZ[toss.item], hit, warned) ?? buzz.current;
   }, [toss]);
   const air = flying.map((f) => (
     <Flight
@@ -579,6 +591,18 @@ function Flight({ flying, reduced, quake, spot, onDone }: FlightProps) {
   );
 }
 
+/** Whether it's still before `until` (ms): your throws and reactions rest after each one. */
+export function useResting(until: number): boolean {
+  const [, rerender] = useState(0);
+  const wait = until - Date.now();
+  useEffect(() => {
+    if (wait <= 0) return;
+    const id = setTimeout(() => rerender((n) => n + 1), wait);
+    return () => clearTimeout(id);
+  }, [wait]);
+  return wait > 0;
+}
+
 interface TrayProps {
   name: string;
   on: boolean;
@@ -591,13 +615,7 @@ interface TrayProps {
 /** In an opponent's sheet: what you can throw at them, and the switch for throws. */
 export function Tray({ name, on, onToggle, until, onToss }: TrayProps) {
   const { t } = useI18n();
-  const [, rerender] = useState(0);
-  const wait = until - Date.now();
-  useEffect(() => {
-    if (wait <= 0) return;
-    const id = setTimeout(() => rerender((n) => n + 1), wait);
-    return () => clearTimeout(id);
-  }, [wait]);
+  const resting = useResting(until);
   return (
     <div className="tray" data-testid="tray">
       <div className="tray-head">
@@ -619,7 +637,7 @@ export function Tray({ name, on, onToggle, until, onToss }: TrayProps) {
               aria-label={t(`item_${item}`)}
               title={t(`item_${item}`)}
               data-item={item}
-              disabled={wait > 0}
+              disabled={resting}
               onClick={() => onToss(item)}
             >
               <img src={ITEM[item]} alt="" />

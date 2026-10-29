@@ -3,13 +3,22 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
 import { type Action, places } from "../engine/game";
 import type { GameView, PlayerView, ViewSlot } from "../engine/view";
-import { TOSS_MS, type Toss, type TossItem, TURN_MS, type Wait } from "../protocol";
+import {
+  type Reaction,
+  type ReactionKind,
+  TOSS_MS,
+  type Toss,
+  type TossItem,
+  TURN_MS,
+  type Wait,
+} from "../protocol";
 import { Card, formatCard } from "./Card";
 import { type Locale, ordinal, type T, useI18n } from "./i18n";
 import {
@@ -21,6 +30,7 @@ import {
   useReducedMotion,
   useRevealing,
 } from "./motion";
+import { lastMover, ReactButton, Reactions } from "./Reactions";
 import { nudge, play, type Sound, useMuted, useSounds } from "./sound";
 import { type Spot, Tosses, Tray, useThrowsOn } from "./Toss";
 
@@ -49,6 +59,10 @@ interface TableProps {
   toss?: Toss;
   /** Throws an item at a seat; none for spectators. */
   onToss?: (to: number, item: TossItem) => void;
+  /** The latest reaction (RoomView.reaction, M23). */
+  reaction?: Reaction;
+  /** Sends a reaction; none for spectators. */
+  onReact?: (kind: ReactionKind, to?: number) => void;
   onPlayAgain: () => void;
   onExit: () => void;
 }
@@ -211,6 +225,26 @@ export function Table(props: TableProps) {
   const mine = useRef<HTMLElement>(null);
   const [throwsOn, toggleThrows] = useThrowsOn();
   const [tossedAt, setTossedAt] = useState(0);
+  // A little past the server's 3 s, so a throw or reaction at the edge isn't dropped on the way.
+  const restUntil = tossedAt + TOSS_MS + 250;
+  const side = useRoomBeside(gridRef, me !== null);
+  // Seated players react, out ones (R16) too; spectators only watch (M23).
+  const reactButton = (place: "side" | "bar" | "corner") =>
+    props.seat !== null &&
+    props.onReact &&
+    throwsOn &&
+    !summary && (
+      <ReactButton
+        place={place}
+        until={restUntil}
+        target={lastMover(view, props.seat)}
+        reduced={reduced}
+        onReact={(kind, to) => {
+          props.onReact?.(kind, to);
+          setTossedAt(Date.now());
+        }}
+      />
+    );
   /**
    * Where a seat's throws fly from and land (M21, M22): an opponent's panel head, or your name.
    * The panel (an opponent's, or your name bar) takes the hit. Your mark spreads over your name bar
@@ -575,6 +609,7 @@ export function Table(props: TableProps) {
             <span className="sr-only" role="status">
               {said}
             </span>
+            {!side && reactButton("bar")}
           </div>
           <div className="grid-wrap">
             <div
@@ -596,6 +631,7 @@ export function Table(props: TableProps) {
                   pending={pending === slotKey(seat, pos)}
                 />
               ))}
+              {side && reactButton("side")}
             </div>
           </div>
         </section>
@@ -609,8 +645,7 @@ export function Table(props: TableProps) {
               name={players[zoom].name}
               on={throwsOn}
               onToggle={toggleThrows}
-              // A little past the server's 3 s, so a throw at the edge isn't dropped on the way.
-              until={tossedAt + TOSS_MS + 250}
+              until={restUntil}
               onToss={(item) => {
                 props.onToss?.(zoom, item);
                 setTossedAt(Date.now());
@@ -619,6 +654,21 @@ export function Table(props: TableProps) {
             />
           )}
         </Zoom>
+      )}
+
+      {/* Out (R16): no grid to sit beside. */}
+      {!me && reactButton("corner")}
+
+      {!summary && (
+        <Reactions
+          reaction={props.reaction}
+          on={throwsOn}
+          you={props.seat}
+          warned={warned}
+          reduced={reduced}
+          spot={spot}
+          names={players.map((p) => p.name)}
+        />
       )}
 
       {!summary && (
@@ -995,6 +1045,29 @@ function Ring({ inMs }: { inMs: number }) {
       {left !== null && <span className={`opp-left${hurry(left)}`}>{left}</span>}
     </>
   );
+}
+
+/**
+ * Whether there's room for the reactions button beside your grid's third row (M23): 56 px (8 + 48)
+ * right of the grid. Phones whose cards fill the width (Pixel 7) put it in the name bar instead,
+ * so no card loses size to it.
+ */
+function useRoomBeside(grid: { current: HTMLElement | null }, shown: boolean): boolean {
+  const [room, setRoom] = useState(true);
+  useLayoutEffect(() => {
+    const el = grid.current;
+    if (!el || !shown) return;
+    const check = () => {
+      const style = getComputedStyle(el);
+      const cards = style.gridTemplateColumns.split(" ").reduce((sum, w) => sum + parseFloat(w), 0);
+      setRoom((el.clientWidth - cards - 3 * parseFloat(style.columnGap)) / 2 >= 56);
+    };
+    check();
+    const watch = new ResizeObserver(check);
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, [grid, shown]);
+  return room;
 }
 
 /** "+14", "−3": a signed round score, as it adds to the total. */

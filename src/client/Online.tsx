@@ -19,7 +19,7 @@ const goHome = () => window.location.assign("/");
 
 export function Online({ code }: { code: string }) {
   const { t } = useI18n();
-  const { room, status, error, clearError, send, toss, waiting, late } = useRoom(code);
+  const { room, status, error, clearError, send, toss, react, waiting, late } = useRoom(code);
   const online = useOnline();
 
   useEffect(() => {
@@ -90,6 +90,8 @@ export function Online({ code }: { code: string }) {
         wait={room.clocks}
         toss={room.toss}
         onToss={toss}
+        reaction={room.reaction}
+        onReact={react}
         waiting={waiting}
         onAction={(action) => send({ t: "act", action })}
         onAuto={(on) => send({ t: "auto", on })}
