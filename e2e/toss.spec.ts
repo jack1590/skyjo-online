@@ -227,8 +227,19 @@ test("M22: a throw stays on its target while the strip scrolls, and lands on it 
       behavior: "instant",
     });
   });
+  const showing = await strip.evaluate((el) => {
+    const p = el.querySelectorAll("[data-testid=opponent]")[2] as HTMLElement;
+    return p.getBoundingClientRect().right - el.getBoundingClientRect().left;
+  });
+  expect(showing).toBeGreaterThan(0);
+  expect(showing).toBeLessThan(80);
   await throwAt(page, { from, to: target, item: "kiss" });
   await expect.poll(onTarget).toBe(true);
+  // Its mark goes there too, not on the part out of view.
+  const mark = await panel.getByTestId("toss-decal").last().locator(".lips").boundingBox();
+  const box = await strip.boundingBox();
+  if (!mark || !box) throw new Error("no mark");
+  expect(mark.x + mark.width / 2).toBeGreaterThanOrEqual(box.x);
 });
 
 test("M21: Ana throws a donkey at Ben, who feels it; her items rest 3 s, and her next move isn't held up", async ({

@@ -236,10 +236,13 @@ export function Table(props: TableProps) {
       Math.min(Math.max(v, lo + m), hi - m);
     const left = box?.left ?? 0;
     const right = box?.right ?? window.innerWidth;
-    const shown = opp ? clamp(cx, Math.max(p.left, left), Math.min(p.right, right), 12) : cx;
-    const x = clamp(shown, left, right, 16);
+    // The part of an opponent's panel the strip shows, if any.
+    const lo = Math.max(p.left, left);
+    const hi = Math.min(p.right, right);
+    const x =
+      opp && hi > lo ? clamp(cx, lo, hi, Math.min(12, (hi - lo) / 2)) : clamp(cx, left, right, 16);
     const y = clamp(cy, box?.top ?? 0, box?.bottom ?? window.innerHeight, 12);
-    return { x, y, el, panel, mark, px: cx - p.left, py: cy - p.top };
+    return { x, y, el, panel, mark, px: x - p.left, py: y - p.top };
   };
   // biome-ignore lint/correctness/useExhaustiveDependencies: timing is read when the turn passes
   useEffect(() => {

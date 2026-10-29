@@ -448,7 +448,8 @@ function Flight({ flying, reduced, quake, spot, onDone }: FlightProps) {
   useLayoutEffect(() => {
     const done = setTimeout(onDone, END);
     // The strip scrolls to follow the turn, maybe under a throw: it moves with its target. `translate`
-    // adds to the flight's transforms.
+    // adds to the flight's transforms. ponytail: the launch point moves too, so a throw in the air
+    // while the strip scrolls starts a little off its thrower; re-aim the arc if anyone notices.
     let raf = 0;
     const follow = () => {
       const now = spot(toss.to);
