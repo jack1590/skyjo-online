@@ -1,6 +1,6 @@
 {
   "name": "skyjo-online",
-  "version": "2.5.1",
+  "version": "2.5.2",
   "description": "Online multiplayer card game based on Skyjo's mechanics",
   "scripts": {
     "dev": "vite",

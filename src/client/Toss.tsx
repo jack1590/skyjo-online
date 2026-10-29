@@ -407,6 +407,7 @@ export function Tosses({ toss, on, you, warned, reduced, spot, names }: TossesPr
       flying={f}
       reduced={reduced}
       quake={f.toss.item === "bomb" && f.toss.to === you}
+      spot={spot}
       onDone={() => set(live.current.filter((x) => x !== f))}
     />
   ));
@@ -425,13 +426,15 @@ interface FlightProps {
   reduced: boolean;
   /** A bomb at you: the whole table shakes. */
   quake: boolean;
+  spot: (seat: number) => Spot | null;
   onDone: () => void;
 }
 
-function Flight({ flying, reduced, quake, onDone }: FlightProps) {
+function Flight({ flying, reduced, quake, spot, onDone }: FlightProps) {
   const { t } = useI18n();
   const { toss, from, to, slot } = flying;
   const { item } = toss;
+  const box = useRef<HTMLSpanElement>(null);
   const fly = useRef<HTMLSpanElement>(null);
   const ghosts = useRef<(HTMLSpanElement | null)[]>([]);
   const [sx, sy] = SLOT[slot];
@@ -444,6 +447,15 @@ function Flight({ flying, reduced, quake, onDone }: FlightProps) {
   // biome-ignore lint/correctness/useExhaustiveDependencies: runs once per throw
   useLayoutEffect(() => {
     const done = setTimeout(onDone, END);
+    // The strip scrolls to follow the turn, maybe under a throw: it moves with its target. `translate`
+    // adds to the flight's transforms.
+    let raf = 0;
+    const follow = () => {
+      const now = spot(toss.to);
+      if (now && box.current) box.current.style.translate = `${now.x - to.x}px ${now.y - to.y}px`;
+      raf = requestAnimationFrame(follow);
+    };
+    raf = requestAnimationFrame(follow);
     const anims: Animation[] = [];
     if (!reduced) {
       const total = plan.land;
@@ -494,6 +506,7 @@ function Flight({ flying, reduced, quake, onDone }: FlightProps) {
     }
     return () => {
       clearTimeout(done);
+      cancelAnimationFrame(raf);
       for (const a of anims) a.cancel();
     };
   }, []);
@@ -502,6 +515,7 @@ function Flight({ flying, reduced, quake, onDone }: FlightProps) {
   return (
     <>
       <span
+        ref={box}
         className="toss"
         data-item={item}
         data-testid="toss"

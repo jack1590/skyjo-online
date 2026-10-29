@@ -190,6 +190,47 @@ test.describe("with motion", () => {
   });
 });
 
+test("M22: a throw stays on its target while the strip scrolls, and lands on it when half out of view", async ({
+  page,
+}) => {
+  const turn = atTurnStart(8);
+  const me = turn.seat ?? 0;
+  await show(page, turn);
+  const strip = page.getByTestId("opponents");
+  const panel = page.getByTestId("opponent").nth(2);
+  const target =
+    Number(((await panel.locator(".opp-name").textContent()) ?? "").replace(/\D/g, "")) - 1;
+  const from = [0, 1, 2, 3, 4, 5, 6, 7].find((s) => s !== me && s !== target) ?? 0;
+  // Where the throw is, against the part of its target's panel the strip shows.
+  const onTarget = () =>
+    page.evaluate(() => {
+      const toss = document.querySelector("[data-testid=toss]")?.getBoundingClientRect();
+      const box = document.querySelector("[data-testid=opponents]")?.getBoundingClientRect();
+      const p = document.querySelectorAll("[data-testid=opponent]")[2]?.getBoundingClientRect();
+      if (!toss || !box || !p) return false;
+      return toss.left >= Math.max(p.left, box.left) && toss.left <= Math.min(p.right, box.right);
+    });
+
+  await throwAt(page, { from, to: target, item: "tomato" });
+  await expect.poll(onTarget).toBe(true);
+  // The turn moves on and the strip scrolls under the throw: it follows its target.
+  await strip.evaluate((el) => el.scrollBy({ left: 90, behavior: "instant" }));
+  await expect.poll(onTarget).toBe(true);
+  await expect(page.getByTestId("toss")).toHaveCount(0, { timeout: 5000 });
+
+  // Its target is scrolled off the left edge but for the sliver the strip's snap leaves: the throw
+  // lands on that.
+  await strip.evaluate((el) => {
+    const p = el.querySelectorAll("[data-testid=opponent]")[2] as HTMLElement;
+    el.scrollBy({
+      left: p.getBoundingClientRect().right - el.getBoundingClientRect().left - 60,
+      behavior: "instant",
+    });
+  });
+  await throwAt(page, { from, to: target, item: "kiss" });
+  await expect.poll(onTarget).toBe(true);
+});
+
 test("M21: Ana throws a donkey at Ben, who feels it; her items rest 3 s, and her next move isn't held up", async ({
   browser,
 }, info) => {
