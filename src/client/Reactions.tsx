@@ -156,17 +156,19 @@ function Pop({ shown, you, reduced, spot, name, onDone }: PopProps) {
   const box = useRef<HTMLSpanElement>(null);
   const fly = useRef<HTMLSpanElement>(null);
   const migajero = kind === "migajero";
-  // Over an opponent's panel head; on your own seat, a little above your name.
+  // Just under an opponent's panel head, so their name still says who; on your own seat, a little
+  // above your name.
+  const head = (at.panel.querySelector(".opp-head") ?? at.el).getBoundingClientRect();
+  const opp = at.panel.querySelector(".opp-head") !== null;
   const mine = !migajero && reaction.from === you;
   const x = at.x;
-  const y = at.y - (mine ? 24 : 0);
+  const y = at.y + (opp ? 28 : mine ? -24 : 0);
   const dx = from ? from.x - x : 0;
   const dy = from ? from.y - y : 0;
   const face = dx <= 0 ? 1 : -1;
   // Near the top of the screen, the bubble and the sign go under the sticker.
   const below = y < 120;
   // A panel scrolled out of the strip gets its reaction at the strip's edge: then the bubble says who.
-  const head = (at.panel.querySelector(".opp-head") ?? at.el).getBoundingClientRect();
   const named = Math.abs(head.left + head.width / 2 - at.x) > 2;
   // biome-ignore lint/correctness/useExhaustiveDependencies: runs once per reaction
   useLayoutEffect(() => {
