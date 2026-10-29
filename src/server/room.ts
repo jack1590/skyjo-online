@@ -16,7 +16,9 @@ import {
   CODE_ALPHABET,
   CODE_LENGTH,
   type ErrorCode,
+  lastMover,
   NAME_MAX,
+  type Reaction,
   type RoomView,
   TOSS_MS,
   type Toss,
@@ -246,6 +248,7 @@ export class Room {
    * one lost to hibernation is long over.
    */
   private toss: Toss | null = null;
+  private reaction: Reaction | null = null;
   private tossed = new Map<number, number>();
 
   constructor(
@@ -382,6 +385,25 @@ export class Room {
         this.toss = { id: now, from: seat, to: msg.to, item: msg.item };
         return "view";
       }
+      case "react": {
+        const at = msg.to;
+        if (game === null || seat === null || (at !== undefined && (at === seat || !seats[at]))) {
+          throw new RoomError("not-allowed");
+        }
+        // A tap that arrives as the round ends, or as the turn passes: too late, not an error.
+        const playing = game.phase === "flip" || game.phase === "draw" || game.phase === "place";
+        if (!playing || (msg.kind === "migajero" && at !== lastMover(game, seat))) return "none";
+        // One gag per seat per TOSS_MS, a throw or a reaction.
+        if (now - (this.tossed.get(seat) ?? -TOSS_MS) < TOSS_MS) return "none";
+        this.tossed.set(seat, now);
+        this.reaction = {
+          id: now,
+          from: seat,
+          kind: msg.kind,
+          ...(at !== undefined && { to: at }),
+        };
+        return "view";
+      }
     }
   }
 
@@ -430,6 +452,8 @@ export class Room {
       knockout: this.data.knockout === true,
       game: this.data.game && toView(this.data.game),
       ...(this.toss && this.deps.now() - this.toss.id < TOSS_SHOW_MS && { toss: this.toss }),
+      ...(this.reaction &&
+        this.deps.now() - this.reaction.id < TOSS_SHOW_MS && { reaction: this.reaction }),
     };
   }
 

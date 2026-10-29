@@ -37,6 +37,37 @@ export interface Toss {
   item: TossItem;
 }
 
+/**
+ * Reactions (M23): laugh, love and anger are about the reactor; the migajero is at the last mover.
+ * Not new TOSS_ITEMS: tabs loaded before 2.6.0 would choke on an unknown item in `toss`.
+ */
+export const REACTIONS = ["laugh", "love", "anger", "migajero"] as const;
+export type ReactionKind = (typeof REACTIONS)[number];
+export interface Reaction {
+  id: number;
+  from: number;
+  kind: ReactionKind;
+  /** The migajero's target; no other kind has one. */
+  to?: number;
+}
+
+/**
+ * Who the migajero is at: the last mover, the nearest seat before `current` still in (R16), while
+ * the next player's turn runs. None in the opening flip, at a round's first turn, or when it's you.
+ */
+export function lastMover(
+  view: Pick<GameView, "phase" | "turn" | "current"> & { players: { out: number | null }[] },
+  you: number | null,
+): number | null {
+  if ((view.phase !== "draw" && view.phase !== "place") || view.turn < 1) return null;
+  const n = view.players.length;
+  for (let i = 1; i < n; i++) {
+    const seat = (view.current - i + n) % n;
+    if (view.players[seat].out === null) return seat === you ? null : seat;
+  }
+  return null;
+}
+
 export type ClientMsg = (
   | { t: "hello"; token: string }
   | { t: "join"; name: string }
@@ -51,6 +82,8 @@ export type ClientMsg = (
   | { t: "knockout"; on: boolean }
   /** Throws an item at another seat, mid-game (M21). */
   | { t: "toss"; to: number; item: TossItem }
+  /** Reacts to a play, mid-game (M23); shares the throws' cooldown. */
+  | { t: "react"; kind: ReactionKind; to?: number }
 ) & {
   /** Client counter; the server echoes the highest one handled as `ack`. */
   seq?: number;
@@ -99,6 +132,8 @@ export interface RoomView {
   game: GameView | null;
   /** The latest throw, in views sent within TOSS_SHOW_MS of it (M21). */
   toss?: Toss;
+  /** The latest reaction, in views sent within TOSS_SHOW_MS of it (M23). */
+  reaction?: Reaction;
 }
 
 export type ServerMsg =
@@ -151,6 +186,12 @@ function parseBody(msg: Record<string, unknown>): ClientMsg | null {
       return Number.isInteger(msg.to) && TOSS_ITEMS.includes(msg.item as TossItem)
         ? { t: "toss", to: msg.to as number, item: msg.item as TossItem }
         : null;
+    case "react": {
+      const kind = msg.kind as ReactionKind;
+      if (!REACTIONS.includes(kind)) return null;
+      if (kind !== "migajero") return { t: "react", kind };
+      return Number.isInteger(msg.to) ? { t: "react", kind, to: msg.to as number } : null;
+    }
     case "act": {
       const a = msg.action;
       if (!isObject(a)) return null;

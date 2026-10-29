@@ -801,9 +801,10 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 19  | ✅ M15                             | UX-13                                                                                                                   | 2.4.1         | minor                                                                                                            |
 | 20  | ✅ M21                             | Throws: bombs, beers, donkeys and more at other players (user request, 2026-10-27)                                      | 2.5.0         | the user asked for it; ahead of M16, which waits on the owner                                                    |
 | 21  | ✅ M22                             | Throws, part 2: stickers, choreography, marks, real sounds (user feedback)                                              | 2.5.1         | the owner found v2.5.0 throws not fun                                                                            |
-| 22  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
+| 22  | ✅ M23                             | Reactions: laugh, love, anger and the migajero, from a button beside your grid (user request)                           | 2.6.0         | the user asked for it; reuses M21/M22's in-memory throw path and sticker pipeline                                |
+| 23  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
 
-Deferred: Turnstile (SEC-4), SEC-12 (until M16) and quick reactions (the user's call). Declined: SEC-7. Versions assume this order; a PR that reorders says so.
+Deferred: Turnstile (SEC-4) and SEC-12 (until M16). Quick reactions, deferred until now, are M23 (user request, 2026-10-29). Declined: SEC-7. Versions assume this order; a PR that reorders says so.
 
 ### BUG-1 — Everyone on Auto-play freezes the table (user report, 2026-10-25) · v2.1.1 · ✅ shipped (PR #21)
 
@@ -1052,6 +1053,235 @@ The client sends it without a `seq`, so a throw never holds up a move.
 - **A throw at a target scrolled fully out of the strip lands at the strip's edge, over the neighbour's sliver.** At 8 players your phone shows about 3 of 7 opponents, so most throws between two others land like this. The mark goes onto the hidden panel, which nobody sees, so it reads as "the tomato hit the wrong person", the same complaint as the user's report. Fix: at the edge, show the target's name in the gag bubble (for example "Splat! → Ana") or an edge arrow, and leave the neighbour's panel alone. Don't scroll the strip, which would fight the scroll that follows the turn.
 - Known, rare: during a scroll the launch point moves with the target, so a throw in the air starts a little off its thrower; the 2nd and 3rd stacked throws at a half-hidden target sit ±26 px off the sliver.
 
+### M23 — Reactions (user request, 2026-10-29) · v2.6.0
+
+**Request** (translated from Spanish). "I want to add reactions now, where I circled: a round button at the bottom right of the screen, beside my own card grid, at its third row, to react to other players' plays. For now:
+- laugh: maybe a baby laughing, with a good sound;
+- migajero: maybe a pigeon lifting a card, and a sign 'MIGAJERO' appears. It's for when a player swaps a card and ends up giving a better one to the next player (the card they discard is one the next player happily takes);
+- in love: with a sound like a sigh;
+- anger."
+
+The owner rejected v2.5.0's throws as "poor animations, poor sounds", and M22 met the bar with illustrated stickers, real recordings and per-item choreography. M23 starts at M22's bar. The PO produced the art and sounds before any code (committed on `m23-reactions`, listed below). The implementer builds from this section and those files.
+
+**Who a reaction is about, and where everyone sees it.**
+- **Laugh, love and anger are about the reactor.** They pop on the reactor's own seat, so the seat's name says who reacted, with no extra label:
+  - on other phones, over the reactor's panel head;
+  - on the reactor's phone, over their name bar.
+
+  They say "this made me laugh, swoon or fume" about the move everyone just saw, so they need no target. A target picker would add a tap and a choice, and the throws already cover "at you".
+- **The migajero is about the last mover**, the player whose discard the next player is happy to take. The pigeon flies from the reactor's seat (it winds up at their name, like a throw) to the last mover's seat. It lands there with the sign, and the sign names the reactor under the word ("— Ana").
+  - Its target is the nearest seat before `current` that is still in (R16), from `view.turn ≥ 1` of a round, in the draw or place phase. The moment the user described is the next player taking that card (`drawnFrom: "discard"`), and that player's turn is still running then.
+  - It is greyed out in the opening flip, at a round's first turn, and when the last mover is you.
+  - Any seated player may send it, the current player included ("thanks, migajero").
+- **In an 8-player strip**, a panel scrolled out of view gets its reaction at the strip's edge, as throws do (`spot` clamps it). Then the bubble also names the reactor ("Ana: ¡Jajaja!"), since no panel name is next to it.
+- **Who may react:** seated players, out ones (R16) included, as with throws. Spectators see and hear reactions, and get no button.
+- **When:** mid-game, the opening flip included. There is no button and no reaction at the round summary or game over, the same as throws (`!summary`).
+
+**The button: where you circled.**
+- A 48 px circle anchored to your grid: 8 px right of column 4, its centre on row 3's centre. It is a child of `.grid` (`position: relative`), placed with the grid's own variables, so it needs no JS:
+  - `left: calc(50% + 2 * var(--w) + 1.5 * var(--gap) + 8px)`;
+  - `top: calc(50% + var(--w) * 7 / 5 + var(--gap))`;
+  - `translate: 0 -50%`.
+- **Room for it: what the PO measured** with the table harness (`atTurnStart`). The button needs 56 px (8 + 48) inside `.mine`, right of the grid:
+
+  | Device (viewport)           | Players | Card width | Free right of the grid, inside `.mine` | Fits?  |
+  | --------------------------- | ------- | ---------- | -------------------------------------- | ------ |
+  | iPhone 13 (390 × 664)       | 2, 4    | 52 px      | 67 px                                  | yes    |
+  | iPhone 13                   | 8       | 56 px      | 60 px                                  | yes    |
+  | Pixel 7 (412 × 839)         | 2, 4, 8 | 91 px      | 0 px: the grid fills the width         | **no** |
+  | Desktop Chrome (1280 × 720) | 2, 4, 8 | 52–57 px   | 142 px or more                         | yes    |
+
+  So the grid's width term reserves 56 px **on both sides**, which keeps the grid centred: `--w: max(44px, min(calc((100cqw - 3 * var(--gap) - 2 * 56px) / 4), <height term>))`.
+  - Height-bound layouts (iPhone, desktop) don't change.
+  - On Pixel 7, cards go from 91 to 63 px wide, still larger than on iPhone 13.
+  - An asymmetric gutter (right side only) would keep 77 px cards on Pixel, with the grid 28 px off-centre under the centred piles and strip. The PO prefers the centred table.
+- **It never covers a card.** The 8 px gap clears discard mode's 5 px outlines.
+- **With no grid** (out, R16), the button sits fixed at the screen's bottom right: 16 px plus the safe-area inset from each edge.
+- **Hidden:** for spectators, at the summary, and while the Throws switch is off.
+- **Look:** the table's panel colour, a 1 px `--line` border and a soft shadow, with an inline-SVG smiley and a small "+". Open, it shows "×". Its label is `t("reactions")`, with `aria-expanded`.
+- **Resting:** for `TOSS_MS + 250` after any throw or reaction you send, it dims and is disabled, from the same `tossedAt` as the throw tray.
+
+**Opening and closing: a fan of 4.**
+- A tap opens a quarter-circle fan up and to the left of the button, around the right thumb. Four 48 px round buttons, each showing its sticker at 40 px, sit 104 px from the button's centre at 90°, 120°, 150° and 180°: up, then towards the left.
+  - Offsets from the button's centre: laugh (0, −104), love (−52, −90), anger (−90, −52), migajero (−104, 0). Neighbours are 54 px apart, centre to centre, so items never touch.
+  - At every device and player count the fan stays over your own grid, so it is always on screen.
+- **Motion:** the items spring out from the button, 180 ms each with a back-out ease, staggered 30 ms. They close in reverse in 120 ms. With reduced motion they just appear.
+- **It closes on:**
+  - a choice, which sends the reaction, closes the fan and gives a 10 ms tap buzz;
+  - a tap anywhere else;
+  - Escape;
+  - the button again.
+- **A tap outside is never swallowed.** It closes the fan and still reaches what it hit, so a card tap on your turn is never lost. A native `popover="auto"` gives this light dismiss, Escape and the top layer for free (iOS 17+, Chrome 114+). Older browsers may use a document `pointerdown` listener, but must keep the pass-through.
+- **Labels:** each item has `aria-label` and `title` (`react_<kind>`). The migajero item, when greyed out, keeps its label so it can be found.
+
+**Protocol and server: M21's throw path, a separate field.**
+- **Wire:** a new `react` message, and `RoomView.reaction` alongside `toss`:
+
+  ```ts
+  export const REACTIONS = ["laugh", "love", "anger", "migajero"] as const;
+  export type ReactionKind = (typeof REACTIONS)[number];
+  export interface Reaction { id: number; from: number; kind: ReactionKind; to?: number }
+  // ClientMsg: | { t: "react"; kind: ReactionKind; to?: number }
+  // RoomView:  reaction?: Reaction   (views sent within TOSS_SHOW_MS of it)
+  ```
+
+  `parseClientMsg` checks that `kind` is in `REACTIONS`. A migajero must have an integer `to`, and any other kind has its `to` dropped.
+- **Why not new `TOSS_ITEMS`:** tabs loaded before 2.6.0 would get an unknown item in `toss`. `flight()` reads `PLAN[item].arc`, which throws inside `Tosses`' effect, and React unmounts the table. Old tabs ignore an unknown `reaction` field. (AGENTS.md already guards old tabs this way with `clocks` instead of `wait`.)
+- **`Room.receive` rules** (about 10 lines next to `toss`):
+  - not allowed when `game === null` or the sender has no seat;
+  - a migajero is not allowed at yourself or at a seat that doesn't exist;
+  - **one cooldown shared with throws:** the same `tossed` map, so each seat sends one gag (a throw or a reaction) per `TOSS_MS`. Too soon returns `"none"`;
+  - otherwise it keeps `this.reaction` in memory (never in `RoomData`) and returns `"view"`: no row, and everyone is told.
+- **Bounds on the new entry point** (for the Security score):
+  - no storage write;
+  - 3 s per seat, shared with throws;
+  - one `MESSAGES` unit (120 a minute per IP);
+  - the per-socket flood limit;
+  - each accepted reaction is one broadcast to at most `MAX_SOCKETS`, like a throw.
+- **Client:** `useRoom` gets `react(kind, to?)`, sent with no `seq`, like `toss`, so it never holds up a move. Clients dedupe by `${id}-${from}`, like `Tosses`.
+
+**Choreography** (ms from the view that brings the reaction). Shared rules:
+- a 64 px sticker with a gag bubble (`.toss-gag` style, clamped on screen);
+- `pointer-events: none`, so taps go through;
+- only `transform` and `opacity` animate, with no filters on moving layers;
+- everything is gone by `END_REACT = 2700`, under the 3 s cooldown, so a seat never stacks its own reactions;
+- the exit, from 2300 to 2700, is scale 0.9, a 10 px drift up and a fade.
+
+The sticker sits centred over the opponent's panel head, or 24 px above your name on your name bar.
+- **Laugh** (baby; `giggle.mp3` at 0):
+  - 0–260: it pops from scale 0 to 1.15 to 1, rotating −10° to 0;
+  - 260–1500: a giggle rock, 6 bobs of 200 ms (−6 px, ±8° alternating), smaller after 1000 ms, when the recording pauses;
+  - two `mark-tear` drops spring sideways from the eyes (±28 px) at 300 and 800 ms and fall 20 px as they fade (600 ms each);
+  - the bubble pops at 150;
+  - the reactor's panel head hops (−3 px) at 0 and 400 (composite add, like `KNOCK`).
+- **Love** (heart-eyes face; `sigh.mp3` at 0, the exhale peaks at 390):
+  - 0–300: a soft pop (overshoot 1.08);
+  - heartbeats (1 → 1.14 → 1, 220 ms) at 420, on the exhale, and at 900;
+  - a slow ±6° sway, floating up 10 px over the hold;
+  - three `mark-heart` hearts (reused) rise 50 px from behind it, at x −22, 0 and +22, from 350 ms, staggered 150 ms, swaying and gone by 1600.
+- **Anger** (red face with steam; `grumble.mp3` at 0, growling from 50 to 900):
+  - a slam in: from scale 1.4 and transparent to 1 in 120 ms (ease-in), squash 1.1 × 0.9 at 140, settled by 220;
+  - 220–1000: a tremble of ±3 px at about 16 Hz, with a red glow disc behind it pulsing in opacity, 0 to 0.5;
+  - two `mark-steam` puffs shoot out and up from its sides, ±20 to ±44 px and −30 px, at 250 and 650, growing from 0.6 to 1.2 as they fade (500 ms);
+  - the reactor's panel head stomps (+2 px) at 250 and 550.
+- **Migajero** (pigeon with a card in its beak; `flap.mp3` at 0, `coo.mp3` at landing):
+  - 0–120: the wind-up at the reactor's name, M22's `WIND`, name pulse included;
+  - 120–820: the pigeon flies to the target's panel head with `flight()`, using a new plan: fly 700 ms, arc 0.35, and a flutter of 4 small hops of 8 px. It faces where it flies (`--face`), and is 80 px wide, a little bigger than a sticker;
+  - 820: it lands with a squash (1.15 × 0.85 → 1). Three `mark-crumbs` bits scatter 20–30 px out and fade by 1400. `coo` starts at 780 (its onset is at 40), and its second coo carries the sign. The target's panel dips 3 px;
+  - 900–1500: **the sign** drops in above the target, as if hanging: it rotates −18° → +8° → −4° → 0 over 600 ms. It is HTML text, never art: `t("migajeroSign")` in bold uppercase at 15 px on cream paper with a 2 px dark-brown border and a slight tilt, and `t("reactedBy", { name })` small beneath it. Its maximum width is 70vw, and it is clamped on screen;
+  - 1100 and 1500: the pigeon bows, presenting the card (rotates 18° forward and back, 160 ms);
+  - 2300–2700: the pigeon flies off, up and away (−40 px sideways, −80 px up, fading), with `flap` again at 2300. The sign fades from 2400 to 2800 (the migajero's END is 2800).
+- **Reduced motion:** nothing flies, bobs, trembles, swings or scatters. The sticker (the pigeon at its target) fades in over 150 ms with its bubble and sign, holds, and fades out at the same END. The sounds still play, except the migajero's first `flap` (as throws skip their whoosh); its `coo` plays at 0.
+
+**Sound** (in `sound.ts`'s `NAMES`). Everyone with Throws on hears them, the reactor included:
+
+| Name      | Length | Peak (`PEAK`, ms)      | Plays                               |
+| --------- | ------ | ---------------------- | ----------------------------------- |
+| `giggle`  | 1.78 s | 1210 (bursts from 10)  | laugh, at 0                         |
+| `sigh`    | 1.15 s | 390                    | love, at 0                          |
+| `grumble` | 1.23 s | 310                    | anger, at 0                         |
+| `flap`    | 0.73 s | 420                    | migajero, at launch and at the exit |
+| `coo`     | 1.44 s | 1010 (first coo at 40) | migajero, at landing − 40           |
+
+**Haptics:**
+- the reactor's phone: a 10 ms tap when sending;
+- laugh, love and anger buzz nobody, because they are expressions, not hits;
+- the migajero's target buzzes [15, 60, 15] (a peck-peck) at landing. Like throws, it is skipped in their last 10 s (`warned`) and throttled with `BUZZ_GAP`, which throws and reactions share.
+
+**Screen readers:** one polite status line on every phone but the reactor's: `said_<kind>`, for example "Ana laughs", or "Ana calls Ben a pigeon feeder".
+
+**The Throws switch covers reactions too.** Off: no reactions seen or heard, and no button. One switch for "quiet table" is what players expect; two would be a settings page. The switch stays in an opponent's sheet, and its label widens to cover both: en "Fun", es "Bromas", pt "Zoeira". The key `throws` and `localStorage` key `skyjo:throws` stay, so a player's choice carries over.
+
+**Text** (en / es Latin American / pt Brazilian; every key in all three):
+
+| Key                | en                                | es                             | pt                              |
+| ------------------ | --------------------------------- | ------------------------------ | ------------------------------- |
+| `reactions`        | Reactions                         | Reacciones                     | Reações                         |
+| `react_laugh`      | Laugh                             | Risa                           | Risada                          |
+| `react_love`       | Love                              | Amor                           | Amor                            |
+| `react_anger`      | Angry                             | Enojo                          | Raiva                           |
+| `react_migajero`   | Pigeon feeder                     | Migajero                       | Migalheiro                      |
+| `gag_laugh`        | Hahaha!                           | ¡Jajaja!                       | Kkkkkk!                         |
+| `gag_love`         | Aww!                              | ¡Ay, amor!                     | Own, amor!                      |
+| `gag_anger`        | Grrr!                             | ¡Grrr!                         | Grrr!                           |
+| `migajeroSign`     | PIGEON FEEDER!                    | ¡MIGAJERO!                     | MIGALHEIRO!                     |
+| `reactedBy`        | — {name}                          | — {name}                       | — {name}                        |
+| `said_laugh`       | {name} laughs                     | {name} se ríe                  | {name} ri                       |
+| `said_love`        | {name} sends love                 | {name} manda amor              | {name} manda amor               |
+| `said_anger`       | {name} is angry                   | {name} se enoja                | {name} está com raiva           |
+| `said_migajero`    | {name} calls {to} a pigeon feeder | {name} le dice migajero a {to} | {name} chama {to} de migalheiro |
+| `throws` (relabel) | Fun                               | Bromas                         | Zoeira                          |
+- **Why these words:**
+  - "Pigeon feeder" keeps the joke in English, someone scattering crumbs for the next player, and matches the pigeon.
+  - "Migalheiro" coins from _migalha_ (crumb) exactly as _migajero_ does from _migaja_. Brazilians read it at once, and the pigeon and crumbs carry the rest.
+  - "Kkkkkk" is how Brazilians write a laugh; "Own" is their "aww".
+  - "Amor", "Enojo" and "Raiva" avoid gendered adjectives.
+- **The bubble carries the name** when the reactor's panel is clamped: `t("reactionFrom", { name, gag })` = "{name}: {gag}" in all three (add the key).
+
+**Assets** (made by the PO, committed on `m23-reactions`).
+- **Stickers and marks** in `src/client/art/`, from `npm run art` (`STICKERS` in `scripts/gen-art.ts`, the M22 sticker and mark styles, chroma-keyed to WebP with alpha):
+  - `react-laugh.webp`, a laughing baby, head and hands;
+  - `react-love.webp`, a heart-eyed face, hands on its cheeks;
+  - `react-anger.webp`, a red fuming face with steam;
+  - `react-pigeon.webp`, a city pigeon holding a blank-backed card in its beak, with no text (256 px);
+  - `mark-tear.webp`, `mark-steam.webp` and `mark-crumbs.webp`;
+  - `mark-heart.webp` is reused.
+- **Sounds** in `public/sfx/`: freesound.org, every license checked as CC0 1.0 on the sound's own page (2026-10-29). Each was trimmed, given a 5 ms fade-in, a fade-out and a high-pass, made mono at 44.1 kHz, set to −19.4 LUFS integrated (M22's impacts measure −18 to −20) with peaks limited to −1.5 dBFS, and encoded at 96 kb/s like the throws:
+
+  | File          | Source                                                                         | Author       | Cut                           |
+  | ------------- | ------------------------------------------------------------------------------ | ------------ | ----------------------------- |
+  | `giggle.mp3`  | [388407](https://freesound.org/s/388407/) "Baby Giggles.wav"                   | amccoy711    | 7.30 s + 1.75 s, 350 ms fade  |
+  | `sigh.mp3`    | [446788](https://freesound.org/s/446788/) "Suspiro Amor.wav"                   | IanLyanx     | 0 + 1.10 s, 300 ms fade       |
+  | `grumble.mp3` | [713755](https://freesound.org/s/713755/) "Angry Grr"                          | kanyonwyvern | 0.50 s + 1.20 s, 350 ms fade  |
+  | `coo.mp3`     | [735366](https://freesound.org/s/735366/) "Domestic Dove Coo"                  | haulaway     | 11.90 s + 1.40 s, 300 ms fade |
+  | `flap.mp3`    | [689998](https://freesound.org/s/689998/) "Pigeon, Flies Away, Flapping Wings" | Kinoton      | 0.85 s + 0.70 s, 200 ms fade  |
+
+  The README credits name the five authors.
+- **The PO picked the sounds by measurement, not by ear.** It chose them by license, title and description, rating count, and signal-to-noise ratio (39–41 dB after gain, none clipped), and took the loudest window of each. **The implementer listens to all five before wiring them in.** Swap a cut (window or source) that isn't funny, and record the change here.
+
+**Acceptance.**
+- **Unit tests:**
+  - `room.test.ts`:
+    - a reaction shows in every view for 2 s and saves nothing;
+    - no reactions in the lobby or from a spectator;
+    - no migajero at yourself or at a missing seat;
+    - the cooldown is shared with throws (a throw, then a reaction within 3 s, returns `"none"`) and is per seat.
+  - `protocol`: rejects an unknown kind and a migajero with no integer `to`, and drops `to` from other kinds.
+  - The migajero's target helper: `null` in the flip, at turn 0, and when the last mover is you; it skips players who are out (R16).
+- **E2E** (`e2e/react.spec.ts`, plus a layout case in `table.spec.ts`):
+  - **The button:** at least 44 × 44 on iPhone 13, Pixel 7 and desktop at 2 and 8 players. It intersects no card of your grid, its centre is within row 3's height, it is wholly on screen, and nothing scrolls sideways. Spectators get none; it is hidden at the summary and with the switch off.
+  - Cards stay at least 44 px wide everywhere, and Pixel 7's are 63 px.
+  - **The fan:**
+    - 4 items of at least 44 px, all on screen;
+    - it closes on Escape, on send and on a tap outside, and a tap on your own card on your turn still lifts it (`data-pending`);
+    - the migajero item is disabled at turn 0 and when the last mover is you.
+  - **Between two phones (Pixel):**
+    - Ana laughs: Ben sees the reaction at Ana's panel, and Ana sees it on her name bar;
+    - Ana's button rests 3 s, after a throw too;
+    - Ana's migajero at Ben: Ben's phone gets the peck buzz, and the sign reads "PIGEON FEEDER!" and names Ana;
+    - Ana's move right after a reaction goes through.
+  - **Motion on, with the page clock:** each sticker is in place at 300 ms and gone by 2.9 s, and the sign hangs still by 1.6 s. With reduced motion, only opacity changes.
+  - **i18n:** the sign reads "¡MIGAJERO!" in es and "MIGALHEIRO!" in pt.
+- **Delivery:** the new spec costs at most +15 s per device job. Frame strips of all 4 reactions (pop, mid, settled) go in `docs/screenshots/m23/`.
+- **The release checklist:** 2.6.0, a CHANGELOG section for players, and the README:
+  - a sentence on reactions;
+  - the five authors, already added;
+  - `table-4.jpg` refreshed, so it shows the button.
+
+**Built (v2.6.0), and what changed from this section.**
+- **The lead overrode the gutter:** no card may lose more than ~4 px to the button. The button sits as specified, beside row 3, wherever 56 px are free right of the grid (iPhone 13 and desktop at 2–8 players: 60–142 px free). Where they aren't (Pixel 7: 0 px, the cards fill the width and, at 404–412 px of height, nearly the height too, so there is no corner below the grid either), it sits at the end of your name bar, right of Auto-play: a 44 px circle overhanging the 32 px bar 6 px each way, 10 px clear of your top row. Its fan opens down-left over your grid instead of up-left. `useRoomBeside` measures the free width (a ResizeObserver on the grid), so any narrow phone gets the bar. Pixel 7's cards stay 91 px.
+- **Stickers sit 28 px under an opponent's panel head**, over the top of their mini grid, not centred on it: centred, the 64 px sticker hid the name that says who reacted.
+- **The fan** uses a document `pointerdown` listener, not `popover`: it works on every browser, never swallows the tap, and lets the close animation play.
+- **Scrolled-out targets** (the PR #39 follow-up below, the lead's call, for throws and reactions): instead of an edge label, the target's panel of a throw or a migajero scrolls into view (smooth, `inline: "nearest"`; instant with reduced motion) once the last move's cards have landed (their stand-ins don't scroll, UX-8), and the flights follow it. Laughs, love and anger don't scroll: at the edge their bubble names the reactor. The server drops a migajero not at the last mover, and reactions at the summary. Under 24 px showing counts as out. A later turn may scroll it away again.
+
+**PO follow-ups (PR #40 review, 2026-10-29).** None blocks; each is one small patch, in this order.
+- **The owner listens.** Nobody has heard `giggle`, `sigh`, `grumble`, `coo` and `flap` yet: the PO measured them again (all −19.4 LUFS integrated, peaks −0.7 to −5.7 dBFS; `giggle` pauses at 0.99–1.19 s and `coo` at 0.40–0.58 s, as the choreography expects) but can't judge funny. The owner plays one reaction of each on the live site, in Spanish, and names any cut to swap. This is the bar the owner rejected v2.5.0's throws on.
+- **Your own reaction when you're out (R16).** An out player's laugh, love or anger shows on every other phone but not on theirs: `spot(you)` finds no name bar. Pop it over the corner button, so the reactor sees what they sent.
+- **Pixel and other narrow phones: confirm the button with the owner.** There it sits at the end of the name bar, above row 1, not where the owner circled (beside row 3). The PO accepts the lead's reason (Pixel 7's cards stay 91 px), but the owner circled the spot on an iPhone. If the owner plays on Android and wants the circle, the asymmetric 56 px right gutter (cards 77 px, grid 28 px off centre) is the fallback measured above.
+- **Delivery: take back the Pixel job's headroom.** `react.spec.ts` adds 43 s of tests to `e2e (pixel)` (2 workers): the job went from 2:33 (PR #39) to 2:56, and PR CI wall time to 3:00, right at the rubric's ceiling and past this milestone's +15 s budget. iPhone (2:18, 4 workers) and desktop (2:09) have room. Run the two heaviest harness cases, "a throw or reaction at a panel scrolled out of the strip…" (7.2 s on Pixel) and "each reaction shows on its seat…" (6.5 s), on iPhone and desktop only (their motion-on Pixel cases stay), and check the Pixel job is back under 2:45.
+- **Delivery: fix the UX-19 flake on iPhone.** "UX-19: thrown away, the drawn card lies on the discard pile…" (`e2e/motion.spec.ts:371`) failed its first try on `e2e (iphone)` in this PR's run 40961612856 (`moving` was below 2: the tap's flight hadn't started), and in runs 40580400974 and 40578482285 before it. `failOnFlakyTests` turns that into a red check, and on `main` a blocked deploy. The test waits one `setTimeout` for React to render the tap; under WebKit's 4-worker CPU contention that isn't enough. Wait for the animations instead (`await expect.poll(() => discard.getAnimations().length)`), then seek them to 300 ms.
+- **Nit:** `AGENTS.md`'s `src/client/Reactions.tsx` row lists `lastMover`, which lives in `src/protocol.ts`.
+
 ### M16 — Launch in the App Store and Google Play (user decision, 2026-10-24) · last
 
 The user decided on 2026-10-24:
@@ -1101,7 +1331,7 @@ Follow-ups from the M6 PO reviews (Game feel scored 4): one test gap, then game-
 - ✅ **Done in M14 (v2.4.0). Last-round cue.** When someone reveals their whole grid, only the header pill turns red. Play a short cue for everyone (and vibrate where supported), since everyone's next turn is now their last.
 - ✅ **Done in M12 (v2.2.6). Spectators lose the piles at 8 seats.** At 390×664 with 8 players, a spectator's deck, discard and drawn card were off screen on 16 of 16 turns while the table followed whoever was playing, and R6 makes the drawn card public. Keep the piles in view, for example above the grids.
 - ✅ **Done in M8 (v2.1.0). Nit:** `sound.ts` swallows decode errors in an empty `.catch` with no comment (the fetch's `.catch` now says why). (The CHANGELOG and AGENTS nits were fixed in PR #7.)
-- **Idea, the user's call:** quick reactions (👏 😂 😱) for friends who aren't in the same room or on a call.
+- **→ M23 (user request, 2026-10-29). Idea, the user's call:** quick reactions (👏 😂 😱) for friends who aren't in the same room or on a call.
 
 ## Process
 

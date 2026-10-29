@@ -103,6 +103,42 @@ const STICKERS: Record<string, Sticker> = {
   "mark-hoof": ["A single dusty brown donkey hoof print", "green", "192:192", true],
   "mark-stars": ["A ring of five small yellow cartoon dizzy stars", "green", "192:192", true],
   "mark-heart": ["A small glossy pink-red cartoon heart", "green", "96:96", true],
+  // Reactions (M23): one sticker each, and the bits their choreography throws off.
+  "react-laugh": [
+    "Close-up of a chubby cartoon baby's head and shoulders, laughing out loud, eyes squeezed " +
+      "shut, mouth wide open with two tiny teeth, big rosy cheeks, a single curl of hair, both " +
+      "little hands up by its face in delight",
+    "green",
+    "192:192",
+  ],
+  "react-love": [
+    "A cute lovestruck cartoon character head with a warm peach face, eyes that are two big " +
+      "glossy pink hearts, a dreamy open smile, rosy blushing cheeks, both little hands pressed " +
+      "to its cheeks, head tilted, two tiny hearts floating beside it",
+    "green",
+    "192:192",
+  ],
+  "react-anger": [
+    "A round tomato-red cartoon face, furious frown with deep angry eyebrows, gritted teeth, " +
+      "small puffs of white steam blowing out of both sides of the head",
+    "green",
+    "192:192",
+  ],
+  "react-pigeon": [
+    "A plump cheeky grey city pigeon standing side-on, iridescent purple and teal neck, orange " +
+      "eye, proudly holding one small blank playing card upright in its beak, the card has a " +
+      "plain navy back with a simple gold diamond pattern and nothing written on it",
+    "magenta",
+    "256:256",
+  ],
+  "mark-tear": ["A single small glossy light-blue cartoon tear drop", "magenta", "96:96", true],
+  "mark-steam": ["A small puffy white cartoon steam cloud", "magenta", "128:128", true],
+  "mark-crumbs": [
+    "Six small separate golden-brown bread crumbs scattered loosely, lots of empty space between them",
+    "magenta",
+    "128:128",
+    true,
+  ],
 };
 const KEYS = {
   green: ["pure chroma green #00FF00", "0x00FF00"],

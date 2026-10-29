@@ -3,7 +3,7 @@
 import { expect, type Page } from "@playwright/test";
 import { apply, createGame, type GameState, legalActions } from "../src/engine/game";
 import { type GameView, toView } from "../src/engine/view";
-import type { Toss, Wait } from "../src/protocol";
+import type { Reaction, Toss, Wait } from "../src/protocol";
 
 /** A game one move into its last turns: someone revealed everything; the next player is to draw. */
 export function lastTurnGame(players: number, seed: number): GameState {
@@ -75,6 +75,7 @@ export interface Shown {
   auto?: boolean[];
   wait?: Wait[];
   toss?: Toss;
+  reaction?: Reaction;
 }
 
 export async function show(page: Page, table: Shown) {

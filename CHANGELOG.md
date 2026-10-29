@@ -4,6 +4,25 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.6.0] - 2026-10-29
+
+### Added
+
+- **Reactions.** A round 🙂 button by your cards (beside the bottom row; on phones where your cards fill the width, at the end of your name bar, so no card gets smaller) opens four reactions around your thumb:
+  - **Laugh:** a baby giggles and bobs over your name, crying with laughter.
+  - **Love:** a heart-eyed face sighs, its heart beating, with hearts floating up.
+  - **Angry:** a red face slams down, trembles and fumes, with a growl.
+  - **Migajero** (Pigeon feeder in English, Migalheiro in Portuguese): for the player who just threw away a card the next player happily takes. A pigeon flies a card from you to them, coos, bows, and a sign drops over them: "¡MIGAJERO!", with your name under it. Their phone feels a peck.
+- Everyone at the table sees and hears every reaction, on the right player. One throw or reaction every 3 seconds each. Spectators watch them but get no button.
+
+### Changed
+
+- The **Throws** switch is now **Fun** (Bromas, Zoeira): off, you neither see nor hear throws or reactions, and the button goes away. Your choice carries over.
+
+### Fixed
+
+- **A throw at a player scrolled out of view no longer looks like it hit their neighbour.** With many players, a throw (or a migajero) at someone off the edge of the row of opponents now scrolls them into view, once the cards in play have landed, and lands on them.
+
 ## [2.5.2] - 2026-10-29
 
 ### Fixed

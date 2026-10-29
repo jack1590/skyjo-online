@@ -1191,7 +1191,108 @@ describe("throws (M21)", () => {
   });
 });
 
+describe("reactions (M23)", () => {
+  it("M23: a seated player reacts mid-game, the opening flip included: every view shows it for 2 s, and nothing is saved", () => {
+    const t = setup();
+    const [a, b] = startedGame(t, 2);
+    const watcher = t.connect("token-w-abcdef");
+    expect(t.room.data.game?.phase).toBe("flip");
+    const saved = JSON.stringify(t.room.data);
+    expect(t.send(a, { t: "react", kind: "laugh" })).toBe("view");
+    const reaction = { id: t.now(), from: 0, kind: "laugh" };
+    for (const c of [a, b, watcher]) expect(t.room.view(c, t.live).reaction).toEqual(reaction);
+    expect(JSON.stringify({ ...t.room.data, updatedAt: 0 })).toBe(
+      JSON.stringify({ ...JSON.parse(saved), updatedAt: 0 }),
+    );
+    t.advance(TOSS_SHOW_MS - 1);
+    expect(t.room.view(b, t.live).reaction).toBeDefined();
+    t.advance(1);
+    expect(t.room.view(b, t.live).reaction).toBeUndefined();
+  });
+
+  it("M23: no reactions in the lobby or from a spectator; no migajero at yourself or at a missing seat", () => {
+    const t = setup();
+    const [a] = t.seated(2);
+    expect(t.errorOf(() => t.send(a, { t: "react", kind: "love" }))).toBe("not-allowed");
+    t.send(a, { t: "start" });
+    const watcher = t.connect("token-w-abcdef");
+    expect(t.errorOf(() => t.send(watcher, { t: "react", kind: "anger" }))).toBe("not-allowed");
+    for (const to of [0, 2, -1]) {
+      expect(t.errorOf(() => t.send(a, { t: "react", kind: "migajero", to }))).toBe("not-allowed");
+    }
+  });
+
+  it("M23: a migajero only at the last mover (none in the flip), and no reactions once the round is over", () => {
+    const t = setup();
+    const conns = startedGame(t, 3);
+    const game = () => {
+      const g = t.room.data.game;
+      if (!g) throw new Error("no game");
+      return g;
+    };
+    // Nobody has moved yet: a late tap changes nothing, and isn't an error either.
+    expect(t.send(conns[0], { t: "react", kind: "migajero", to: 1 })).toBe("none");
+    pastFlips(t, conns);
+    const first = game().turn;
+    while (game().turn === first) stepAny(t, conns);
+    const now = game().current;
+    const last = (now + 2) % 3;
+    const other = (now + 1) % 3;
+    expect(t.send(conns[now], { t: "react", kind: "migajero", to: other })).toBe("none");
+    expect(t.room.view(conns[now], t.live).reaction).toBeUndefined();
+    expect(t.send(conns[now], { t: "react", kind: "migajero", to: last })).toBe("view");
+    expect(t.room.view(conns[other], t.live).reaction).toEqual({
+      id: t.now(),
+      from: now,
+      kind: "migajero",
+      to: last,
+    });
+    t.advance(TOSS_MS);
+    game().phase = "roundOver";
+    expect(t.send(conns[now], { t: "react", kind: "laugh" })).toBe("none");
+    game().phase = "gameOver";
+    expect(t.send(conns[now], { t: "react", kind: "love" })).toBe("none");
+  });
+
+  it("M23: one cooldown per seat, shared with throws: a throw then a reaction within TOSS_MS changes nothing", () => {
+    const t = setup();
+    const [a, b] = startedGame(t, 3);
+    t.send(a, { t: "toss", to: 1, item: "beer" });
+    t.advance(TOSS_MS - 1);
+    expect(t.send(a, { t: "react", kind: "laugh" })).toBe("none");
+    expect(t.room.view(b, t.live).reaction).toBeUndefined();
+    // Another seat isn't held back by it.
+    expect(t.send(b, { t: "react", kind: "anger" })).toBe("view");
+    t.advance(1);
+    expect(t.send(a, { t: "react", kind: "love" })).toBe("view");
+    // And a reaction holds back the same seat's throw.
+    t.advance(TOSS_MS - 1);
+    expect(t.send(a, { t: "toss", to: 2, item: "bomb" })).toBe("none");
+  });
+});
+
 describe("protocol", () => {
+  it("M23: parses reactions: a known kind, a migajero with an integer target; other kinds lose their target", () => {
+    for (const raw of [
+      '{"t":"react"}',
+      '{"t":"react","kind":"hug"}',
+      '{"t":"react","kind":"migajero"}',
+      '{"t":"react","kind":"migajero","to":"1"}',
+      '{"t":"react","kind":"migajero","to":1.5}',
+    ]) {
+      expect(parseClientMsg(raw)).toBeNull();
+    }
+    expect(parseClientMsg('{"t":"react","kind":"laugh","to":3,"from":2}')).toEqual({
+      t: "react",
+      kind: "laugh",
+    });
+    expect(parseClientMsg('{"t":"react","kind":"migajero","to":3,"from":2}')).toEqual({
+      t: "react",
+      kind: "migajero",
+      to: 3,
+    });
+  });
+
   it("parseClientMsg rejects malformed frames", () => {
     for (const raw of [
       null,

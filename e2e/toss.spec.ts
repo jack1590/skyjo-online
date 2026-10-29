@@ -90,7 +90,7 @@ test("M21: a throw lands on its target without taking a tap, one buzz at a time,
   await expect(page.getByTestId("toss-decal")).toHaveCount(0);
 
   await page.getByTestId("opponent").first().click();
-  await page.getByRole("checkbox", { name: "Throws" }).click();
+  await page.getByRole("checkbox", { name: "Fun" }).click();
   await expect(page.getByTestId("tray").locator(".tray-item")).toHaveCount(0);
   await page.reload();
   await expect(page.getByTestId("table")).toBeVisible();
@@ -227,19 +227,32 @@ test("M22: a throw stays on its target while the strip scrolls, and lands on it 
       behavior: "instant",
     });
   });
-  const showing = await strip.evaluate((el) => {
-    const p = el.querySelectorAll("[data-testid=opponent]")[2] as HTMLElement;
-    return p.getBoundingClientRect().right - el.getBoundingClientRect().left;
-  });
+  const sliver = () =>
+    strip.evaluate((el) => {
+      const p = el.querySelectorAll("[data-testid=opponent]")[2] as HTMLElement;
+      return p.getBoundingClientRect().right - el.getBoundingClientRect().left;
+    });
+  // Once the strip's snap has settled (a busy machine can apply it late).
+  let showing = Number.NaN;
+  await expect
+    .poll(async () => {
+      const before = showing;
+      showing = await sliver();
+      return showing === before;
+    })
+    .toBe(true);
   expect(showing).toBeGreaterThan(0);
   expect(showing).toBeLessThan(80);
   await throwAt(page, { from, to: target, item: "kiss" });
-  await expect.poll(onTarget).toBe(true);
-  // Its mark goes there too, not on the part out of view.
-  const mark = await panel.getByTestId("toss-decal").last().locator(".lips").boundingBox();
-  const box = await strip.boundingBox();
-  if (!mark || !box) throw new Error("no mark");
-  expect(mark.x + mark.width / 2).toBeGreaterThanOrEqual(box.x);
+  // It lands there, and so does its mark, not on the part out of view.
+  const markShows = () =>
+    page.evaluate(() => {
+      const box = document.querySelector("[data-testid=opponents]")?.getBoundingClientRect();
+      const p = document.querySelectorAll("[data-testid=opponent]")[2];
+      const lips = p?.querySelector("[data-testid=toss-decal] .lips")?.getBoundingClientRect();
+      return !!box && !!lips && lips.left + lips.width / 2 >= box.left;
+    });
+  await expect.poll(async () => (await onTarget()) && (await markShows())).toBe(true);
 });
 
 test("M21: Ana throws a donkey at Ben, who feels it; her items rest 3 s, and her next move isn't held up", async ({

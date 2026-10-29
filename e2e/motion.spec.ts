@@ -1056,7 +1056,7 @@ test.describe("with motion allowed", () => {
           end: Number(a.effect?.getComputedTiming().endTime),
         });
         const deck = box(document.querySelector('[data-testid="deck"]'));
-        const slots = [...(grid?.children ?? [])].map(box);
+        const slots = [...(grid?.querySelectorAll(".card") ?? [])].map(box);
         // Each copy where it starts, and 1 ms before it lands.
         const from = copies.map((c) => {
           seek(timing(c).delay);
@@ -1067,7 +1067,9 @@ test.describe("with motion allowed", () => {
           return box(c.el);
         });
         seek(100);
-        const hidden = [...(grid?.children ?? [])].map((el) => getComputedStyle(el).opacity);
+        const hidden = [...(grid?.querySelectorAll(".card") ?? [])].map(
+          (el) => getComputedStyle(el).opacity,
+        );
         const theirs = started.filter(({ el }) => el.closest(".opponents"));
         return {
           cancelled: reveal.length > 0 && reveal.every(({ a }) => a.playState === "idle"),
@@ -1151,7 +1153,7 @@ test.describe("with motion allowed", () => {
         for (const view of views) {
           dispatchEvent(new CustomEvent("skyjo:table", { detail: { view } }));
         }
-        const cards = [...(document.querySelector('[data-testid="my-grid"]')?.children ?? [])];
+        const cards = [...document.querySelectorAll('[data-testid="my-grid"] .card')];
         return {
           tags: [...new Set(cards.map((el) => el.tagName))],
           opacity: cards.map((el) => getComputedStyle(el).opacity),

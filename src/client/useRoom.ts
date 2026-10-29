@@ -8,6 +8,7 @@ import {
   isRoomCode,
   PING,
   PONG,
+  type ReactionKind,
   type RoomView,
   type ServerMsg,
   type TossItem,
@@ -191,6 +192,14 @@ export function useRoom(code: string) {
     }
   }, []);
 
+  /** Sends a reaction (M23), like a throw: without a seq. */
+  const react = useCallback((kind: ReactionKind, to?: number) => {
+    const ws = socket.current;
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ t: "react", kind, to } satisfies ClientMsg));
+    }
+  }, []);
+
   const clearError = useCallback(() => setError(null), []);
-  return { room, status, error, clearError, send, toss, waiting, late };
+  return { room, status, error, clearError, send, toss, react, waiting, late };
 }
