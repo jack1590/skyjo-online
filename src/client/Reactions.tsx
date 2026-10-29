@@ -92,10 +92,8 @@ export function Reactions({ reaction, on, you, warned, reduced, spot, names }: R
     const at = spot(to ?? from);
     if (!on || !at) return;
     // One per seat: its next can only come after this one is gone (the cooldown).
-    setShown((all) => [
-      ...all.filter((s) => s.reaction.from !== from),
-      { key, reaction, at, from: to === undefined ? null : spot(from) },
-    ]);
+    const next = { key, reaction, at, from: to === undefined ? null : spot(from) };
+    setShown((all) => [...all.filter((s) => s.reaction.from !== from), next]);
     if (kind === "laugh") play("giggle");
     else if (kind === "love") play("sigh");
     else if (kind === "anger") play("grumble");
@@ -121,7 +119,8 @@ export function Reactions({ reaction, on, you, warned, reduced, spot, names }: R
           reduced={reduced}
           spot={spot}
           name={names[s.reaction.from] ?? ""}
-          onDone={() => setShown((all) => all.filter((x) => x !== s))}
+          // By key: React may rerun a state update, so the object can be a fresh copy.
+          onDone={() => setShown((all) => all.filter((x) => x.key !== s.key))}
         />
       ))}
       <span className="sr-only" role="status">

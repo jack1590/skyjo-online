@@ -227,10 +227,20 @@ test("M22: a throw stays on its target while the strip scrolls, and lands on it 
       behavior: "instant",
     });
   });
-  const showing = await strip.evaluate((el) => {
-    const p = el.querySelectorAll("[data-testid=opponent]")[2] as HTMLElement;
-    return p.getBoundingClientRect().right - el.getBoundingClientRect().left;
-  });
+  const sliver = () =>
+    strip.evaluate((el) => {
+      const p = el.querySelectorAll("[data-testid=opponent]")[2] as HTMLElement;
+      return p.getBoundingClientRect().right - el.getBoundingClientRect().left;
+    });
+  // Once the strip's snap has settled (a busy machine can apply it late).
+  let showing = Number.NaN;
+  await expect
+    .poll(async () => {
+      const before = showing;
+      showing = await sliver();
+      return showing === before;
+    })
+    .toBe(true);
   expect(showing).toBeGreaterThan(0);
   expect(showing).toBeLessThan(80);
   await throwAt(page, { from, to: target, item: "kiss" });
