@@ -1220,13 +1220,38 @@ describe("reactions (M23)", () => {
     for (const to of [0, 2, -1]) {
       expect(t.errorOf(() => t.send(a, { t: "react", kind: "migajero", to }))).toBe("not-allowed");
     }
-    expect(t.send(a, { t: "react", kind: "migajero", to: 1 })).toBe("view");
-    expect(t.room.view(a, t.live).reaction).toEqual({
+  });
+
+  it("M23: a migajero only at the last mover (none in the flip), and no reactions once the round is over", () => {
+    const t = setup();
+    const conns = startedGame(t, 3);
+    const game = () => {
+      const g = t.room.data.game;
+      if (!g) throw new Error("no game");
+      return g;
+    };
+    // Nobody has moved yet: a late tap changes nothing, and isn't an error either.
+    expect(t.send(conns[0], { t: "react", kind: "migajero", to: 1 })).toBe("none");
+    pastFlips(t, conns);
+    const first = game().turn;
+    while (game().turn === first) stepAny(t, conns);
+    const now = game().current;
+    const last = (now + 2) % 3;
+    const other = (now + 1) % 3;
+    expect(t.send(conns[now], { t: "react", kind: "migajero", to: other })).toBe("none");
+    expect(t.room.view(conns[now], t.live).reaction).toBeUndefined();
+    expect(t.send(conns[now], { t: "react", kind: "migajero", to: last })).toBe("view");
+    expect(t.room.view(conns[other], t.live).reaction).toEqual({
       id: t.now(),
-      from: 0,
+      from: now,
       kind: "migajero",
-      to: 1,
+      to: last,
     });
+    t.advance(TOSS_MS);
+    game().phase = "roundOver";
+    expect(t.send(conns[now], { t: "react", kind: "laugh" })).toBe("none");
+    game().phase = "gameOver";
+    expect(t.send(conns[now], { t: "react", kind: "love" })).toBe("none");
   });
 
   it("M23: one cooldown per seat, shared with throws: a throw then a reaction within TOSS_MS changes nothing", () => {

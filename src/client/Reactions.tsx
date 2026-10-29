@@ -9,7 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
-import type { GameView } from "../engine/view";
+import { createPortal } from "react-dom";
 import { REACTIONS, type Reaction, type ReactionKind } from "../protocol";
 import crumbs from "./art/mark-crumbs.webp";
 import heart from "./art/mark-heart.webp";
@@ -21,7 +21,7 @@ import loveFace from "./art/react-love.webp";
 import pigeon from "./art/react-pigeon.webp";
 import { useI18n } from "./i18n";
 import { play } from "./sound";
-import { buzzAt, flight, type Spot, useResting, WIND } from "./Toss";
+import { buzzAt, flight, follow, type Spot, useResting, WIND, windUp } from "./Toss";
 
 /** Everything is gone by then, under the 3 s cooldown, so a seat never stacks its own reactions. */
 export const END_REACT = 2700;
@@ -41,20 +41,6 @@ const FACE: Record<ReactionKind, string> = {
   anger: angerFace,
   migajero: pigeon,
 };
-
-/**
- * Who the migajero is at: the last mover, the nearest seat before `current` still in (R16), while
- * the next player's turn runs. None in the opening flip, at a round's first turn, or when it's you.
- */
-export function lastMover(view: GameView, you: number | null): number | null {
-  if ((view.phase !== "draw" && view.phase !== "place") || view.turn < 1) return null;
-  const n = view.players.length;
-  for (let i = 1; i < n; i++) {
-    const seat = (view.current - i + n) % n;
-    if (view.players[seat].out === null) return seat === you ? null : seat;
-  }
-  return null;
-}
 
 interface Shown {
   key: string;
@@ -78,7 +64,13 @@ interface ReactionsProps {
 /** Every reaction on screen, over the table. Taps go through them. */
 export function Reactions({ reaction, on, you, warned, reduced, spot, names }: ReactionsProps) {
   const { t } = useI18n();
+  // The ref is the truth (reactions can arrive faster than renders); the state draws it.
+  const live = useRef<Shown[]>([]);
   const [shown, setShown] = useState<Shown[]>([]);
+  const set = (all: Shown[]) => {
+    live.current = all;
+    setShown(all);
+  };
   const [said, setSaid] = useState("");
   const last = useRef<string | null>(null);
   const buzz = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -91,9 +83,16 @@ export function Reactions({ reaction, on, you, warned, reduced, spot, names }: R
     const { kind, from, to } = reaction;
     const at = spot(to ?? from);
     if (!on || !at) return;
-    // One per seat: its next can only come after this one is gone (the cooldown).
+    // One migajero per target: someone else's second is dropped, sound and buzz too; yours takes
+    // the place of the one there.
+    const there = (s: Shown) => s.reaction.kind === "migajero" && s.reaction.to === to;
+    if (kind === "migajero" && from !== you && live.current.some(there)) return;
     const next = { key, reaction, at, from: to === undefined ? null : spot(from) };
-    setShown((all) => [...all.filter((s) => s.reaction.from !== from), next]);
+    // One per seat too: its next can only come after this one is gone (the cooldown).
+    set([
+      ...live.current.filter((s) => s.reaction.from !== from && !(kind === "migajero" && there(s))),
+      next,
+    ]);
     if (kind === "laugh") play("giggle");
     else if (kind === "love") play("sigh");
     else if (kind === "anger") play("grumble");
@@ -119,8 +118,7 @@ export function Reactions({ reaction, on, you, warned, reduced, spot, names }: R
           reduced={reduced}
           spot={spot}
           name={names[s.reaction.from] ?? ""}
-          // By key: React may rerun a state update, so the object can be a fresh copy.
-          onDone={() => setShown((all) => all.filter((x) => x.key !== s.key))}
+          onDone={() => set(live.current.filter((x) => x.key !== s.key))}
         />
       ))}
       <span className="sr-only" role="status">
@@ -138,6 +136,12 @@ const bounce = (el: HTMLElement, dy: number, at: number[]) =>
       { duration: 180, delay, easing: "ease-out", composite: "add", id: "react-bounce" },
     ),
   );
+
+/** Whether a seat's point is off its panel head: the panel is clamped to the strip's edge. */
+const offHead = (s: Spot) => {
+  const head = (s.panel.querySelector(".opp-head") ?? s.el).getBoundingClientRect();
+  return Math.abs(head.left + head.width / 2 - s.x) > 2;
+};
 
 interface PopProps {
   shown: Shown;
@@ -157,7 +161,6 @@ function Pop({ shown, you, reduced, spot, name, onDone }: PopProps) {
   const migajero = kind === "migajero";
   // Just under an opponent's panel head, so their name still says who; on your own seat, a little
   // above your name.
-  const head = (at.panel.querySelector(".opp-head") ?? at.el).getBoundingClientRect();
   const opp = at.panel.querySelector(".opp-head") !== null;
   const mine = !migajero && reaction.from === you;
   const x = at.x;
@@ -168,25 +171,32 @@ function Pop({ shown, you, reduced, spot, name, onDone }: PopProps) {
   // Near the top of the screen, the bubble and the sign go under the sticker.
   const below = y < 120;
   // A panel scrolled out of the strip gets its reaction at the strip's edge: then the bubble says who.
-  const named = Math.abs(head.left + head.width / 2 - at.x) > 2;
+  const [named, setNamed] = useState(() => offHead(at));
   // biome-ignore lint/correctness/useExhaustiveDependencies: runs once per reaction
   useLayoutEffect(() => {
     const done = setTimeout(onDone, migajero ? END_MIGAJERO : END_REACT);
-    // The strip scrolls to follow the turn, maybe under a reaction: it moves with its seat.
-    let raf = 0;
-    const follow = () => {
-      const now = spot(reaction.to ?? reaction.from);
-      if (now && box.current) box.current.style.translate = `${now.x - at.x}px ${now.y - at.y}px`;
-      raf = requestAnimationFrame(follow);
-    };
-    raf = requestAnimationFrame(follow);
     // The bubble and the sign stay on screen.
-    for (const el of box.current?.querySelectorAll<HTMLElement>(".react-gag, .react-sign") ?? []) {
-      const w = el.offsetWidth;
-      const left = x - w / 2;
-      const shift = Math.min(Math.max(left, 8), window.innerWidth - 8 - w) - left;
-      el.style.marginLeft = `${Math.round(shift)}px`;
-    }
+    const keepOnScreen = (cx: number) => {
+      for (const el of box.current?.querySelectorAll<HTMLElement>(".react-gag, .react-sign") ??
+        []) {
+        const w = el.offsetWidth;
+        const left = cx - w / 2;
+        const shift = Math.min(Math.max(left, 8), window.innerWidth - 8 - w) - left;
+        el.style.marginLeft = `${Math.round(shift)}px`;
+      }
+    };
+    keepOnScreen(x);
+    // The strip scrolls to follow the turn, maybe under a reaction: it moves with its seat, and
+    // names the reactor only while their panel is out of view.
+    const stop = follow(
+      box.current,
+      () => spot(reaction.to ?? reaction.from),
+      at,
+      (now) => {
+        keepOnScreen(now.x);
+        setNamed(offHead(now));
+      },
+    );
     const anims: Animation[] = [];
     if (!reduced) {
       if (migajero && from && fly.current) {
@@ -194,19 +204,7 @@ function Pop({ shown, you, reduced, spot, name, onDone }: PopProps) {
         anims.push(
           fly.current.animate(plan.frames, { duration: plan.land, easing: "linear", fill: "both" }),
         );
-        if (from.el !== at.el) {
-          anims.push(
-            from.el.animate(
-              [
-                { transform: "none" },
-                { transform: "scale(0.88)", offset: 0.5 },
-                { transform: "scale(1.1)", offset: 0.8 },
-                { transform: "none" },
-              ],
-              { duration: 240, easing: "ease-out", composite: "add" },
-            ),
-          );
-        }
+        if (from.el !== at.el) anims.push(windUp(from.el));
         anims.push(...bounce(at.panel, 3, [LAND]));
       }
       if (kind === "laugh") anims.push(...bounce(at.panel, -3, [0, 400]));
@@ -214,7 +212,7 @@ function Pop({ shown, you, reduced, spot, name, onDone }: PopProps) {
     }
     return () => {
       clearTimeout(done);
-      cancelAnimationFrame(raf);
+      stop();
       for (const a of anims) a.cancel();
     };
   }, []);
@@ -324,6 +322,7 @@ export function ReactButton({ place, until, target, reduced, onReact }: ReactBut
     if (resting) close();
   }, [resting]);
   const toggle = () => {
+    if (resting) return;
     if (open) return close();
     const r = button.current?.getBoundingClientRect();
     if (r) setOpen({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
@@ -340,7 +339,8 @@ export function ReactButton({ place, until, target, reduced, onReact }: ReactBut
         aria-label={t("reactions")}
         title={t("reactions")}
         aria-expanded={open !== null && !closing}
-        disabled={resting}
+        // Not `disabled`: it keeps the focus after you pick a reaction.
+        aria-disabled={resting || undefined}
         onClick={toggle}
       >
         <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -351,53 +351,59 @@ export function ReactButton({ place, until, target, reduced, onReact }: ReactBut
         </svg>
         <span className="react-plus">{open && !closing ? "×" : "+"}</span>
       </button>
-      {open && (
-        <div
-          ref={fan}
-          className={`react-fan${closing ? " closing" : ""}`}
-          data-testid="react-fan"
-          style={{ left: open.x, top: open.y }}
-        >
-          {REACTIONS.map((kind, i) => {
-            const angle = (FAN[i] * Math.PI) / 180;
-            const off = kind === "migajero" && target === null;
-            return (
-              <button
-                key={kind}
-                type="button"
-                className="react-item"
-                data-kind={kind}
-                aria-label={t(`react_${kind}`)}
-                title={t(`react_${kind}`)}
-                disabled={off}
-                style={
-                  {
-                    "--x": `${Math.round(Math.cos(angle) * REACH)}px`,
-                    "--y": `${Math.round(Math.sin(angle) * REACH) * (down ? 1 : -1)}px`,
-                    "--i": i,
-                    "--n": REACTIONS.length - 1 - i,
-                  } as CSSProperties
-                }
-                onClick={() => {
-                  onReact(kind, kind === "migajero" ? (target ?? undefined) : undefined);
-                  navigator.vibrate?.(10);
-                  setOpen(null);
-                  setClosing(false);
-                }}
-              >
-                <img className="react-pick" src={FACE[kind]} alt="" />
-              </button>
-            );
-          })}
-        </div>
-      )}
+      {/* On <body>: an animation on the bar or the table (a throw's knock, a quake) would carry a
+          fixed fan inside it away from your thumb. */}
+      {open &&
+        createPortal(
+          <div
+            ref={fan}
+            className={`react-fan${closing ? " closing" : ""}`}
+            data-testid="react-fan"
+            style={{ left: open.x, top: open.y }}
+          >
+            {REACTIONS.map((kind, i) => {
+              const angle = (FAN[i] * Math.PI) / 180;
+              const off = kind === "migajero" && target === null;
+              return (
+                <button
+                  key={kind}
+                  type="button"
+                  className="react-item"
+                  data-kind={kind}
+                  aria-label={t(`react_${kind}`)}
+                  title={t(`react_${kind}`)}
+                  disabled={off}
+                  style={
+                    {
+                      "--x": `${Math.round(Math.cos(angle) * REACH)}px`,
+                      "--y": `${Math.round(Math.sin(angle) * REACH) * (down ? 1 : -1)}px`,
+                      "--i": i,
+                      "--n": REACTIONS.length - 1 - i,
+                    } as CSSProperties
+                  }
+                  onClick={() => {
+                    onReact(kind, kind === "migajero" ? (target ?? undefined) : undefined);
+                    navigator.vibrate?.(10);
+                    setOpen(null);
+                    setClosing(false);
+                    button.current?.focus();
+                  }}
+                >
+                  <img className="react-pick" src={FACE[kind]} alt="" />
+                </button>
+              );
+            })}
+          </div>,
+          document.body,
+        )}
     </>
   );
 }
 
 /**
  * Closes the fan on Escape and on a tap anywhere outside it and its button. The tap still goes on
- * to whatever it hit (nothing is prevented), so a card tap on your turn is never lost.
+ * to whatever it hit (nothing is prevented), so a card tap on your turn is never lost. A scroll or
+ * resize closes it too: it was placed where the button was when it opened.
  */
 function useFanDismiss(
   on: boolean,
@@ -418,11 +424,16 @@ function useFanDismiss(
       latest.current.close();
       latest.current.refocus();
     };
+    const moved = () => latest.current.close();
     document.addEventListener("pointerdown", down, true);
     document.addEventListener("keydown", key);
+    window.addEventListener("scroll", moved, true);
+    window.addEventListener("resize", moved);
     return () => {
       document.removeEventListener("pointerdown", down, true);
       document.removeEventListener("keydown", key);
+      window.removeEventListener("scroll", moved, true);
+      window.removeEventListener("resize", moved);
     };
   }, [on]);
 }

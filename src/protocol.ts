@@ -51,6 +51,23 @@ export interface Reaction {
   to?: number;
 }
 
+/**
+ * Who the migajero is at: the last mover, the nearest seat before `current` still in (R16), while
+ * the next player's turn runs. None in the opening flip, at a round's first turn, or when it's you.
+ */
+export function lastMover(
+  view: Pick<GameView, "phase" | "turn" | "current"> & { players: { out: number | null }[] },
+  you: number | null,
+): number | null {
+  if ((view.phase !== "draw" && view.phase !== "place") || view.turn < 1) return null;
+  const n = view.players.length;
+  for (let i = 1; i < n; i++) {
+    const seat = (view.current - i + n) % n;
+    if (view.players[seat].out === null) return seat === you ? null : seat;
+  }
+  return null;
+}
+
 export type ClientMsg = (
   | { t: "hello"; token: string }
   | { t: "join"; name: string }

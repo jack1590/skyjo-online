@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { apply, createGame, type GameState, legalActions } from "../engine/game";
 import { toView } from "../engine/view";
-import { END_REACT, LAND, lastMover } from "./Reactions";
+import { lastMover } from "../protocol";
+import { END_REACT, LAND } from "./Reactions";
 import { flight } from "./Toss";
 
 /** Plays the first legal move (the last one when placing) until `done`. */

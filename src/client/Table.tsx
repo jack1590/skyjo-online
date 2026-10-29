@@ -11,6 +11,7 @@ import {
 import { type Action, places } from "../engine/game";
 import type { GameView, PlayerView, ViewSlot } from "../engine/view";
 import {
+  lastMover,
   type Reaction,
   type ReactionKind,
   TOSS_MS,
@@ -30,7 +31,7 @@ import {
   useReducedMotion,
   useRevealing,
 } from "./motion";
-import { lastMover, ReactButton, Reactions } from "./Reactions";
+import { ReactButton, Reactions } from "./Reactions";
 import { nudge, play, type Sound, useMuted, useSounds } from "./sound";
 import { type Spot, Tosses, Tray, useThrowsOn } from "./Toss";
 
@@ -146,6 +147,12 @@ export function Table(props: TableProps) {
   }, [undos]);
 
   const { reg, timing } = useFlights(shown, tapped, pending);
+  // When the last move's flights started: `timing` counts from then.
+  const movedAt = useRef(0);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new view is the trigger
+  useLayoutEffect(() => {
+    movedAt.current = performance.now();
+  }, [shown]);
   const revealing = useRevealing(shown, timing);
   // While the final reveal plays, totals stay as they were, so the cards tell the result first;
   // the summary then counts them up (UX-27).
@@ -282,27 +289,36 @@ export function Table(props: TableProps) {
     return { x, y, el, panel, mark, px: (opp && !shown ? cx : x) - p.left, py: y - p.top };
   };
   /**
-   * A throw or reaction at a panel scrolled out of the strip brings it back into view, so it lands
-   * on the right player, not at the strip's edge over a neighbour (M23). The flights follow it
-   * there. The turn's own scroll may take it away again later; that's fine.
+   * A throw or a migajero at a panel scrolled out of the strip brings it back into view, so it
+   * lands on the right player, not at the strip's edge over a neighbour (M23). The flights follow
+   * it there. Not while the last move's cards are flying: their stand-ins don't scroll with the
+   * strip (UX-8). Laughs, love and anger stay at the edge, named. The turn's own scroll may take it
+   * away again later; that's fine.
    */
   const reveal = (seat: number | undefined) => {
-    const panel = seat === undefined ? undefined : oppRefs.current.get(seat);
-    const box = strip.current?.getBoundingClientRect();
-    if (!throwsOn || summary || !panel || !box) return;
-    const p = panel.getBoundingClientRect();
-    if (Math.min(p.right, box.right) - Math.max(p.left, box.left) >= SLIVER) return;
-    panel.scrollIntoView({
-      inline: "nearest",
-      block: "nearest",
-      behavior: reduced ? "auto" : "smooth",
-    });
+    if (seat === undefined || !throwsOn || summary) return;
+    const id = setTimeout(
+      () => {
+        const panel = oppRefs.current.get(seat);
+        const box = strip.current?.getBoundingClientRect();
+        if (!panel || !box) return;
+        const p = panel.getBoundingClientRect();
+        if (Math.min(p.right, box.right) - Math.max(p.left, box.left) >= SLIVER) return;
+        panel.scrollIntoView({
+          inline: "nearest",
+          block: "nearest",
+          behavior: reduced ? "auto" : "smooth",
+        });
+      },
+      settled(timing.current) - (performance.now() - movedAt.current),
+    );
+    return () => clearTimeout(id);
   };
   // biome-ignore lint/correctness/useExhaustiveDependencies: a new throw is the trigger
   useEffect(() => reveal(props.toss?.to), [props.toss?.id]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: a new reaction is the trigger
   useEffect(
-    () => reveal(props.reaction && (props.reaction.to ?? props.reaction.from)),
+    () => reveal(props.reaction?.kind === "migajero" ? props.reaction.to : undefined),
     [props.reaction?.id],
   );
   // biome-ignore lint/correctness/useExhaustiveDependencies: timing is read when the turn passes

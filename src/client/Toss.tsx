@@ -433,6 +433,43 @@ export function Tosses({ toss, on, you, warned, reduced, spot, names }: TossesPr
   );
 }
 
+/**
+ * Keeps `el`, placed at `from`, on its seat (`now()`) every frame while the strip scrolls to follow
+ * the turn: `translate` adds to its own animations. `onFrame` gets the seat's spot each frame.
+ * Returns the stop. ponytail: a flight's launch point moves too, so one in the air while the strip
+ * scrolls starts a little off its thrower; re-aim the arc if anyone notices.
+ */
+export function follow(
+  el: HTMLElement | null,
+  now: () => Spot | null,
+  from: Spot,
+  onFrame?: (spot: Spot) => void,
+) {
+  let raf = 0;
+  const frame = () => {
+    const at = now();
+    if (at && el) {
+      el.style.translate = `${at.x - from.x}px ${at.y - from.y}px`;
+      onFrame?.(at);
+    }
+    raf = requestAnimationFrame(frame);
+  };
+  raf = requestAnimationFrame(frame);
+  return () => cancelAnimationFrame(raf);
+}
+
+/** The thrower's name crouches and pops as an item leaves it (added on top of what it's doing). */
+export const windUp = (el: HTMLElement) =>
+  el.animate(
+    [
+      { transform: "none" },
+      { transform: "scale(0.88)", offset: 0.5 },
+      { transform: "scale(1.1)", offset: 0.8 },
+      { transform: "none" },
+    ],
+    { duration: 240, easing: "ease-out", composite: "add" },
+  );
+
 interface FlightProps {
   flying: Flying;
   reduced: boolean;
@@ -459,16 +496,7 @@ function Flight({ flying, reduced, quake, spot, onDone }: FlightProps) {
   // biome-ignore lint/correctness/useExhaustiveDependencies: runs once per throw
   useLayoutEffect(() => {
     const done = setTimeout(onDone, END);
-    // The strip scrolls to follow the turn, maybe under a throw: it moves with its target. `translate`
-    // adds to the flight's transforms. ponytail: the launch point moves too, so a throw in the air
-    // while the strip scrolls starts a little off its thrower; re-aim the arc if anyone notices.
-    let raf = 0;
-    const follow = () => {
-      const now = spot(toss.to);
-      if (now && box.current) box.current.style.translate = `${now.x - to.x}px ${now.y - to.y}px`;
-      raf = requestAnimationFrame(follow);
-    };
-    raf = requestAnimationFrame(follow);
+    const stop = follow(box.current, () => spot(toss.to), to);
     const anims: Animation[] = [];
     if (!reduced) {
       const total = plan.land;
@@ -488,19 +516,7 @@ function Flight({ flying, reduced, quake, spot, onDone }: FlightProps) {
       });
       const add = { composite: "add" } as const;
       const frames = (all: string[]) => all.map((transform) => ({ transform }));
-      if (from !== to) {
-        anims.push(
-          from.el.animate(
-            [
-              { transform: "none" },
-              { transform: "scale(0.88)", offset: 0.5 },
-              { transform: "scale(1.1)", offset: 0.8 },
-              { transform: "none" },
-            ],
-            { duration: 240, easing: "ease-out", ...add },
-          ),
-        );
-      }
+      if (from !== to) anims.push(windUp(from.el));
       anims.push(
         to.panel.animate(frames(KNOCK[item](face)), {
           duration: KNOCK_MS[item],
@@ -519,7 +535,7 @@ function Flight({ flying, reduced, quake, spot, onDone }: FlightProps) {
     }
     return () => {
       clearTimeout(done);
-      cancelAnimationFrame(raf);
+      stop();
       for (const a of anims) a.cancel();
     };
   }, []);

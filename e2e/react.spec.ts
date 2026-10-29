@@ -1,10 +1,10 @@
 // Reactions (M23): the button by your grid (or in your name bar), its fan, each reaction on the
 // right seat, and the server path between two phones.
 import { expect, type Page } from "@playwright/test";
-import { createGame } from "../src/engine/game";
+import { apply, createGame } from "../src/engine/game";
 import { toView } from "../src/engine/view";
 import type { Reaction } from "../src/protocol";
-import { atTurnStart, firstTurn, roundOver, show } from "./harness";
+import { atTurnStart, firstTurn, lastTurnGame, roundOver, show } from "./harness";
 import { botStep, expectMobileFriendly, playUntil, seatedRoom, startGame, test } from "./helpers";
 
 const react = (page: Page, reaction: Omit<Reaction, "id">) =>
@@ -250,15 +250,146 @@ test("M23: a throw or reaction at a panel scrolled out of the strip brings it in
   expect(await out()).toBe(false);
   await expect(page.getByTestId("toss")).toHaveCount(0, { timeout: 5_000 });
 
-  // The same for a reaction from a seat out of view.
+  // The same for a migajero at a seat out of view.
   await strip.evaluate((el) => el.scrollTo({ left: 0, behavior: "instant" }));
   expect(await out()).toBe(true);
-  await react(page, { from: target, kind: "anger" });
+  await react(page, { from: me, kind: "migajero", to: target });
   await expect.poll(() => onTarget("[data-testid=reaction]")).toBe(true);
+
+  // A laugh from there doesn't scroll: it shows at the strip's edge, saying who.
+  await expect(page.getByTestId("reaction")).toHaveCount(0, { timeout: 4_000 });
+  await strip.evaluate((el) => el.scrollTo({ left: 0, behavior: "instant" }));
+  await react(page, { from: target, kind: "laugh" });
+  await expect(page.locator(".react-gag")).toHaveText(`Player ${target + 1}: Hahaha!`);
+  expect(await strip.evaluate((el) => el.scrollLeft)).toBe(0);
+  expect(await out()).toBe(true);
 });
+
+test("M23: your choice keeps the focus on the button, which rests", async ({ page }) => {
+  await show(page, atTurnStart(3));
+  const button = page.getByTestId("react-button");
+  await button.click();
+  await page.getByTestId("react-fan").getByRole("button", { name: "Love" }).click();
+  await expect(button).toBeFocused();
+  await expect(button).toHaveAttribute("aria-disabled", "true");
+  await button.click({ force: true });
+  await expect(page.getByTestId("react-fan")).toHaveCount(0);
+});
+
+for (const [locale, auto] of [
+  ["es-MX", "Juego automático"],
+  ["pt-BR", "Jogada automática"],
+] as const) {
+  test.describe(`${locale}, a long name`, () => {
+    test.use({ locale });
+
+    test(`M23: the name bar holds a long name, "${auto}" and the button without overlap`, async ({
+      page,
+    }, info) => {
+      test.skip(info.project.name !== "pixel", "the bar placement: Pixel 7");
+      const turn = atTurnStart(4);
+      const me = turn.seat ?? 0;
+      turn.view.players[me].name = "Maximiliano Gómz"; // NAME_MAX, 16
+      await show(page, turn);
+      await expect(page.getByTestId("mine-head")).toContainText(auto);
+      await expectMobileFriendly(page);
+      const rects = await page.evaluate(() => {
+        const r = (s: string) =>
+          document.querySelector(`[data-testid=mine-head] ${s}`)?.getBoundingClientRect().toJSON();
+        return {
+          me: r(".me"),
+          sum: r("[data-testid=sum]"),
+          auto: r(".auto"),
+          button: r("[data-testid=react-button]"),
+        };
+      });
+      const apart = (a: DOMRect, b: DOMRect) => a.right <= b.left || b.right <= a.left;
+      expect(apart(rects.me, rects.auto)).toBe(true);
+      expect(apart(rects.auto, rects.button)).toBe(true);
+      expect(Math.min(rects.button.width, rects.button.height)).toBeGreaterThanOrEqual(44);
+      // Only the name gives way: your points and round score stay whole.
+      expect(rects.sum.right).toBeLessThanOrEqual(rects.auto.left);
+      expect(rects.sum.right).toBeLessThanOrEqual(rects.me.right + 1);
+      expect(rects.button.right).toBeLessThanOrEqual(page.viewportSize()?.width ?? 0);
+    });
+  });
+}
 
 test.describe("with motion", () => {
   test.use({ reducedMotion: "no-preference" });
+
+  test("M23: a throw at a panel out of view waits for the move's cards to land before scrolling to it; a laugh never scrolls", async ({
+    page,
+  }) => {
+    await page.clock.install();
+    const turn = atTurnStart(8);
+    const me = turn.seat ?? 0;
+    await show(page, turn);
+    const strip = page.getByTestId("opponents");
+    const last = page.getByTestId("opponent").last();
+    const target = await seatOf(page, 6);
+    const out = async () => {
+      const [p, s] = await Promise.all([last.boundingBox(), strip.boundingBox()]);
+      if (!p || !s) throw new Error("no box");
+      return p.x >= s.x + s.width - 24;
+    };
+    expect(await out()).toBe(true);
+    const from = [0, 1, 2, 3, 4, 5, 6, 7].find((s) => s !== me && s !== target) ?? 0;
+    // You draw from the deck (the turn stays yours) as someone else's laugh, then a throw, arrive.
+    const drawn = toView(apply(lastTurnGame(8, 3), { type: "draw", seat: me, source: "deck" }));
+    await page.evaluate(
+      (detail) => window.dispatchEvent(new CustomEvent("skyjo:table", { detail })),
+      { view: drawn, reaction: { id: 5, from: target, kind: "laugh" } },
+    );
+    await expect(page.locator(".react-gag")).toHaveText(`Player ${target + 1}: Hahaha!`);
+    await page.evaluate(
+      (detail) => window.dispatchEvent(new CustomEvent("skyjo:table", { detail })),
+      { toss: { id: 6, from, to: target, item: "tomato" } },
+    );
+    await page.clock.runFor(50);
+    expect(await strip.evaluate((el) => el.scrollLeft)).toBe(0);
+    await page.clock.runFor(1_000);
+    await expect.poll(out).toBe(false);
+  });
+
+  test("M23: the open fan stays under your thumb while a throw knocks your name bar", async ({
+    page,
+  }, info) => {
+    test.skip(info.project.name !== "pixel", "the fan in the name bar: Pixel 7");
+    const turn = atTurnStart(4);
+    const me = turn.seat ?? 0;
+    await show(page, turn);
+    await page.getByTestId("react-button").click();
+    const fan = page.getByTestId("react-fan");
+    await expect(fan.getByRole("button")).toHaveCount(4);
+    await page.waitForTimeout(300); // the fan's spring-out
+    const at = () =>
+      fan
+        .getByRole("button", { name: "Laugh" })
+        .evaluate((el) => Math.round(el.getBoundingClientRect().top));
+    const before = await at();
+    await page.evaluate(
+      (detail) => window.dispatchEvent(new CustomEvent("skyjo:table", { detail })),
+      { toss: { id: 9, from: (me + 1) % 4, to: me, item: "bomb" } },
+    );
+    // Sampled through the throw's knock on your bar and the quake of the table.
+    const tops = await page.evaluate(
+      () =>
+        new Promise<number[]>((done) => {
+          const seen: number[] = [];
+          const t0 = performance.now();
+          const frame = () => {
+            const el = document.querySelector('[data-testid=react-fan] [data-kind="laugh"]');
+            if (el) seen.push(Math.round(el.getBoundingClientRect().top));
+            if (performance.now() - t0 < 1_400) requestAnimationFrame(frame);
+            else done(seen);
+          };
+          requestAnimationFrame(frame);
+        }),
+    );
+    expect(tops.length).toBeGreaterThan(0);
+    for (const top of tops) expect(Math.abs(top - before)).toBeLessThanOrEqual(1);
+  });
 
   test("M23: each sticker is in place at 300 ms and gone by 2.9 s; the pigeon lands at 820 ms and its sign hangs still by 1.6 s", async ({
     page,

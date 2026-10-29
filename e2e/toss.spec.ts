@@ -244,12 +244,15 @@ test("M22: a throw stays on its target while the strip scrolls, and lands on it 
   expect(showing).toBeGreaterThan(0);
   expect(showing).toBeLessThan(80);
   await throwAt(page, { from, to: target, item: "kiss" });
-  await expect.poll(onTarget).toBe(true);
-  // Its mark goes there too, not on the part out of view.
-  const mark = await panel.getByTestId("toss-decal").last().locator(".lips").boundingBox();
-  const box = await strip.boundingBox();
-  if (!mark || !box) throw new Error("no mark");
-  expect(mark.x + mark.width / 2).toBeGreaterThanOrEqual(box.x);
+  // It lands there, and so does its mark, not on the part out of view.
+  const markShows = () =>
+    page.evaluate(() => {
+      const box = document.querySelector("[data-testid=opponents]")?.getBoundingClientRect();
+      const p = document.querySelectorAll("[data-testid=opponent]")[2];
+      const lips = p?.querySelector("[data-testid=toss-decal] .lips")?.getBoundingClientRect();
+      return !!box && !!lips && lips.left + lips.width / 2 >= box.left;
+    });
+  await expect.poll(async () => (await onTarget()) && (await markShows())).toBe(true);
 });
 
 test("M21: Ana throws a donkey at Ben, who feels it; her items rest 3 s, and her next move isn't held up", async ({

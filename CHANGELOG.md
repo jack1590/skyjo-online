@@ -21,7 +21,7 @@ Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When
 
 ### Fixed
 
-- **A throw at a player scrolled out of view no longer looks like it hit their neighbour.** With many players, a throw or reaction at someone off the edge of the row of opponents now scrolls them into view and lands on them.
+- **A throw at a player scrolled out of view no longer looks like it hit their neighbour.** With many players, a throw (or a migajero) at someone off the edge of the row of opponents now scrolls them into view, once the cards in play have landed, and lands on them.
 
 ## [2.5.2] - 2026-10-29
 
