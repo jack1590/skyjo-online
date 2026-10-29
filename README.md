@@ -93,7 +93,7 @@ Read [`AGENTS.md`](AGENTS.md) for architecture, commands, conventions, and the P
 
 ## Credits
 
-Sound effects: [Kenney](https://kenney.nl) "Casino Audio", "Interface Sounds" and "Music Jingles" (CC0); the clock's tick and the last-round chime are generated for this project. Throw sounds: [freesound.org](https://freesound.org) recordings by meisterleise, Seidolon, modusmogulus, TheWah, minian89, TheKingOfGeeks360, nebulasnails, p1xol, magnuswaker and Breviceps (all CC0), edited for this project. Card art, throw stickers and app icon are original, generated for this project.
+Sound effects: [Kenney](https://kenney.nl) "Casino Audio", "Interface Sounds" and "Music Jingles" (CC0); the clock's tick and the last-round chime are generated for this project. Throw sounds: [freesound.org](https://freesound.org) recordings by meisterleise, Seidolon, modusmogulus, TheWah, minian89, TheKingOfGeeks360, nebulasnails, p1xol, magnuswaker and Breviceps (all CC0), edited for this project. Reaction sounds: freesound.org recordings by amccoy711, IanLyanx, kanyonwyvern, haulaway and Kinoton (all CC0), edited for this project. Card art, throw stickers, reaction stickers and app icon are original, generated for this project.
 
 ## License
 
