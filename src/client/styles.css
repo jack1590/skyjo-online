@@ -2726,8 +2726,8 @@ dialog.overlay:focus {
 
   .react-item,
   .react-fan.closing .react-item,
-  .react .react-art,
-  .react .react-fly {
+  .react[data-kind] .react-art,
+  .react[data-kind] .react-fly {
     animation: none;
   }
 

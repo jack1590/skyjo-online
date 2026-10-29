@@ -90,7 +90,7 @@ test("M21: a throw lands on its target without taking a tap, one buzz at a time,
   await expect(page.getByTestId("toss-decal")).toHaveCount(0);
 
   await page.getByTestId("opponent").first().click();
-  await page.getByRole("checkbox", { name: "Throws" }).click();
+  await page.getByRole("checkbox", { name: "Fun" }).click();
   await expect(page.getByTestId("tray").locator(".tray-item")).toHaveCount(0);
   await page.reload();
   await expect(page.getByTestId("table")).toBeVisible();

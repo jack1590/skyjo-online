@@ -67,6 +67,8 @@ interface TableProps {
   onExit: () => void;
 }
 
+/** Under this much showing (px), an opponent's panel counts as scrolled out of the strip. */
+const SLIVER = 24;
 const where = (t: T, pos: number) =>
   t("where", { row: Math.floor(pos / 4) + 1, col: (pos % 4) + 1 });
 const upCount = (grid: ViewSlot[]) => grid.filter((slot) => typeof slot === "number").length;
@@ -273,11 +275,36 @@ export function Table(props: TableProps) {
     // The part of an opponent's panel the strip shows, if any.
     const lo = Math.max(p.left, left);
     const hi = Math.min(p.right, right);
-    const x =
-      opp && hi > lo ? clamp(cx, lo, hi, Math.min(12, (hi - lo) / 2)) : clamp(cx, left, right, 16);
+    const shown = opp && hi - lo >= SLIVER;
+    const x = shown ? clamp(cx, lo, hi, Math.min(12, (hi - lo) / 2)) : clamp(cx, left, right, 16);
     const y = clamp(cy, box?.top ?? 0, box?.bottom ?? window.innerHeight, 12);
-    return { x, y, el, panel, mark, px: x - p.left, py: y - p.top };
+    // A panel scrolled out is scrolled back in (`reveal`): its mark goes where its head will be.
+    return { x, y, el, panel, mark, px: (opp && !shown ? cx : x) - p.left, py: y - p.top };
   };
+  /**
+   * A throw or reaction at a panel scrolled out of the strip brings it back into view, so it lands
+   * on the right player, not at the strip's edge over a neighbour (M23). The flights follow it
+   * there. The turn's own scroll may take it away again later; that's fine.
+   */
+  const reveal = (seat: number | undefined) => {
+    const panel = seat === undefined ? undefined : oppRefs.current.get(seat);
+    const box = strip.current?.getBoundingClientRect();
+    if (!throwsOn || summary || !panel || !box) return;
+    const p = panel.getBoundingClientRect();
+    if (Math.min(p.right, box.right) - Math.max(p.left, box.left) >= SLIVER) return;
+    panel.scrollIntoView({
+      inline: "nearest",
+      block: "nearest",
+      behavior: reduced ? "auto" : "smooth",
+    });
+  };
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new throw is the trigger
+  useEffect(() => reveal(props.toss?.to), [props.toss?.id]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new reaction is the trigger
+  useEffect(
+    () => reveal(props.reaction && (props.reaction.to ?? props.reaction.from)),
+    [props.reaction?.id],
+  );
   // biome-ignore lint/correctness/useExhaustiveDependencies: timing is read when the turn passes
   useEffect(() => {
     if (!playing || view.current === seat) return;
