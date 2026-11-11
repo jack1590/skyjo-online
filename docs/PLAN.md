@@ -855,7 +855,9 @@ There is a second guard the old rule hid: `autoMove` never flips a seat's last f
 
 **Root cause.** `canLead` (`room.ts`) treats a host whose `Seat.auto` is set as away, which is right during a game (M8: one absent phone can't freeze a summary). But `rematch` only set `game = null`, and `auto` was cleared only at `start`. So the flag outlived its game, into a lobby that has no Auto-play switch: the host could not clear it, and stayed "away" while connected. M8's room test even asserted it ("Still away in the lobby").
 
-**Fix.** `rematch` clears every seat's Auto-play, as `start` already did (kept, for lobbies saved before 2.6.6). Nothing else to reset: at game over no seat is waited on, so `stopped` is already empty, and `start` sets `turnSince`. A host who has really left is offline, which `canLead` still reads as away, so the others can start.
+**Fix.** `rematch` clears every seat's Auto-play, as `start` already did (kept, for lobbies saved before 2.6.6). Nothing else to reset: at game over no seat is waited on, so `stopped` is already empty, and `start` sets `turnSince`. A host whose page is closed or whose phone sleeps (the wake lock is game-only) is offline within 45 s, which `canLead` still reads as away, so the others can start.
+
+**PO to decide (review finding).** A host who walks away from a page that stays open and visible (a desktop tab) keeps pinging, so after Play again the lobby waits for them, and a connected seat can't be removed. That is how every lobby already works before a first game; before this fix a timed-out host's Auto-play happened to cover it after a rematch. If it matters, the fix is a lobby rule of its own (for example, guests may lead when the host has sent nothing but pings for N seconds), not a flag that outlives its game.
 
 **Test.** `room.test.ts`, "BUG-6": after a guest's Play again nobody is on Auto-play, only the host leads, and a guest's `start` and `knockout` are refused.
 

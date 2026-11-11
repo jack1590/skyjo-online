@@ -8,7 +8,7 @@ Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When
 
 ### Fixed
 
-- **The host stays the host after Play again.** When the host finished a game on Auto-play (switched on, or after running out of time) and someone tapped Play again, every phone showed "Start game" and nobody saw "Waiting for host": anyone could start or change the knockout option, and the host had no way to take the lobby back. Play again now switches everyone's Auto-play off, so the host leads the lobby as before. If the host has really left, the others can still start.
+- **The host stays the host after Play again.** When the host finished a game on Auto-play (switched on, or after running out of time) and someone tapped Play again, every phone showed "Start game" and nobody saw "Waiting for host": anyone could start or change the knockout option, and the host had no way to take the lobby back. Play again now switches everyone's Auto-play off, so the host leads the lobby as before. If the host's phone is off or the page is closed, the others can still start.
 
 ## [2.6.0] - 2026-10-29
 

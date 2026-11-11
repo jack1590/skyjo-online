@@ -365,7 +365,8 @@ export class Room {
         }
         this.data.game = null;
         // Auto-play lasts a game. The lobby has no switch for it, so a host left on it could never
-        // lead again (BUG-6); a host who is really away is seen as offline.
+        // lead again (BUG-6). A host whose page is closed or asleep is offline, so others lead; one
+        // away from an open page holds the lobby, as in any lobby.
         for (const s of seats) s.auto = false;
         return "data";
       case "act":
