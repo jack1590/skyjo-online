@@ -130,6 +130,53 @@ describe("lobby", () => {
     expect(t.room.data.seats[2].name).toBe(`${"x".repeat(15)}😀`);
   });
 
+  it("BUG-8: a name keeps its joined emoji whole and loses every other invisible character", () => {
+    const family = "👨\u200D👩\u200D👧\u200D👦"; // 7 code points
+    const rainbow = "🏳\uFE0F\u200D🌈";
+    const tags = (s: string) =>
+      [...s].map((c) => String.fromCodePoint(0xe0000 + c.charCodeAt(0))).join("");
+    const flag = (region: string) => `🏴${tags(region)}\u{E007F}`;
+    const kiss = "👩🏽\u200D❤\uFE0F\u200D💋\u200D👨🏿"; // 10 code points
+    const names: [sent: string, kept: string][] = [
+      [`😀${family}${rainbow}`, `😀${family}${rainbow}`],
+      [`${flag("gbeng")}${flag("gbsct")}`, `${flag("gbeng")}${flag("gbsct")}`],
+      [kiss, kiss],
+      // A joiner anywhere else is invisible: alone, between letters, after an emoji, before one.
+      ["\u200D", ""],
+      ["a\u200Db", "ab"],
+      ["😀\u200Dx", "😀x"],
+      ["x\u200D😀", "x😀"],
+      ["😀\u200D\u200B😀", "😀😀"],
+      // Nor between two emoji that make no emoji together: 😀😀 and ©® must stay one name each.
+      ["😀\u200D😀", "😀😀"],
+      ["©\u200D®", "©®"],
+      // U+1F02C is unassigned, yet reserved as a pictograph: it must not carry a joiner in.
+      ["a\u{1F02C}\u200D\u{1F02C}b", "ab"],
+      ["\u{1F02C}\u200D\u{1F02C}", ""],
+      // Tags only as one of the three flags: no hidden text, no tags after another emoji.
+      [`🏴${tags("usca")}\u{E007F}`, "🏴"],
+      [`🏴${tags("gb")}\u200B${tags("eng")}\u{E007F}`, "🏴"],
+      [`😀${tags("gbeng")}\u{E007F}`, "😀"],
+      [`Zed${tags("hidden")}`, "Zed"],
+      // Bidi overrides, isolates and marks, and controls, as before.
+      ["\u202Eevil\u202C", "evil"],
+      ["\u2066a\u2069\u200F\u061Cb\u0007", "ab"],
+      // The cut, 16 code points, never splits a cluster: one that doesn't fit is left out.
+      [`${family}${family}${family}`, `${family}${family}`],
+      [`${"x".repeat(10)}${family}`, "x".repeat(10)],
+      [`${"x".repeat(9)}${family}yz`, `${"x".repeat(9)}${family}`],
+      [`${"x".repeat(15)} ${family}`, "x".repeat(15)],
+      [`e${"\u0301".repeat(16)}`, ""],
+    ];
+    for (const [sent, kept] of names) {
+      const t = setup();
+      const c = t.connect("token-x-abcdef");
+      if (kept) t.send(c, { t: "join", name: sent });
+      else expect(t.errorOf(() => t.send(c, { t: "join", name: sent }))).toBe("bad-name");
+      expect(t.room.data.seats.map((seat) => seat.name)).toEqual(kept ? [kept] : []);
+    }
+  });
+
   it("a 9th player stays a spectator", () => {
     const t = setup();
     t.seated(8);
@@ -782,8 +829,26 @@ describe("turn clock (M8)", () => {
     }
     t.send(conns[1], { t: "rematch" });
     expect(t.room.data.game).toBeNull();
-    // Still away in the lobby: the others may start without the host.
-    expect(t.room.view(conns[1], t.live).lead).toBe(true);
+  });
+
+  it("BUG-6: Play again ends everyone's Auto-play, so a connected host leads the lobby again", () => {
+    const t = setup();
+    const conns = startedGame(t, 3);
+    t.send(conns[0], { t: "auto", on: true });
+    t.send(conns[2], { t: "auto", on: true });
+    while (t.room.data.game?.phase !== "gameOver") {
+      if (t.room.data.game?.phase === "roundOver") {
+        t.send(conns[1], { t: "act", action: { type: "nextRound" } });
+      } else stepAny(t, conns);
+    }
+    t.send(conns[1], { t: "rematch" });
+    // The lobby has no Auto-play switch: left on, the host could never take the lobby back.
+    expect(autoSeats(t)).toEqual([false, false, false]);
+    expect(conns.map((c) => t.room.view(c, t.live).lead)).toEqual([true, false, false]);
+    expect(t.errorOf(() => t.send(conns[1], { t: "start" }))).toBe("not-allowed");
+    expect(t.errorOf(() => t.send(conns[1], { t: "knockout", on: true }))).toBe("not-allowed");
+    t.send(conns[0], { t: "start" });
+    expect(t.room.data.game?.phase).toBe("flip");
   });
 
   it("M8: ticking Auto-play on and off gives a fresh clock once per move, so it can't hold a turn open", () => {
@@ -1253,6 +1318,19 @@ describe("throws (M21)", () => {
     t.advance(1);
     expect(t.send(a, { t: "toss", to: 2, item: "bomb" })).toBe("view");
     expect(t.room.view(b, t.live).toss).toMatchObject({ from: 0, to: 2, item: "bomb" });
+  });
+
+  it("BUG-7: a throw at a round summary or at game over is dropped, like a reaction: nobody sees it and no cooldown starts", () => {
+    const t = setup();
+    const [a, b] = startedGame(t, 2);
+    const game = t.room.data.game as GameState;
+    for (const phase of ["roundOver", "gameOver"] as const) {
+      game.phase = phase;
+      expect(t.send(a, { t: "toss", to: 1, item: "bomb" })).toBe("none");
+      expect(t.room.view(b, t.live).toss).toBeUndefined();
+    }
+    game.phase = "draw";
+    expect(t.send(a, { t: "toss", to: 1, item: "bomb" })).toBe("view");
   });
 
   it("M21: views carry a throw for TOSS_SHOW_MS only, so a phone that reconnects later doesn't replay it", () => {

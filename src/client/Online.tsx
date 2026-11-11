@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { MAX_PLAYERS } from "../engine/game";
-import { type ClientMsg, type ErrorCode, NAME_MAX, type RoomView } from "../protocol";
+import { type ClientMsg, cutName, type ErrorCode, type RoomView } from "../protocol";
 import { type Key, useI18n } from "./i18n";
 import { Table } from "./Table";
 import { useOnline } from "./useOnline";
@@ -389,12 +389,15 @@ function JoinForm({ send }: { send: (msg: ClientMsg) => void }) {
       <input
         className="name-input"
         value={name}
-        maxLength={NAME_MAX}
         required
         enterKeyHint="go"
         aria-label={t("yourName")}
         placeholder={t("yourName")}
-        onChange={(e) => setName(e.target.value)}
+        // Not mid-composition (an IME, a dead key): rewriting the text under it cancels it. The
+        // server cuts again.
+        onChange={({ target, nativeEvent }) =>
+          setName((nativeEvent as InputEvent).isComposing ? target.value : cutName(target.value))
+        }
       />
       <button type="submit" className="btn primary">
         {t("join")}

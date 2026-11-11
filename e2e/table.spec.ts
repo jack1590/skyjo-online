@@ -1236,3 +1236,24 @@ test.describe("with motion allowed", () => {
     await shot("09-summary-bot");
   });
 });
+
+test("UX-19: a tap on the pile as your turn appears, before the page has settled, still throws the card away", async ({
+  page,
+}) => {
+  const state = firstTurn(2, 5);
+  const me = state.current;
+  // The tap lands right as the pile is added to the page: before React runs the table's effects.
+  await page.addInitScript(() => {
+    const watch = new MutationObserver(() => {
+      const pile = document.querySelector<HTMLElement>('[data-testid="discard"]');
+      if (!pile) return;
+      watch.disconnect();
+      pile.click();
+    });
+    watch.observe(document, { childList: true, subtree: true });
+  });
+  const view = toView(apply(state, { type: "draw", seat: me, source: "deck" }));
+  await show(page, { view, seat: me });
+  await expect(page.locator(".undo")).toBeVisible();
+  await expect(page.getByTestId("discard")).toHaveAttribute("data-tilt", "4");
+});
