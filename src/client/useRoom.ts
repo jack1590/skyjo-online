@@ -142,9 +142,11 @@ export function useRoom(code: string) {
         ws.send(JSON.stringify({ t: "hello", token } satisfies ClientMsg));
         // The room answers every hello. No answer: the socket died while the phone was away and
         // only looks open, and the table on screen is stale until it's replaced (BUG-10).
+        // Only while still showing: locked again, the answer may be waiting behind this timer.
         const said = Date.now();
         setTimeout(() => {
-          if (!stopped && socket.current === ws && lastHeard < said) connect();
+          const here = !stopped && document.visibilityState === "visible";
+          if (here && socket.current === ws && lastHeard < said) connect();
         }, ACK_MS);
       } else check();
     };
