@@ -849,6 +849,24 @@ There is a second guard the old rule hid: `autoMove` never flips a seat's last f
 - **Accepted:** a present player who runs out of time while every other connected seat is on Auto-play goes on Auto-play in the same `tick`, so that very move may turn over their last card and end the round, doubled unless lowest (the PO reproduced it). That is the decision above (at that moment nobody is playing by hand), and the round has to end. Computing `mayEnd` before the due seats switch would spare that one move; revisit if players say so.
 - **M17:** `canStall` only counts seats, so a lone connected spectator keeps nothing running (the PO checked on the injected clock), but no test pins it. M17's out-seat test covers it; see there.
 
+### BUG-8 — Emoji names built with joiners break apart (QA, 2026-11-11, `main` 0122f4e) · v2.6.8
+
+**Report.** iPhone 13. Join as 😀👨‍👩‍👧‍👦🏳️‍🌈: the seat list shows 😀👨👩👧👦🏳️. The flags of England, Scotland and Wales turn into a black flag.
+
+**Root cause.** `cleanName` (`room.ts`) stripped all of `\p{C}`, to keep zero-width and bidi characters out of names. That class also holds U+200D, the joiner inside a family or a rainbow flag, and the tag characters (U+E0020–E007F) those three flags are spelled with. Two more cuts could split such an emoji: the server's, at 16 code points, and the name box's `maxLength`, which counts UTF-16 units (16 units is not even two families).
+
+**Fix (a trust boundary: the allowlist is narrow on purpose).** `cleanName` now works one grapheme cluster at a time. A cluster that is, whole, an emoji on Unicode's RGI list (`\p{RGI_Emoji}`) is kept as it is: that covers the joiner of a family, a rainbow flag or a skin-toned couple, and the tags of exactly three flags, England, Scotland and Wales. From every other cluster all of `\p{C}` is stripped, as before: controls, bidi overrides, isolates and marks, zero-width characters, tags, private-use and unassigned code points. So a joiner alone, between letters, beside one emoji, or between two emoji that make no emoji together (😀+😀, which would be a second, identical-looking "😀😀") goes, and so does any tag sequence that could carry hidden text.
+
+**Review finding, fixed before the PR.** The first version kept U+200D by its neighbours: after an `Extended_Pictographic` and before another. That property also holds 1,453 unassigned code points (U+1F02C…), which are `\p{C}` themselves: they vouched for the joiner and were then stripped, leaving a joiner between letters, or a name that was only a joiner. Matching whole clusters against the RGI list has no such hole; the room test has those inputs.
+
+Not changed: invisible characters outside `\p{C}` (variation selectors, blank letters such as U+3164) pass as they did before this PR. A filter for them (`Default_Ignorable_Code_Point`, names with no visible character) is its own item.
+
+The limit stays 16 code points, so a stored name is no bigger than before. `cutName` (`protocol.ts`) cuts between grapheme clusters (`Intl.Segmenter`) and leaves out one that doesn't fit; the server and the name box share it (the box lost `maxLength`, and doesn't cut mid-composition). A single cluster over 16 code points (a letter under 16 accents) is no name at all: `bad-name`.
+
+**PO to decide:** 16 code points, not 16 clusters. Three families (21 code points) are cut to two. Counting clusters would allow 16 of any emoji, but then one cluster needs its own cap (stacked accents have no limit), and a seat's name could grow from 64 bytes to several hundred in every saved row and every broadcast.
+
+**Tests.** `room.test.ts`, "BUG-8": the family, the rainbow flag, a skin-toned kiss, the flags; a lone joiner, one between letters, one beside a single emoji, one between two emoji that don't join, one smuggled in by unassigned code points; tags outside a flag, a split flag, an unknown region; bidi overrides and isolates; the cut before, inside and after a family; 16 accents. `e2e/online.spec.ts`, "BUG-8", on all three devices: the box cuts three families to two, and the reported name is seated whole.
+
 ### M17 — Play until one is left (knockout) (user request, 2026-10-24) · v2.2.0 · ✅ shipped (PR #24)
 
 The user asked for a game option, **"Play until one is left"**, and approved the rule and the edge cases below after a walkthrough. It is numbered M17 because M9–M16 were already planned, but it ships before them (see § Queue after M7).

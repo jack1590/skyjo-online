@@ -9,6 +9,30 @@ export const isRoomCode = (code: string) =>
 
 export const NAME_MAX = 16;
 
+/**
+ * The start of a name that fits `NAME_MAX` code points, cut between clusters (an emoji with its
+ * joiners, a letter with its accents), never inside one (BUG-8). The input cuts as you type and
+ * the server cuts again.
+ */
+export function cutName(name: string): string {
+  // Firefox before 125 has no Intl.Segmenter: there the input cuts by code point.
+  const parts =
+    "Segmenter" in Intl
+      ? Array.from(
+          new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(name),
+          (s) => s.segment,
+        )
+      : [...name];
+  let kept = "";
+  let size = 0;
+  for (const part of parts) {
+    size += [...part].length;
+    if (size > NAME_MAX) break;
+    kept += part;
+  }
+  return kept;
+}
+
 /** Closing code for a room that doesn't exist. Close codes can get lost, so a "missing" message precedes it. */
 export const CLOSE_UNKNOWN_ROOM = 4004;
 /** Closing code (policy violation) for a socket over the per-socket or per-IP message limit. */

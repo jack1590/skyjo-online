@@ -77,6 +77,17 @@ test("a phone that joins mid-game watches without a grid", async ({ browser }, i
   expect(tooSmall).toBe(0);
 });
 
+test("BUG-8: a name of joined emoji is seated whole, and the input cuts a longer one between emoji", async ({
+  page,
+}) => {
+  const family = "👨\u200D👩\u200D👧\u200D👦";
+  const code = await createRoom(page);
+  const input = page.getByRole("textbox", { name: "Your name" });
+  await input.fill(family.repeat(3));
+  await expect(input).toHaveValue(family.repeat(2));
+  await join(page, code, `😀${family}🏳\uFE0F\u200D🌈`);
+});
+
 test("everyone sees who is offline and when the server will move for them", async ({
   browser,
 }, info) => {

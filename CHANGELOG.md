@@ -4,6 +4,13 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.6.8] - 2026-11-11
+
+### Fixed
+
+- **Emoji names stay in one piece.** A name with a family 👨‍👩‍👧‍👦, a rainbow flag 🏳️‍🌈, a skin-toned couple or the flag of England, Scotland or Wales showed up at the table broken into its parts (👨👩👧👦, 🏳️, a black flag). Those emoji now arrive whole.
+- The name box no longer stops halfway through such an emoji: a name is still 16 characters at most, and one that is too long is cut between emoji, never inside one.
+
 ## [2.6.0] - 2026-10-29
 
 ### Added
