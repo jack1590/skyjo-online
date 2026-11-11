@@ -707,8 +707,26 @@ describe("turn clock (M8)", () => {
     }
     t.send(conns[1], { t: "rematch" });
     expect(t.room.data.game).toBeNull();
-    // Still away in the lobby: the others may start without the host.
-    expect(t.room.view(conns[1], t.live).lead).toBe(true);
+  });
+
+  it("BUG-6: Play again ends everyone's Auto-play, so a connected host leads the lobby again", () => {
+    const t = setup();
+    const conns = startedGame(t, 3);
+    t.send(conns[0], { t: "auto", on: true });
+    t.send(conns[2], { t: "auto", on: true });
+    while (t.room.data.game?.phase !== "gameOver") {
+      if (t.room.data.game?.phase === "roundOver") {
+        t.send(conns[1], { t: "act", action: { type: "nextRound" } });
+      } else stepAny(t, conns);
+    }
+    t.send(conns[1], { t: "rematch" });
+    // The lobby has no Auto-play switch: left on, the host could never take the lobby back.
+    expect(autoSeats(t)).toEqual([false, false, false]);
+    expect(conns.map((c) => t.room.view(c, t.live).lead)).toEqual([true, false, false]);
+    expect(t.errorOf(() => t.send(conns[1], { t: "start" }))).toBe("not-allowed");
+    expect(t.errorOf(() => t.send(conns[1], { t: "knockout", on: true }))).toBe("not-allowed");
+    t.send(conns[0], { t: "start" });
+    expect(t.room.data.game?.phase).toBe("flip");
   });
 
   it("M8: ticking Auto-play on and off gives a fresh clock once per move, so it can't hold a turn open", () => {

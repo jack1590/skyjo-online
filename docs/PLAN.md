@@ -849,6 +849,16 @@ There is a second guard the old rule hid: `autoMove` never flips a seat's last f
 - **Accepted:** a present player who runs out of time while every other connected seat is on Auto-play goes on Auto-play in the same `tick`, so that very move may turn over their last card and end the round, doubled unless lowest (the PO reproduced it). That is the decision above (at that moment nobody is playing by hand), and the round has to end. Computing `mayEnd` before the due seats switch would spare that one move; revisit if players say so.
 - **M17:** `canStall` only counts seats, so a lone connected spectator keeps nothing running (the PO checked on the injected clock), but no test pins it. M17's out-seat test covers it; see there.
 
+### BUG-6 — A host on Auto-play at game over loses the lobby after Play again (QA, 2026-11-11, `main` 0122f4e) · v2.6.6
+
+**Report.** 3 phones, Pixel 7. The host ticks Auto-play (or runs out of time) and the game is played to game over; a guest taps Play again. In the lobby every phone shows "Start game" and an enabled knockout switch, nobody sees "Waiting for host", and a guest can start.
+
+**Root cause.** `canLead` (`room.ts`) treats a host whose `Seat.auto` is set as away, which is right during a game (M8: one absent phone can't freeze a summary). But `rematch` only set `game = null`, and `auto` was cleared only at `start`. So the flag outlived its game, into a lobby that has no Auto-play switch: the host could not clear it, and stayed "away" while connected. M8's room test even asserted it ("Still away in the lobby").
+
+**Fix.** `rematch` clears every seat's Auto-play, as `start` already did (kept, for lobbies saved before 2.6.6). Nothing else to reset: at game over no seat is waited on, so `stopped` is already empty, and `start` sets `turnSince`. A host who has really left is offline, which `canLead` still reads as away, so the others can start.
+
+**Test.** `room.test.ts`, "BUG-6": after a guest's Play again nobody is on Auto-play, only the host leads, and a guest's `start` and `knockout` are refused.
+
 ### M17 — Play until one is left (knockout) (user request, 2026-10-24) · v2.2.0 · ✅ shipped (PR #24)
 
 The user asked for a game option, **"Play until one is left"**, and approved the rule and the edge cases below after a walkthrough. It is numbered M17 because M9–M16 were already planned, but it ships before them (see § Queue after M7).

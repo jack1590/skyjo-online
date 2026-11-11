@@ -4,6 +4,12 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.6.6] - 2026-11-11
+
+### Fixed
+
+- **The host stays the host after Play again.** When the host finished a game on Auto-play (switched on, or after running out of time) and someone tapped Play again, every phone showed "Start game" and nobody saw "Waiting for host": anyone could start or change the knockout option, and the host had no way to take the lobby back. Play again now switches everyone's Auto-play off, so the host leads the lobby as before. If the host has really left, the others can still start.
+
 ## [2.6.0] - 2026-10-29
 
 ### Added
