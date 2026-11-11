@@ -1333,6 +1333,21 @@ describe("chat (M29)", () => {
     expect(t.room.view(a, t.live).chatIn).toBeUndefined();
   });
 
+  it("M29: a spectator's allowance is its address's, so a new token is not a new allowance", () => {
+    const t = setup();
+    t.seated(2);
+    const one = t.connect("token-w-abcdef");
+    one.ip = "203.0.113.7";
+    for (let i = 0; i < CHAT_BURST; i++) expect(t.send(one, { t: "chat", text: "1" })).toBe("view");
+    t.drop(one);
+    const two = t.connect("token-x-abcdef");
+    two.ip = "203.0.113.7";
+    expect(t.send(two, { t: "chat", text: "2" })).toBe("none");
+    expect(t.room.view(two, t.live).chatIn).toBeGreaterThan(0);
+    t.advance(CHAT_MS);
+    expect(t.send(two, { t: "chat", text: "2" })).toBe("view");
+  });
+
   it("M29: parses chat: a known quick phrase, or text cut to CHAT_MAX characters without control or bidi characters", () => {
     expect(parseClientMsg('{"t":"chat","preset":"luck","text":"x"}')).toEqual({
       t: "chat",
@@ -1354,6 +1369,7 @@ describe("chat (M29)", () => {
       '{"t":"chat"}',
       '{"t":"chat","preset":"insult"}',
       '{"t":"chat","text":""}',
+      '{"t":"chat","text":"\\u200d\\u0301"}',
       '{"t":"chat","text":"  \\u200b\\n "}',
       '{"t":"chat","text":5}',
       '{"t":"chat","text":["hi"]}',

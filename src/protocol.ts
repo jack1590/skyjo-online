@@ -255,7 +255,8 @@ function parseBody(msg: Record<string, unknown>): ClientMsg | null {
         return { t: "chat", preset: msg.preset as ChatPreset };
       }
       const text = typeof msg.text === "string" ? cleanText(msg.text, CHAT_MAX, CHAT_DROP) : "";
-      return text ? { t: "chat", text } : null;
+      // Something to read: not only joiners, blanks or combining marks.
+      return /[\p{L}\p{N}\p{S}\p{P}]/u.test(text) ? { t: "chat", text } : null;
     }
     case "act": {
       const a = msg.action;

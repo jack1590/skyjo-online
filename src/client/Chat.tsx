@@ -60,10 +60,14 @@ export function useChat(
   /** The last message read (its id), and when Send works again (ms). */
   const [read, setRead] = useState(0);
   const [until, setUntil] = useState(0);
+  /** After a send, Send rests at least until the room has answered it. */
+  const guard = useRef(0);
+  /** The text being typed: kept here, since the sheet is drawn anew when the summary comes or goes. */
+  const [text, setText] = useState("");
   const seen = useRef(0);
   useEffect(() => {
     if (!room) return;
-    setUntil(Date.now() + (room.chatIn ?? 0));
+    setUntil(Math.max(guard.current, Date.now() + (room.chatIn ?? 0)));
     const chat = room.chat ?? [];
     // A quick phrase this build doesn't know (a newer server) is skipped.
     const news = chat.filter(
@@ -98,10 +102,13 @@ export function useChat(
     setOpen,
     until,
     you,
+    text,
+    setText,
     say: (said: Said) => {
       send(said);
       // Until the room's answer says how long: no double send.
-      setUntil((until) => Math.max(until, Date.now() + 400));
+      guard.current = Date.now() + 400;
+      setUntil((until) => Math.max(until, guard.current));
     },
   };
 }
@@ -136,7 +143,7 @@ function Sheet({ chat }: { chat: Chat }) {
   const { t } = useI18n();
   const ref = useRef<HTMLDialogElement>(null);
   const list = useRef<HTMLOListElement>(null);
-  const [text, setText] = useState("");
+  const { text, setText } = chat;
   const resting = useResting(chat.until);
   const close = () => chat.setOpen(false);
   useLayoutEffect(() => {

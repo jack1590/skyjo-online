@@ -59,7 +59,7 @@ test("M29: a quick phrase pops by its sender on every phone, each in its own lan
   await shot(beto, "02-lobby-bubble-es");
   // Unread on the others' buttons, not on hers.
   await expect(beto.getByTestId("chat-badge")).toHaveText("1");
-  await expect(beto.getByTestId("chat-button")).toHaveAccessibleName("Chat, 1 nuevos");
+  await expect(beto.getByTestId("chat-button")).toHaveAccessibleName("Chat, sin leer: 1");
   await expect(ana.getByTestId("chat-badge")).toHaveCount(0);
 
   await startGame(ana);
@@ -109,9 +109,9 @@ test("M29: a quick phrase pops by its sender on every phone, each in its own lan
     await box.press("Enter");
     await expect(box).toHaveValue("");
   }
+  await expect(ana.getByRole("button", { name: "Haha" })).toBeDisabled();
   await box.fill("four");
   await expect(sendButton).toBeDisabled();
-  await expect(ana.getByRole("button", { name: "Haha" })).toBeDisabled();
   await expect(beto.getByTestId("chat-badge")).toHaveText("3");
 });
 

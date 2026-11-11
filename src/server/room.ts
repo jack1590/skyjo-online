@@ -254,7 +254,7 @@ export class Room {
   private tossed = new Map<number, number>();
   /**
    * The latest messages (M29), in memory only like the throws: a message writes no row, and a room
-   * that slept forgets them (each phone keeps what it saw). `chatted`: per token, when its
+   * that slept forgets them (each phone keeps what it saw). `chatted`: per sender (`chatKey`), when its
    * allowance is whole again.
    */
   private chat: ChatMsg[] = [];
@@ -417,8 +417,9 @@ export class Room {
         // Too soon: the client greys Send meanwhile. Dropped, never an error or a disconnect.
         if (this.chatIn(conn, live) > 0) return "none";
         for (const [token, whole] of this.chatted) if (whole <= now) this.chatted.delete(token);
-        const whole = Math.max(this.chatted.get(conn.token) ?? 0, now);
-        this.chatted.set(conn.token, whole + this.chatRate(conn, live).wait);
+        const key = this.chatKey(conn);
+        const whole = Math.max(this.chatted.get(key) ?? 0, now);
+        this.chatted.set(key, whole + this.chatRate(conn, live).wait);
         const said: ChatMsg = {
           id: Math.max(now, (this.chat.at(-1)?.id ?? 0) + 1),
           from: seat,
@@ -447,10 +448,18 @@ export class Room {
     return { wait: CHAT_MS * phones, burst: phones === 1 ? CHAT_BURST : 1 };
   }
 
+  /**
+   * Whose allowance a message spends: the seat's token, or for a spectator its address, since a
+   * new token is free and would be a new allowance each time.
+   */
+  private chatKey(conn: Conn): string {
+    return (this.seatOf(conn) === null ? conn.ip : null) ?? conn.token ?? "";
+  }
+
   /** Ms until `conn` may chat again; 0 = now. */
   private chatIn(conn: Conn, live: Conn[]): number {
     const { wait, burst } = this.chatRate(conn, live);
-    const whole = this.chatted.get(conn.token ?? "") ?? 0;
+    const whole = this.chatted.get(this.chatKey(conn)) ?? 0;
     return Math.max(0, whole - (burst - 1) * wait - this.deps.now());
   }
 
