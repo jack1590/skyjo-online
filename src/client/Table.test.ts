@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { type Action, apply, createGame, type GameState, legalActions } from "../engine/game";
 import { type GameView, toView } from "../engine/view";
 import { translator } from "./i18n";
-import { faceUpSum, overTitle, prompt } from "./Table";
+import { endedNote, faceUpSum, overTitle, prompt } from "./Table";
 
 /** A finished game with these totals and winners (the lowest totals, R14). */
 function over(totals: number[], winners: number[]): GameView {
@@ -192,6 +192,72 @@ describe("prompt (UX-16)", () => {
     expect(prompt(en, { ...lastCard([7]), current: 1 }, 0, false, false)).toBe("Waiting for Ben…");
     expect(prompt(en, lastCard([7], 1), 0, true, false)).toBe(
       "Last turn! Draw from the deck or take the discard",
+    );
+  });
+});
+
+/** A round's summary: each player's round score (the ender's as it counted), who ended it. */
+function ended(
+  scores: number[],
+  ender: number,
+  doubled: boolean,
+  outBefore: number[] = [],
+): GameView {
+  const view = over(scores, []);
+  return {
+    ...view,
+    phase: "roundOver",
+    round: 2,
+    ender,
+    doubled,
+    players: view.players.map((p, i) => ({
+      ...p,
+      scores: [0, scores[i]],
+      out: outBefore.includes(i) ? 1 : null,
+    })),
+  };
+}
+
+describe("endedNote (M27, R12)", () => {
+  const en = translator("en");
+
+  it("doubled: names the lowest scorer and the score before it doubled", () => {
+    expect(endedNote(en, ended([36, 14, 21], 0, true))).toBe(
+      "Ana ended the round, but Ben scored lower, so their 18 counts double.",
+    );
+  });
+
+  it("doubled on a tie: ties double too", () => {
+    expect(endedNote(en, ended([20, 10, 31], 0, true))).toBe(
+      "Ana ended the round, but Ben scored the same, so their 10 counts double.",
+    );
+  });
+
+  it("not doubled: the ender scored strictly lowest", () => {
+    expect(endedNote(en, ended([9, 14, 21], 0, false))).toBe(
+      "Ana ended the round with the lowest score.",
+    );
+  });
+
+  it("no sentence when a score of 0 or less wasn't the lowest, and none mid-round", () => {
+    expect(endedNote(en, ended([0, -2, 21], 0, false))).toBeNull();
+    expect(endedNote(en, { ...ended([9, 14, 21], 0, false), phase: "draw" })).toBeNull();
+  });
+
+  it("R16: players out before the round don't count", () => {
+    // Ben, out since round 1, has no score this round: Cris's 21 is the one to beat.
+    expect(endedNote(en, ended([9, 0, 21], 0, false, [1]))).toBe(
+      "Ana ended the round with the lowest score.",
+    );
+  });
+
+  it("in Spanish and Portuguese", () => {
+    const view = ended([36, 14, 21], 0, true);
+    expect(endedNote(translator("es"), view)).toBe(
+      "Ana cerró la ronda, pero Ben sumó menos: su 18 cuenta doble.",
+    );
+    expect(endedNote(translator("pt"), view)).toBe(
+      "Ana encerrou a rodada, mas Ben somou menos: seu 18 conta em dobro.",
     );
   });
 });

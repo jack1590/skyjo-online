@@ -45,7 +45,6 @@ const en = {
   viewTable: "View table",
   colPlayer: "Player",
   colRound: "Round",
-  colTotal: "Total",
   ended: "ended",
   home: "Home",
   playAgain: "Play again",
@@ -154,6 +153,19 @@ const en = {
   lastCard: "Revealing your last card ends the round",
   everyoneFlips: "Everyone flips 2",
   thisRound: "this round",
+  // M27: labelled scores, the drop target, and the summary's sentence and goal.
+  game: "Game",
+  autoShort: "Auto",
+  lowWins: "Low score wins",
+  youDrew: "You drew",
+  discardHere: "Discard here",
+  doubledLower: "{name} ended the round, but {other} scored lower, so their {n} counts double.",
+  doubledTied: "{name} ended the round, but {other} scored the same, so their {n} counts double.",
+  endedLowest: "{name} ended the round with the lowest score.",
+  lowestWins: "Lowest total wins",
+  endsAt100: "Game ends at 100",
+  lastOneWins: "Last one under 100 wins",
+  outAt100: "Out at 100",
 };
 
 export type Key = keyof typeof en;
@@ -204,7 +216,6 @@ const es: Record<Key, string> = {
   viewTable: "Ver mesa",
   colPlayer: "Jugador",
   colRound: "Ronda",
-  colTotal: "Total",
   ended: "cerró",
   home: "Inicio",
   playAgain: "Jugar otra vez",
@@ -313,6 +324,18 @@ const es: Record<Key, string> = {
   lastCard: "Revelar tu última carta termina la ronda",
   everyoneFlips: "Todos voltean 2",
   thisRound: "en esta ronda",
+  game: "Partida",
+  autoShort: "Auto",
+  lowWins: "Gana quien sume menos",
+  youDrew: "Robaste",
+  discardHere: "Descarta aquí",
+  doubledLower: "{name} cerró la ronda, pero {other} sumó menos: su {n} cuenta doble.",
+  doubledTied: "{name} cerró la ronda, pero {other} sumó lo mismo: su {n} cuenta doble.",
+  endedLowest: "{name} cerró la ronda con el puntaje más bajo.",
+  lowestWins: "Gana el total más bajo",
+  endsAt100: "La partida termina a los 100",
+  lastOneWins: "Gana el último bajo 100",
+  outAt100: "Con 100, quedas fuera",
 };
 
 /** Brazilian Portuguese. */
@@ -361,7 +384,6 @@ const pt: Record<Key, string> = {
   viewTable: "Ver mesa",
   colPlayer: "Jogador",
   colRound: "Rodada",
-  colTotal: "Total",
   ended: "encerrou",
   home: "Início",
   playAgain: "Jogar de novo",
@@ -468,6 +490,18 @@ const pt: Record<Key, string> = {
   lastCard: "Revelar sua última carta encerra a rodada",
   everyoneFlips: "Todos viram 2",
   thisRound: "nesta rodada",
+  game: "Jogo",
+  autoShort: "Auto",
+  lowWins: "Vence quem somar menos",
+  youDrew: "Você comprou",
+  discardHere: "Descarte aqui",
+  doubledLower: "{name} encerrou a rodada, mas {other} somou menos: seu {n} conta em dobro.",
+  doubledTied: "{name} encerrou a rodada, mas {other} somou o mesmo: seu {n} conta em dobro.",
+  endedLowest: "{name} encerrou a rodada com a menor pontuação.",
+  lowestWins: "Vence o menor total",
+  endsAt100: "O jogo termina aos 100",
+  lastOneWins: "Vence o último abaixo de 100",
+  outAt100: "Com 100, você sai",
 };
 
 export const LOCALES = {

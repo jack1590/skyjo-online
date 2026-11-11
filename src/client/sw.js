@@ -9,7 +9,7 @@ const MATCH = { cacheName: CACHE, ignoreVary: true };
 
 /** Last resort when even the shell isn't cached (e.g. offline before the install finished). */
 const OFFLINE_PAGE = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Skyjo Online</title><body style="margin:0;min-height:100dvh;display:grid;place-items:center;padding:24px;box-sizing:border-box;background:#0d1b2a;color:#f5f1e6;font-family:system-ui,sans-serif;text-align:center">
+<title>Skyjo Online</title><body style="margin:0;min-height:100dvh;display:grid;place-items:center;padding:24px;box-sizing:border-box;background:#0a1522;color:#f5f1e6;font-family:system-ui,sans-serif;text-align:center">
 <main><h1>You're offline</h1><p>Skyjo Online needs a connection to load.</p>
 <p lang="es">Skyjo Online necesita conexión para cargar.</p><p lang="pt-BR">O Skyjo Online precisa de conexão para carregar.</p>
 <button onclick="location.reload()" style="min-height:48px;padding:0 24px;border:0;border-radius:12px;background:#f2c14e;font:inherit;font-weight:700">Try again · Reintentar · Tentar de novo</button></main></body>`;

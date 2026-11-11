@@ -47,9 +47,10 @@ test("M23: the button sits by your grid's third row, or in your name bar on a ph
       .getByTestId("my-grid")
       .locator(".card")
       .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().toJSON() as DOMRect));
-    // No card loses size to it (Pixel 7's stay 91 px wide).
+    // No card loses size to it: Pixel 7's stay 86 px wide (91 before M27's captions under the
+    // opponents' names and the line for your clock, which take 21 px of the table's height).
     for (const c of cards)
-      expect(c.width).toBeGreaterThanOrEqual(info.project.name === "pixel" ? 87 : 44);
+      expect(c.width).toBeGreaterThanOrEqual(info.project.name === "pixel" ? 84 : 44);
     for (const c of cards) {
       const apart =
         b.x >= c.right || b.x + b.width <= c.left || b.y >= c.bottom || b.y + b.height <= c.top;
@@ -276,6 +277,7 @@ test("M23: your choice keeps the focus on the button, which rests", async ({ pag
   await expect(page.getByTestId("react-fan")).toHaveCount(0);
 });
 
+// The switch's caption is "Auto" in every language since M27; its label still says it in full.
 for (const [locale, auto] of [
   ["es-MX", "Juego automático"],
   ["pt-BR", "Jogada automática"],
@@ -283,7 +285,7 @@ for (const [locale, auto] of [
   test.describe(`${locale}, a long name`, () => {
     test.use({ locale });
 
-    test(`M23: the name bar holds a long name, "${auto}" and the button without overlap`, async ({
+    test(`M23: the name bar holds a long name, both scores, the "${auto}" switch and the button without overlap`, async ({
       page,
     }, info) => {
       test.skip(info.project.name !== "pixel", "the bar placement: Pixel 7");
@@ -291,7 +293,8 @@ for (const [locale, auto] of [
       const me = turn.seat ?? 0;
       turn.view.players[me].name = "Maximiliano Gómz"; // NAME_MAX, 16
       await show(page, turn);
-      await expect(page.getByTestId("mine-head")).toContainText(auto);
+      await expect(page.getByTestId("mine-head")).toContainText("Auto");
+      await expect(page.getByRole("checkbox", { name: auto })).toBeVisible();
       await expectMobileFriendly(page);
       const rects = await page.evaluate(() => {
         const r = (s: string) =>
