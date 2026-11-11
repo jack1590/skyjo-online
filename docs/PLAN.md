@@ -811,7 +811,8 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 29  | BUG-11                             | A hidden tab, its timers slowed to one a minute, replaced its socket every minute                                       | 2.7.5         | a QA read after the owner's disconnect report; breaks SEC-9's bound                                              |
 | 30  | BUG-12                             | With the host away, a second leader's tap on Next round, Play again or Start game got an error                          | 2.7.6         | a QA read; proven in room.test.ts                                                                                |
 | 31  | BUG-13                             | The lobby's ✕ removed a seat by index, so a seat leaving just before it made it remove someone else                     | 2.7.7         | a QA read; proven in room.test.ts                                                                                |
-| 32  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
+| 32  | BUG-5                              | The shuffle, measured (it was fair) and hardened: ChaCha20, unbiased picks, a 256-bit seed per round (owner report)     | 2.7.8         | the owner still finds the deals weak; fairness and cheating come before the launch                               |
+| 33  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
 
 Deferred: Turnstile (SEC-4) and SEC-12 (until M16). Quick reactions, deferred until now, are M23 (user request, 2026-10-29). Declined: SEC-7. Versions assume this order; a PR that reorders says so.
 
@@ -978,6 +979,7 @@ The limit stays 16 code points, so a stored name is no bigger than before. `cutN
 
 **Delivery (PO, PR #51): UX-11 was flaky on iPhone, and the iPhone job is short of frames.**
 - **UX-11.** `e2e/table.spec.ts`, "UX-11: the summary is a modal…": after Escape, "Show scores" was not focused within 5 s, twice in a row on `main` (run 43117120506, attempts 1 and 2), which skipped v2.7.5's deploy until a third attempt passed. It passes alone (40 of 40 on iPhone at 14 workers; the M27 author saw it fail in about half of full local runs under load). The cause is not proven. The likely one is M26's: headless WebKit draws about 7 frames a second at 4 workers on CI, and the focus moves only after the dialog's `close` event and a render. The check now waits 20 s and reports what has the focus and whether a dialog is still open. If it fails again with the dialog closed and the focus on the page body, the app lost the focus and that is a real bug (a keyboard user stuck after Escape).
+- **BUG-9's test** (`e2e/online.spec.ts`, Pixel) failed once on this PR (`e2e (pixel)`, run 43120274547): it tapped as soon as the second socket was created, and on a slow runner that socket was still connecting, where `useRoom` sends nothing; the test's clock is paused, so nothing retried. It now waits until the new socket has answered. 30 of 30 on Pixel at 10 workers. The app is unchanged.
 - **PLAN item: the iPhone job at 3 workers.** Two tests have now failed for slow frames at 4 workers (this one and M26's edge scroll, fixed in PR #50). `e2e (iphone)` takes 2:43 at 4 workers (PR #55's run), against the rubric's 3:00, and PR #17's probe measured 62 s for the 2-phone tests at 4 workers. Measure the job at 3 workers: if it stays under 3:00, switch; if not, keep 4 and move the heaviest harness cases to desktop, as M23's follow-up does for Pixel.
 
 ### M17 — Play until one is left (knockout) (user request, 2026-10-24) · v2.2.0 · ✅ shipped (PR #24)
@@ -1533,6 +1535,53 @@ Two bugs were found. The first matches the screenshot; the second was found on t
 - `worker.test.ts`, "RoomDO gags (BUG-4)": 3, 4, 6 and 8 phones on one address gagging every 3 s, with and without a dropped phone, close no socket and stay under 0.75 of the budget; 8 at a tap a second stay under it. Both fail without the fix.
 - A socket's gags cost 1 unit per 8, the first paying, landed, too soon or refused, across hibernation; a gag its address can't pay for closes it, and the ones already paid for don't.
 - `holdRooms`: every mode, the two gag modes included, needs at least 14 h for the rows and 18 h for the requests.
+
+### BUG-5 — "The randomness of the cards is still weak" (owner report, 2026-11-11) · v2.7.8
+
+**Report.** Players feel the deals are not random enough.
+
+**Measured (implementer, on `main` 0122f4e).** 200,000 deals from each source, seeded as the server seeds them (`crypto.getRandomValues`):
+- **Old, round 1:** sfc32 through `seedRng` (15 warm-up steps), as `createGame` did.
+- **Old, rounds 2+:** sfc32 started from the raw seed. `room.ts` put each round's fresh seed straight into `GameState.rng`, so the warm-up never ran.
+- **Reference:** Fisher–Yates on `crypto.getRandomValues` with rejection sampling.
+- **New:** this PR.
+
+Each cell is the statistic and, in brackets, z: how many standard deviations it sits from what a perfect shuffle gives. A fair source lands within ±2 in 19 cells out of 20.
+
+| Check                                                               | Old, round 1    | Old, rounds 2+  | Reference       | New             |
+| ------------------------------------------------------------------- | --------------- | --------------- | --------------- | --------------- |
+| Card value × deck position, chi² (df 2086)                          | 2065 (−0.32)    | 2162 (1.18)     | 2182 (1.49)     | 2128 (0.65)     |
+| Card value × seat, 8 seats, chi² (df 98)                            | 108.1 (0.72)    | 109.4 (0.81)    | 107.1 (0.65)    | 111.7 (0.98)    |
+| Sum of a 12-card hand against the exact distribution, chi² (df 101) | 117.3 (1.14)    | 107.2 (0.44)    | 90.9 (−0.71)    | 97.3 (−0.26)    |
+| Equal neighbours in the deck (exact 9.3333 per deck)                | 9.3221 (−1.71)  | 9.3410 (1.17)   | 9.3293 (−0.61)  | 9.3251 (−1.24)  |
+| Columns dealt as 3 equal cards, 8 seats (expected 23,508)           | 23,545 (0.24)   | 23,233 (−1.79)  | 23,702 (1.26)   | 23,387 (−0.79)  |
+| The card that starts the discard pile, chi² (df 14)                 | 14.1 (0.02)     | 10.4 (−0.69)    | 13.6 (−0.07)    | 18.9 (0.92)     |
+| Next round: correlation of a seat's hand sum with this round's      | 0.0010 (0.47)   | −0.0037 (−1.67) | −0.0004 (−0.18) | −0.0017 (−0.77) |
+| Next round: same value at the same position (exact 0.06889)         | 0.06884 (−1.03) | 0.06882 (−1.53) | 0.06885 (−0.75) | 0.06891 (0.50)  |
+| R13: where a card lands in a reshuffle of 100, chi² (df 99)         | 84.4 (−1.04)    | 110.6 (0.83)    | 104.0 (0.36)    | 84.5 (−1.03)    |
+| The 24 orders of 4 cards, chi² (df 23)                              | 14.6 (−1.24)    | 26.8 (0.56)     | 24.0 (0.14)     | 31.7 (1.29)     |
+
+An earlier run of the same script, without the new generator, gave the old round 1 z 1.96 on the first row and the reference z 1.90 on the R13 row. Neither came back in this run: chance.
+
+**Findings.**
+- **No bias, in any check.** The old shuffle can't be told from the reference. The owner's feeling is not a defect in the deal.
+- **`Math.floor(v * n)` was not a real bias either.** The 2³² inputs fall into the `n` choices with at most one input of difference: 3.5 × 10⁻⁸ at worst, for `n` up to 150. It would take about 10¹⁵ draws to see.
+- **Seeds were fine.** 128 bits from `crypto.getRandomValues` for every game and again for every round, in the Worker and in Node (both use `Room`'s default). Nothing repeats, and no state is reused across rounds or rooms.
+- **One unintended path:** rounds 2+ skipped `seedRng`. With a uniformly random state it measures the same (second column), so it changed no deal.
+- **What players do see is chance.** A fair deck of 150 has 9.3 pairs of equal neighbours on average, and at a table of 4 one deal in 17 holds a column of three equal cards.
+- **The one real weakness is predictability, and it is unproven.** sfc32 is not a cryptographic generator. Late in a round with many players, the cards on the table carry more than its 128 bits of state, so in principle the rest of the deck (and an R13 reshuffle) could be worked out from them. Nobody built that attack, here or in public, and a fresh seed per round limited it to the rest of one round. But nothing ruled it out.
+
+**Decision.** Hardening, not a bug fix, and the CHANGELOG says so. No anti-streak rule and no arranged deck: a deck made to look random is no longer fair.
+
+**Built (v2.7.8).**
+- **The generator is ChaCha20** (`chachaBlock` in `src/engine/rng.ts`, pure TS, checked against RFC 8439's section 2.3.2 block and appendix A.1's first vector). `GameState.rng` is `{ key, used }`: the 256-bit key and the number of keystream words taken. It is plain JSON, and the same seed with the same actions still gives the same game.
+- **Unbiased picks.** `shuffle` takes each index by rejection sampling on 32-bit words; `Math.floor(v * n)` and `nextRandom` are gone.
+- **Fresh entropy.** The server draws 256 bits (8 int32s) for every game and every round, and now keys the generator through `seedRng` on both paths. An R13 reshuffle reads on in the round's keystream, which the visible cards don't give away.
+- **Games running during the deploy.** A room saved before 2.7.8 holds four ints as `rng`. `apply` keys the new generator from them at the first move, so the game carries on; its next round takes a fresh seed like any other. Until then that one round keeps the old 128 bits as its key, so the unproven weakness above lasts to its end (the engine can't draw entropy itself). A rollback has no way back: an old build would fail at an R13 reshuffle on a room saved by 2.7.8. Tested in the engine (a move, R13, R15) and in the room (reloaded from storage).
+- **Tests.** The two RFC vectors; the word stream against the block function; rejection (an `n` just over 2³¹ throws away about half the words); 20,000 deals from a fixed seed within 4 sd on value × position; the 24 orders of 4 cards; determinism and the JSON round trip. The 200,000-deal comparison above is a script, not a test: it needs the old generator and an unseeded reference.
+- **Seeded fixtures moved.** A new generator deals other cards for every seed, so the tests that tell a story chose new seeds: the knockout games 1 → 61 and 2 → 53, the round summaries 11, 4 and 3 → 344. `roundOver` in `e2e/harness.ts` now throws when its seed ends the game instead of the round, which two tests would have missed.
+- **The README's images are not regenerated:** the UI is unchanged. The next `npm run shots:readme` will show other cards.
+- **Delivery.** The engine and room unit suites take 20.3 s with the new generator and 20.9 s without, on the same machine: no cost. The harness specs pass on Pixel and iPhone, the screenshot tests included.
 
 ### M16 — Launch in the App Store and Google Play (user decision, 2026-10-24) · last
 

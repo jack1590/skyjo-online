@@ -67,7 +67,9 @@ The `MESSAGES` check awaits a binding, which, unlike storage, lets other events 
 
 The Worker has its own tsconfig (`tsconfig.worker.json`, runtime types from `wrangler types`, gitignored). `npm run typecheck` checks both.
 
-Engine API: `createGame(names, seed, options?)` (`seed` is 4 int32s from `crypto.getRandomValues` in real games; `options.knockout` turns on R16), `apply(state, action)` (throws `RuleError`, never mutates input), `legalActions(state)`, `toView(state)`, and `places(state or view)`, the final ranking.
+Engine API: `createGame(names, seed, options?)` (`seed` is 8 int32s, 256 bits, from `crypto.getRandomValues` in real games; `options.knockout` turns on R16), `apply(state, action)` (throws `RuleError`, never mutates input), `legalActions(state)`, `toView(state)`, and `places(state or view)`, the final ranking.
+
+Shuffles (BUG-5). `GameState.rng` is `{ key, used }`: a 256-bit ChaCha20 key (`chachaBlock` in `rng.ts`, checked against RFC 8439's vectors) and how many keystream words were taken, so a game still replays exactly and nobody can work out the key from the cards on the table. `shuffle` picks each index with `below`, which throws away the words that would bias it. The server keys a new generator from a fresh seed for every game and every round (`seedRng(this.deps.seed())`); an R13 reshuffle reads on in the round's keystream. A game saved before 2.7.8 holds sfc32's four ints as `rng`: `apply` keys the new generator from them. The deck is never arranged to look random. A new generator changes every seeded deal, so the E2E fixtures name their seeds and throw when one no longer plays out as the test needs (`knockoutGame`'s callers, `roundOver` in `e2e/harness.ts`).
 
 ## Commands
 

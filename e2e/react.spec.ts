@@ -87,7 +87,7 @@ test("M23: the button sits by your grid's third row, or in your name bar on a ph
   // Spectators get none, nor does anyone at the summary.
   await show(page, { ...atTurnStart(4), seat: null });
   await expect(page.getByTestId("react-button")).toHaveCount(0);
-  const over = roundOver(2, 11);
+  const over = roundOver(2, 344);
   await show(page, { view: toView(over), seat: 0 });
   await expect(page.getByTestId("round-summary")).toBeVisible();
   await expect(page.getByTestId("react-button")).toHaveCount(0);
@@ -220,7 +220,7 @@ test("M23: each reaction shows on its seat: laugh on the reactor's panel or your
 test("BUG-2: out of a knockout game, your own reaction pops over the corner button, not on your row in the strip", async ({
   page,
 }, info) => {
-  const state = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 1).find(
+  const state = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 61).find(
     (s) => s.phase === "draw" && s.players.some((p) => p.out !== null),
   );
   if (!state) throw new Error("nobody went out");

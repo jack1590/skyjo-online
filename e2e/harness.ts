@@ -24,6 +24,8 @@ export function roundOver(players: number, seed: number): GameState {
     const legal = legalActions(state);
     state = apply(state, legal[state.phase === "place" ? legal.length - 1 : 0]);
   }
+  // A total of 100 ends the game instead (R14), and a test would show the wrong sheet.
+  if (state.phase !== "roundOver") throw new Error(`seed ${seed} ends the game: pick another`);
   return state;
 }
 

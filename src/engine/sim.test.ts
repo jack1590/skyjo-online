@@ -12,11 +12,11 @@ import {
   RuleError,
   type Slot,
 } from "./game";
-import type { Rng } from "./rng";
+import { type Seed, seedRng } from "./rng";
 import { names, type Pick, playRandom, simulate } from "./simkit";
 import { toView } from "./view";
 
-const seed = (n: number): Rng => [n, 0, 0, 0];
+const seed = (n: number): Seed => [n, 0, 0, 0];
 
 const actionKey = (a: Action) =>
   JSON.stringify([
@@ -82,7 +82,7 @@ function withHiddenCardsReversed(s: GameState): GameState {
   const hidden = [...faceDown.map((slot) => slot.card), ...t.deck].reverse();
   for (const slot of faceDown) slot.card = hidden.shift() as Card;
   t.deck = hidden;
-  t.rng = [1, 2, 3, 4];
+  t.rng = seedRng([1, 2, 3, 4]);
   return t;
 }
 

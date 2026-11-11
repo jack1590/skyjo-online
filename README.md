@@ -34,6 +34,7 @@ The images come from the real app (`npm run shots:readme`) and are refreshed whe
 ## How to play
 
 - Everyone gets 12 face-down cards in a 3 × 4 grid and flips any 2. Whoever's 2 cards add up highest starts.
+- The server shuffles all 150 cards for every round with a cryptographic generator and a fresh seed. The cards on the table tell nobody what is still face down or in the deck, and streaks of equal cards are just chance: the deck is never arranged.
 - On your turn, draw from the deck or take the top card of the discard pile.
   - A deck card can replace any card in your grid, or you can throw it away and flip one of your face-down cards instead. To throw it away, tap the discard pile; until you flip a card, **↶ Undo** gives it back.
   - A card from the discard pile must replace a grid card.

@@ -4,6 +4,14 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.7.8] - 2026-11-11
+
+### Changed
+
+- **A stronger shuffle.** Some of you felt the cards weren't random enough, so we measured it: 200,000 deals of the old shuffle against a reference shuffle, card by card, seat by seat, round after round. It was already fair. No card favoured a seat or a spot, hands added up as chance says they should, and one round told nothing about the next. Runs of equal cards are part of a fair deck: on average 9 pairs of equal neighbours in every shuffle, and at a table of 4, one deal in 17 hands someone a column of three equal cards. We did not "fix" those, because a deck arranged to look random would no longer be fair.
+- What did change is how hard the shuffle is to cheat. Every game, every round and every reshuffle of the discard pile now comes from a cryptographic generator (ChaCha20) with a fresh 256-bit seed each round, and each card is picked with an exactly even chance. Nobody can work out the cards still face down or in the deck from the ones on the table.
+- A game in progress during the update carries on where it was.
+
 ## [2.7.7] - 2026-11-11
 
 ### Fixed

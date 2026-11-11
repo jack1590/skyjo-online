@@ -322,7 +322,7 @@ test("BUG-9: a socket replaced while a tap waits for its answer isn't replaced a
   test.skip(info.project.name !== "pixel", "a client rule; one device is enough");
   const [page] = await phones(browser, info, 1);
   // The first socket goes dead without closing, as a phone's does in a tunnel; the next one works.
-  let [dead, sockets, pongs] = [false, 0, 0];
+  let [dead, sockets, pongs, answered] = [false, 0, 0, 0];
   const knockouts: number[] = [];
   await page.routeWebSocket(/\/api\/rooms\/[A-Z0-9]+\/ws$/, (ws) => {
     const n = ++sockets;
@@ -335,6 +335,7 @@ test("BUG-9: a socket replaced while a tap waits for its answer isn't replaced a
     server.onMessage((m) => {
       if (n === 1 && dead) return;
       if (m === "pong") pongs++;
+      answered = n;
       ws.send(m);
     });
   });
@@ -351,7 +352,9 @@ test("BUG-9: a socket replaced while a tap waits for its answer isn't replaced a
   const option = page.getByRole("checkbox", { name: "Play until one is left" });
   await option.click(); // into the dead socket, 2 to 3 s before the check that replaces it
   await page.clock.runFor(3_500);
-  await expect.poll(() => sockets).toBe(2);
+  // Open and answered, not only created: a tap into a socket still connecting goes nowhere, and
+  // with the clock paused nothing retries it (a slow CI runner, PR #51).
+  await expect.poll(() => [sockets, answered]).toEqual([2, 2]);
   // The new socket owes that tap nothing: no "Reconnecting…", and the next tap is sent.
   await expect(page.getByText("Reconnecting…")).toHaveCount(0);
   await option.click();
