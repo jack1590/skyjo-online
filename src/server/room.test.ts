@@ -25,6 +25,7 @@ import {
   RoomError,
   STALE_MS,
   silent,
+  systemDeps,
   TOSS_SHOW_MS,
 } from "./room";
 
@@ -303,6 +304,7 @@ describe("play", () => {
     expect(room.data.game?.round).toBe(2);
     // 149 swaps of the deal, plus the few words rejection sampling threw away.
     expect(room.data.game?.rng.key).toEqual([9, 9, 9, 9, 9, 9, 9, 9]);
+    expect(systemDeps.seed()).toHaveLength(8); // 256 bits: a shorter seed would be zero-padded
     expect(room.data.game?.rng.used).toBeGreaterThanOrEqual(149);
   });
 
