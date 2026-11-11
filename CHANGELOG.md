@@ -9,6 +9,7 @@ Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When
 ### Fixed
 
 - **Out of a knockout game, your own reactions show by your thumb.** Once you were out and watching, your laugh, love or anger popped on your thin "Out · watching" row, up among the other players and far from the button you had just tapped. It now pops right over the reaction button, in the bottom corner. Everyone else still sees it on your row, and a migajero still flies to its player.
+- **A tap on the discard pile the instant your turn appears is no longer lost.** Throwing the drawn card away in the same moment the table drew your turn could do nothing, and needed a second tap.
 
 ## [2.6.0] - 2026-10-29
 
