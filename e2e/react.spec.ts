@@ -220,7 +220,7 @@ test("M23: each reaction shows on its seat: laugh on the reactor's panel or your
 test("BUG-2: out of a knockout game, your own reaction pops over the corner button, not on your row in the strip", async ({
   page,
 }, info) => {
-  const state = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 1).find(
+  const state = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 61).find(
     (s) => s.phase === "draw" && s.players.some((p) => p.out !== null),
   );
   if (!state) throw new Error("nobody went out");
