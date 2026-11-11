@@ -154,7 +154,7 @@ function Lobby({ room, send }: { room: RoomView; send: (msg: ClientMsg) => void 
                     type="button"
                     className="btn icon"
                     aria-label={t("removePlayer", { name: s.name })}
-                    onClick={() => send({ t: "kick", seat: i })}
+                    onClick={() => send({ t: "kick", seat: i, name: s.name })}
                   >
                     ✕
                   </button>

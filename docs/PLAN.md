@@ -802,6 +802,7 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 20  | ✅ M21                             | Throws: bombs, beers, donkeys and more at other players (user request, 2026-10-27)                                      | 2.5.0         | the user asked for it; ahead of M16, which waits on the owner                                                    |
 | 21  | ✅ M22                             | Throws, part 2: stickers, choreography, marks, real sounds (user feedback)                                              | 2.5.1         | the owner found v2.5.0 throws not fun                                                                            |
 | 22  | ✅ M23                             | Reactions: laugh, love, anger and the migajero, from a button beside your grid (user request)                           | 2.6.0         | the user asked for it; reuses M21/M22's in-memory throw path and sticker pipeline                                |
+| —   | BUG-13                             | The lobby's ✕ removed a seat by index, so a seat leaving just before it made it remove someone else                     | 2.6.13        | a QA read; proven in room.test.ts                                                                                |
 | 23  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
 
 Deferred: Turnstile (SEC-4) and SEC-12 (until M16). Quick reactions, deferred until now, are M23 (user request, 2026-10-29). Declined: SEC-7. Versions assume this order; a PR that reorders says so.
@@ -848,6 +849,20 @@ There is a second guard the old rule hid: `autoMove` never flips a seat's last f
 - **The motion test's race → first thing in SEC-9's PR, test only.** `e2e/motion.spec.ts:28` ("an opponent's flip animates") failed 10 of 40 runs on iPhone at 12 local workers and 0 of 20 at 1 worker. It predates BUG-1 and hasn't failed on CI yet, but `failOnFlakyTests` would block a deploy. Ben's reload may not have rendered the dealt table when Ana flips, so his first view already holds the flip and there is nothing to animate; the fixed 400 ms wait is the other half. The fix, which the PO ran 80 of 80 times at 12 workers (both tests in the file): before Ana's tap, wait for Ben's `table` to have `data-phase="flip"`; after it, wait for Ben's `opponent` grid to show one `[data-face="up"]` card instead of waiting 400 ms.
 - **Accepted:** a present player who runs out of time while every other connected seat is on Auto-play goes on Auto-play in the same `tick`, so that very move may turn over their last card and end the round, doubled unless lowest (the PO reproduced it). That is the decision above (at that moment nobody is playing by hand), and the round has to end. Computing `mayEnd` before the due seats switch would spare that one move; revisit if players say so.
 - **M17:** `canStall` only counts seats, so a lone connected spectator keeps nothing running (the PO checked on the injected clock), but no test pins it. M17's out-seat test covers it; see there.
+
+### BUG-13 — The lobby's ✕ removes a seat by index, so it can remove the wrong one (QA read, 2026-11-11) · v2.6.13
+
+**Report.** A QA read on `main` 0122f4e: `kick` carries a seat index (`Online.tsx:157`). If an earlier seat leaves in the same instant, it removes a different offline seat.
+
+**Evidence (`room.test.ts`, on `main`).** 4 seats, P2 and P3 offline. The host's lobby shows P2 at index 2. P1 leaves, then the host's `{ t: "kick", seat: 2 }` arrives: the room removes P3 and keeps P2. It takes a seat above the target leaving (or being removed by another leader) between the view the host tapped on and the tap's arrival, and another offline seat below the target; with no such seat the host gets "That's not allowed right now." instead.
+
+**Root cause.** A seat's index is its place in `RoomData.seats`, which `removeSeat` shifts; the message named a place, not a player.
+
+**Fix (v2.6.13).** The client also sends the seat's name as it saw it (`{ t: "kick", seat, name }`); names are unique in a room. The room removes the seat with that name. A name that is no longer seated is a late tap: `"none"`, not an error. The same rules apply by name: never yourself, never someone online, only whoever may lead, only in the lobby.
+- **Old tabs:** a tab loaded before 2.6.13 sends only `seat`, and the room handles that as before, wrong seat included, until the tab reloads. `seat` stays required on the wire for that reason.
+- No new cost: the same one message, one row.
+
+**Acceptance:** `room.test.ts`, "BUG-13": fails on `main`, passes with the fix: the named seat goes although its index moved; a second kick of the same name returns `"none"`; a kick by name of yourself or an online seat is `not-allowed`; an index-only kick still works; a non-string `name` is dropped by `parseClientMsg`.
 
 ### M17 — Play until one is left (knockout) (user request, 2026-10-24) · v2.2.0 · ✅ shipped (PR #24)
 

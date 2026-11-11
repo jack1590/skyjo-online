@@ -319,14 +319,20 @@ export class Room {
         if (seat === null || !lobby) throw new RoomError("not-allowed");
         this.removeSeat(seat);
         return "data";
-      case "kick":
+      case "kick": {
         // Clears ghost seats (someone who closed the tab without leaving); online players stay.
-        if (!lobby || !this.canLead(seat, live) || msg.seat === seat) {
+        // By name when the client sent one: the index it saw may be another seat's by now (BUG-13).
+        const { name } = msg;
+        const at = name === undefined ? msg.seat : seats.findIndex((s) => s.name === name);
+        // Already gone, by its own leave or another leader's tap: late, not an error.
+        if (at === -1) return "none";
+        if (!lobby || !this.canLead(seat, live) || at === seat) {
           throw new RoomError("not-allowed");
         }
-        if (!seats[msg.seat] || this.connected(msg.seat, live)) throw new RoomError("not-allowed");
-        this.removeSeat(msg.seat);
+        if (!seats[at] || this.connected(at, live)) throw new RoomError("not-allowed");
+        this.removeSeat(at);
         return "data";
+      }
       case "start":
         if (!lobby || seats.length < MIN_PLAYERS || !this.canLead(seat, live)) {
           throw new RoomError("not-allowed");

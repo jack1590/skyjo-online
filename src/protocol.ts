@@ -72,7 +72,11 @@ export type ClientMsg = (
   | { t: "hello"; token: string }
   | { t: "join"; name: string }
   | { t: "leave" }
-  | { t: "kick"; seat: number }
+  /**
+   * `name`: the seat as the sender saw it. Its index shifts when an earlier seat leaves, and names
+   * are unique in a room (BUG-13). Tabs loaded before 2.6.13 send only `seat`.
+   */
+  | { t: "kick"; seat: number; name?: string }
   | { t: "start" }
   | { t: "act"; action: Action }
   | { t: "rematch" }
@@ -178,7 +182,12 @@ function parseBody(msg: Record<string, unknown>): ClientMsg | null {
     case "rematch":
       return { t: msg.t };
     case "kick":
-      return Number.isInteger(msg.seat) ? { t: "kick", seat: msg.seat as number } : null;
+      if (!Number.isInteger(msg.seat)) return null;
+      return {
+        t: "kick",
+        seat: msg.seat as number,
+        ...(typeof msg.name === "string" && { name: msg.name }),
+      };
     case "auto":
     case "knockout":
       return typeof msg.on === "boolean" ? { t: msg.t, on: msg.on } : null;
