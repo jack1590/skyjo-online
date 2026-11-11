@@ -802,6 +802,7 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 20  | ✅ M21                             | Throws: bombs, beers, donkeys and more at other players (user request, 2026-10-27)                                      | 2.5.0         | the user asked for it; ahead of M16, which waits on the owner                                                    |
 | 21  | ✅ M22                             | Throws, part 2: stickers, choreography, marks, real sounds (user feedback)                                              | 2.5.1         | the owner found v2.5.0 throws not fun                                                                            |
 | 22  | ✅ M23                             | Reactions: laugh, love, anger and the migajero, from a button beside your grid (user request)                           | 2.6.0         | the user asked for it; reuses M21/M22's in-memory throw path and sticker pipeline                                |
+| —   | BUG-9                              | A socket replaced while a tap waited was replaced again 5 s later, taps dropped meanwhile                               | 2.6.9         | a QA read after the owner's disconnect report; proven in a browser                                               |
 | 23  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
 
 Deferred: Turnstile (SEC-4) and SEC-12 (until M16). Quick reactions, deferred until now, are M23 (user request, 2026-10-29). Declined: SEC-7. Versions assume this order; a PR that reorders says so.
@@ -848,6 +849,21 @@ There is a second guard the old rule hid: `autoMove` never flips a seat's last f
 - **The motion test's race → first thing in SEC-9's PR, test only.** `e2e/motion.spec.ts:28` ("an opponent's flip animates") failed 10 of 40 runs on iPhone at 12 local workers and 0 of 20 at 1 worker. It predates BUG-1 and hasn't failed on CI yet, but `failOnFlakyTests` would block a deploy. Ben's reload may not have rendered the dealt table when Ana flips, so his first view already holds the flip and there is nothing to animate; the fixed 400 ms wait is the other half. The fix, which the PO ran 80 of 80 times at 12 workers (both tests in the file): before Ana's tap, wait for Ben's `table` to have `data-phase="flip"`; after it, wait for Ben's `opponent` grid to show one `[data-face="up"]` card instead of waiting 400 ms.
 - **Accepted:** a present player who runs out of time while every other connected seat is on Auto-play goes on Auto-play in the same `tick`, so that very move may turn over their last card and end the round, doubled unless lowest (the PO reproduced it). That is the decision above (at that moment nobody is playing by hand), and the round has to end. Computing `mayEnd` before the due seats switch would spare that one move; revisit if players say so.
 - **M17:** `canStall` only counts seats, so a lone connected spectator keeps nothing running (the PO checked on the injected clock), but no test pins it. M17's out-seat test covers it; see there.
+
+### BUG-9 — A reconnect while a tap waits reconnects again 5 s later (QA read, 2026-11-11) · v2.6.9
+
+**Report.** The owner: "devices disconnect randomly or when another player disconnects" (BUG-4 has the per-IP cause). A QA read of `useRoom.ts` on `main` 0122f4e suspected a second cause on the phone itself.
+
+**Evidence (Pixel project, local workerd, the page's clock stepped by hand).** One phone in a lobby. Its socket goes dead without closing (`routeWebSocket` drops every frame). 57 s later the player taps "Play until one is left"; 3 s after that the 20 s check finds the socket silent for over 45 s and opens a second, working one. On `main`:
+- "Reconnecting…" stays up on the working socket;
+- a second tap sends nothing (the new socket carried only its `hello`);
+- 5 s after the first tap, the page closes the working socket and opens a third.
+
+**Root cause.** `send` remembers the one message waiting for its ack (`awaiting`) and reconnects if none comes in `ACK_MS` (5 s). Only a socket's `onclose` cleared it, and `onclose` ignores a socket that `connect()` has already replaced (`useRoom.ts:113`). So a socket replaced by `check()` or `wake()` left `awaiting` set: `send` dropped every tap, `late` showed "Reconnecting…", and the ack timer replaced the new socket (`useRoom.ts:177-181`). It takes a tap in the 5 s before a silent socket is replaced.
+
+**Fix (v2.6.9).** `connect()` ends the wait itself, since the socket it replaces will never answer. The tap that went into the dead socket is lost, as before: its card drops back and the player taps again.
+
+**Acceptance:** `e2e/online.spec.ts`, "BUG-9": fails on `main` at its first check ("Reconnecting…" still shown) and passes with the fix: 2 sockets, the second tap sent on the second one, still 2 sockets 5 s later.
 
 ### M17 — Play until one is left (knockout) (user request, 2026-10-24) · v2.2.0 · ✅ shipped (PR #24)
 

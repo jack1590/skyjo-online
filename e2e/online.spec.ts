@@ -218,6 +218,52 @@ test("UX-5: 'Reconnecting…' shows within 1 s of going offline and clears once 
   await expect(toast).toHaveCount(0);
 });
 
+test("BUG-9: a socket replaced while a tap waits for its answer isn't replaced again 5 s later, and the next tap goes out on it", async ({
+  browser,
+}, info) => {
+  test.skip(info.project.name !== "pixel", "a client rule; one device is enough");
+  const [page] = await phones(browser, info, 1);
+  // The first socket goes dead without closing, as a phone's does in a tunnel; the next one works.
+  let [dead, sockets, pongs] = [false, 0, 0];
+  const knockouts: number[] = [];
+  await page.routeWebSocket(/\/api\/rooms\/[A-Z0-9]+\/ws$/, (ws) => {
+    const n = ++sockets;
+    const server = ws.connectToServer();
+    ws.onMessage((m) => {
+      if (n === 1 && dead) return;
+      if (String(m).includes('"t":"knockout"')) knockouts.push(n);
+      server.send(m);
+    });
+    server.onMessage((m) => {
+      if (n === 1 && dead) return;
+      if (m === "pong") pongs++;
+      ws.send(m);
+    });
+  });
+  await page.clock.install();
+  await join(page, await createRoom(page), "Ana");
+  await page.clock.pauseAt(Date.now() + 2_000);
+  // Up to the page's next 20 s check, so the ones after it are known: +20 s, +40 s, +60 s.
+  await expect(async () => {
+    await page.clock.runFor(1_000);
+    expect(pongs).toBe(1);
+  }).toPass({ intervals: [50] });
+  dead = true;
+  await page.clock.runFor(57_000);
+  const option = page.getByRole("checkbox", { name: "Play until one is left" });
+  await option.click(); // into the dead socket, 2 to 3 s before the check that replaces it
+  await page.clock.runFor(3_500);
+  await expect.poll(() => sockets).toBe(2);
+  // The new socket owes that tap nothing: no "Reconnecting…", and the next tap is sent.
+  await expect(page.getByText("Reconnecting…")).toHaveCount(0);
+  await option.click();
+  await expect(option).toBeChecked();
+  expect(knockouts).toEqual([2]);
+  await page.clock.runFor(5_000); // past the first tap's 5 s
+  await expect(option).toBeEnabled();
+  expect(sockets, "the working socket stays").toBe(2);
+});
+
 test("screenshots: M10 Reconnecting…", async ({ browser }, info) => {
   test.skip(!process.env.SHOTS || info.project.name !== "iphone", "run with SHOTS=1");
   const { pages } = await seatedRoom(browser, info, ["Ana", "Ben"]);
