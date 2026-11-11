@@ -166,6 +166,81 @@ describe("lobby", () => {
     expect(t.room.data.seats.map((s) => s.name)).toEqual(["P0", "P2"]);
   });
 
+  it("M26: whoever may lead moves a player to another seat in the lobby; the host stays the same person; turn order follows (R5)", () => {
+    const t = setup();
+    const [a, b, c] = t.seated(4);
+    const watcher = t.connect("token-watcher-abc");
+    const names = () => t.room.data.seats.map((s) => s.name).join(" ");
+    const top: ClientMsg = { t: "move", name: "P3", to: 0 };
+    for (const who of [b, watcher]) expect(t.errorOf(() => t.send(who, top))).toBe("not-allowed");
+    // To the top, past the host: the host is still P0, one seat down.
+    expect(t.send(a, top)).toBe("data");
+    expect(names()).toBe("P3 P0 P1 P2");
+    expect(t.room.view(a, t.live)).toMatchObject({ you: 1, host: 1, lead: true });
+    expect(t.room.view(c, t.live)).toMatchObject({ you: 3, host: 1, lead: false });
+    // No such seat or player; where they already sit, nothing to save.
+    for (const [name, to] of [
+      ["P0", -1],
+      ["P0", 4],
+      ["Nobody", 0],
+    ] as const) {
+      expect(t.errorOf(() => t.send(a, { t: "move", name, to }))).toBe("not-allowed");
+    }
+    expect(t.send(a, { t: "move", name: "P0", to: 1 })).toBe("none");
+    // The host's own seat moves, down and back up.
+    t.send(a, { t: "move", name: "P0", to: 3 });
+    expect(names()).toBe("P3 P1 P2 P0");
+    expect(t.room.view(a, t.live)).toMatchObject({ you: 3, host: 3, lead: true });
+    t.send(a, { t: "move", name: "P0", to: 2 });
+    expect(names()).toBe("P3 P1 P0 P2");
+    expect(t.room.data.host).toBe(2);
+    // A seat from below the host to above it.
+    t.send(a, { t: "move", name: "P2", to: 1 });
+    expect(names()).toBe("P3 P2 P1 P0");
+    expect(t.room.data.host).toBe(3);
+    // A token still finds its person after a reconnect.
+    t.drop(b);
+    expect(t.room.view(t.connect("token-1-abcdef"), t.live).you).toBe(2);
+    // With the host away, a stand-in leader may, as it may start.
+    t.drop(a);
+    expect(t.send(c, { t: "move", name: "P2", to: 0 })).toBe("data");
+    expect(names()).toBe("P2 P3 P1 P0");
+    expect(t.room.data.host).toBe(3);
+
+    t.send(c, { t: "start" });
+    expect(t.room.data.game?.players.map((p) => p.name).join(" ")).toBe(names());
+    expect(t.errorOf(() => t.send(c, top))).toBe("not-allowed"); // mid-game
+  });
+
+  it("M26: after Play again the lobby keeps the last order and can be rearranged again", () => {
+    const t = setup();
+    const conns = t.seated(2);
+    t.send(conns[0], { t: "move", name: "P1", to: 0 });
+    t.send(conns[0], { t: "start" });
+    t.room.data.game = { ...(t.room.data.game as GameState), phase: "gameOver" };
+    t.send(conns[0], { t: "rematch" });
+    expect(t.room.data.seats.map((s) => s.name)).toEqual(["P1", "P0"]);
+    expect(t.send(conns[0], { t: "move", name: "P0", to: 0 })).toBe("data");
+    expect(t.room.view(conns[0], t.live)).toMatchObject({ you: 0, host: 0 });
+  });
+
+  it("M26: parseClientMsg takes a move of a named player to a seat, and nothing else", () => {
+    expect(parseClientMsg('{"t":"move","name":"Ana","to":2,"seat":1}')).toEqual({
+      t: "move",
+      name: "Ana",
+      to: 2,
+    });
+    for (const raw of [
+      '{"t":"move","name":"Ana"}',
+      '{"t":"move","name":1,"to":1}',
+      '{"t":"move","seat":1,"to":1}',
+      '{"t":"move","name":"Ana","to":1.5}',
+      '{"t":"move","name":"Ana","to":"1"}',
+    ]) {
+      expect(parseClientMsg(raw)).toBeNull();
+    }
+  });
+
   it("messages before hello are rejected", () => {
     const t = setup();
     expect(t.errorOf(() => t.send(newConn(0, null), { t: "join", name: "X" }))).toBe("bad-message");

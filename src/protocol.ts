@@ -73,6 +73,11 @@ export type ClientMsg = (
   | { t: "join"; name: string }
   | { t: "leave" }
   | { t: "kick"; seat: number }
+  /**
+   * In the lobby, whoever may lead moves a player to seat `to`: seat order is turn order (M26).
+   * By name, unique in a room: an index is someone else once a seat above it leaves.
+   */
+  | { t: "move"; name: string; to: number }
   | { t: "start" }
   | { t: "act"; action: Action }
   | { t: "rematch" }
@@ -179,6 +184,10 @@ function parseBody(msg: Record<string, unknown>): ClientMsg | null {
       return { t: msg.t };
     case "kick":
       return Number.isInteger(msg.seat) ? { t: "kick", seat: msg.seat as number } : null;
+    case "move":
+      return typeof msg.name === "string" && Number.isInteger(msg.to)
+        ? { t: "move", name: msg.name, to: msg.to as number }
+        : null;
     case "auto":
     case "knockout":
       return typeof msg.on === "boolean" ? { t: msg.t, on: msg.on } : null;
