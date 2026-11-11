@@ -51,14 +51,14 @@ test("README stills", async ({ browser, page }, info) => {
   await expect(page.getByTestId("zoom")).toBeVisible();
   await shot(page, "zoom");
   // Ranked from the lowest total, your row tagged, and the ender doubled (UX-14).
-  await show(page, { view: toView(roundOver(4, 4)), seat: 2, lead: true });
+  await show(page, { view: toView(roundOver(4, 344)), seat: 2, lead: true });
   await shot(page, "summary");
 
-  // Play until one is left (R16), seed 1: Dani goes out after round 1; Cris is the one left.
-  const knockout = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 1);
+  // Play until one is left (R16), seed 61: Dani goes out after round 1; Cris is the one left.
+  const knockout = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 61);
   const firstOut = knockout.find((s) => s.phase === "roundOver");
   const round2 = knockout.find((s) => s.round === 2 && s.phase === "draw");
-  if (!firstOut || !round2) throw new Error("seed 1 no longer plays out this way");
+  if (!firstOut || !round2) throw new Error("seed 61 no longer plays out this way");
   await show(page, { view: toView(firstOut), seat: 0, lead: true });
   await shot(page, "knockout-summary");
   await show(page, { view: toView(round2), seat: 3 });

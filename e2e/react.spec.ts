@@ -87,7 +87,7 @@ test("M23: the button sits by your grid's third row, or in your name bar on a ph
   // Spectators get none, nor does anyone at the summary.
   await show(page, { ...atTurnStart(4), seat: null });
   await expect(page.getByTestId("react-button")).toHaveCount(0);
-  const over = roundOver(2, 11);
+  const over = roundOver(2, 344);
   await show(page, { view: toView(over), seat: 0 });
   await expect(page.getByTestId("round-summary")).toBeVisible();
   await expect(page.getByTestId("react-button")).toHaveCount(0);

@@ -9,7 +9,7 @@ import {
   MIN_PLAYERS,
   RuleError,
 } from "../engine/game";
-import type { Rng } from "../engine/rng";
+import { type Seed, seedRng } from "../engine/rng";
 import { toView } from "../engine/view";
 import {
   type ClientMsg,
@@ -82,7 +82,7 @@ export interface Conn {
 export interface Deps {
   now: () => number;
   /** Fresh CSPRNG entropy for each deal. */
-  seed: () => Rng;
+  seed: () => Seed;
 }
 
 /**
@@ -150,7 +150,7 @@ export const dead = (conn: Conn, now: number) => now - conn.seenAt >= 2 * STALE_
 /** Real clock and CSPRNG; both runtimes (Workers, Node 22) have a global `crypto`. */
 export const systemDeps: Deps = {
   now: () => Date.now(),
-  seed: () => Array.from(crypto.getRandomValues(new Int32Array(4))) as Rng,
+  seed: () => Array.from(crypto.getRandomValues(new Int32Array(8))),
 };
 
 /** 32-letter alphabet, so `byte % 32` is unbiased. */
@@ -370,7 +370,7 @@ export class Room {
         if (msg.action.type === "nextRound") {
           if (!this.canLead(seat, live)) throw new RoomError("not-allowed");
           // Fresh entropy per round, so reconstructing one round's RNG can't predict the next deal.
-          this.play({ ...game, rng: this.deps.seed() }, msg.action);
+          this.play({ ...game, rng: seedRng(this.deps.seed()) }, msg.action);
         } else {
           this.play(game, { ...msg.action, seat });
         }

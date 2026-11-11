@@ -10,7 +10,7 @@ import {
   legalActions,
   newDeck,
 } from "./game";
-import { nextRandom, type Rng } from "./rng";
+import { randomBelow, seedRng } from "./rng";
 
 export const names = (n: number) => Array.from({ length: n }, (_, i) => `P${i}`);
 
@@ -38,11 +38,11 @@ export function playRandom(
   onStep?: (s: GameState, pick: Pick) => void,
   knockout = false,
 ) {
-  let rng: Rng = [seed, 7, 7, 7];
+  let rng = seedRng([seed, 7, 7, 7]);
   const pick: Pick = (n) => {
     let v: number;
-    [v, rng] = nextRandom(rng);
-    return Math.floor(v * n);
+    [v, rng] = randomBelow(n, rng);
+    return v;
   };
   let s = createGame(names(players), [seed, 0, 0, 0], { knockout });
   const actions: Action[] = [];

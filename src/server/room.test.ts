@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { type Action, apply, createGame, type GameState, legalActions } from "../engine/game";
-import { nextRandom, type Rng } from "../engine/rng";
+import { randomBelow, type Seed, seedRng } from "../engine/rng";
 import { type ClientMsg, parseClientMsg, TOSS_MS, TURN_MS } from "../protocol";
 import {
   AUTO_FIRST_MS,
@@ -31,7 +31,7 @@ import {
 function setup() {
   let now = 1_000_000;
   let seeds = 0;
-  const deps = { now: () => now, seed: (): Rng => [++seeds, 7, 7, 7] };
+  const deps = { now: () => now, seed: (): Seed => [++seeds, 7, 7, 7] };
   const room = new Room(newRoom("ABCDE", now), deps);
   const live: Conn[] = [];
   const send = (c: Conn, msg: ClientMsg) => room.receive(c, msg, live);
@@ -282,6 +282,30 @@ describe("play", () => {
     });
   }
 
+  it("BUG-5: a game saved before 2.6.4 plays on after the deploy, and every round is dealt from a fresh seed", () => {
+    const t = setup();
+    const conns = startedGame(t, 2);
+    (t.room.data.game as unknown as { rng: number[] }).rng = [1, 2, 3, 4];
+    const room = new Room(JSON.parse(JSON.stringify(t.room.data)), {
+      now: t.now,
+      seed: (): Seed => [9, 9, 9, 9, 9, 9, 9, 9],
+    });
+    const step = () => {
+      const game = room.data.game as GameState;
+      const legal = legalActions(game);
+      const action = legal[game.phase === "place" ? legal.length - 1 : 0] as Action;
+      room.receive(conns["seat" in action ? action.seat : 0] as Conn, { t: "act", action }, t.live);
+    };
+    step();
+    expect(room.data.game?.rng).toEqual({ key: [1, 2, 3, 4, 0, 0, 0, 0], used: 0 });
+    (room.data.game as GameState).phase = "roundOver";
+    room.receive(conns[0] as Conn, nextRound, t.live);
+    expect(room.data.game?.round).toBe(2);
+    // 149 swaps of the deal, plus the few words rejection sampling threw away.
+    expect(room.data.game?.rng.key).toEqual([9, 9, 9, 9, 9, 9, 9, 9]);
+    expect(room.data.game?.rng.used).toBeGreaterThanOrEqual(149);
+  });
+
   it("the host advances rounds; anyone may once the host is away", () => {
     const t = setup();
     const conns = startedGame(t, 2);
@@ -371,7 +395,7 @@ describe("knockout (M17, R16)", () => {
     const t = setup();
     const conns = t.seated(2);
     t.send(conns[0], { t: "knockout", on: true });
-    const deps = { now: t.now, seed: (): Rng => [1, 2, 3, 4] };
+    const deps = { now: t.now, seed: (): Seed => [1, 2, 3, 4] };
     const reload = () => new Room(JSON.parse(JSON.stringify(t.room.data)), deps);
     expect(reload().view(conns[1], t.live).knockout).toBe(true);
     t.send(conns[0], { t: "start" });
@@ -398,7 +422,7 @@ describe("knockout (M17, R16)", () => {
     const t = setup();
     const conns = t.seated(2);
     t.send(conns[0], { t: "start" });
-    const deps = { now: t.now, seed: (): Rng => [1, 2, 3, 4] };
+    const deps = { now: t.now, seed: (): Seed => [1, 2, 3, 4] };
     const saved = () => {
       const old = JSON.parse(JSON.stringify(t.room.data));
       delete old.game.turn;
@@ -914,7 +938,7 @@ describe("autoMove (M8)", () => {
         Array.from({ length: players }, (_, i) => `P${i}`),
         [seed, 0, 0, 0],
       );
-      let rng: Rng = [seed, 7, 7, 7];
+      let rng = seedRng([seed, 7, 7, 7]);
       for (let moves = 0; g.phase !== "gameOver"; moves++) {
         if (moves > 20_000) throw new Error(`seed ${seed} did not finish`);
         const legal = legalActions(g);
@@ -923,8 +947,8 @@ describe("autoMove (M8)", () => {
             ? legal.some((a) => "seat" in a && a.seat === bot)
             : g.phase !== "roundOver" && g.current === bot;
         let pick: number;
-        [pick, rng] = nextRandom(rng);
-        g = apply(g, botsTurn ? autoMove(g, bot) : legal[Math.floor(pick * legal.length)]);
+        [pick, rng] = randomBelow(legal.length, rng);
+        g = apply(g, botsTurn ? autoMove(g, bot) : legal[pick]);
       }
     }
   });

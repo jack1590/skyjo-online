@@ -1,4 +1,4 @@
-import { type Rng, seedRng, shuffle } from "./rng";
+import { type Rng, type Seed, seedRng, shuffle } from "./rng";
 
 export type Card = number;
 export interface Slot {
@@ -71,7 +71,7 @@ export function newDeck(): Card[] {
 }
 
 /** `seed` must come from a CSPRNG (e.g. crypto.getRandomValues) in real games. */
-export function createGame(names: string[], seed: Rng, options: GameOptions = {}): GameState {
+export function createGame(names: string[], seed: Seed, options: GameOptions = {}): GameState {
   if (names.length < MIN_PLAYERS || names.length > MAX_PLAYERS) {
     throw new RuleError(`A game needs ${MIN_PLAYERS}–${MAX_PLAYERS} players`);
   }
@@ -117,6 +117,8 @@ function deal(s: GameState): void {
 /** Returns the next state; throws RuleError on an illegal action. Never mutates `state`. */
 export function apply(state: GameState, action: Action): GameState {
   const s = structuredClone(state);
+  // A game saved before 2.6.4 holds the old generator's four ints: key the new one from them.
+  if (Array.isArray(s.rng)) s.rng = seedRng(s.rng);
   switch (action.type) {
     case "flip":
       flipInitial(s, action.seat, action.pos);
