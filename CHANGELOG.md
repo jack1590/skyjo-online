@@ -8,7 +8,9 @@ Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When
 
 ### Changed
 
-- **The Angry reaction has a new sound:** a scream of rage through gritted teeth, like the face on the sticker, in place of the low growl. It starts as the face slams down.
+- **Love and Angry have new sounds,** both chosen by ear this time:
+  - **Love:** a drawn-out "aww, yeah" in place of the sigh. It starts as the face pops in, and the "yeah" lands on its second heartbeat.
+  - **Angry:** a scream of rage through gritted teeth, like the face on the sticker, in place of the low growl. It starts as the face slams down.
 
 ## [2.6.0] - 2026-10-29
 
