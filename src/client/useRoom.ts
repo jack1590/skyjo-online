@@ -52,7 +52,7 @@ export function useRoom(code: string) {
   /** The same, as state (a tapped card stays lifted until its ack, UX-3), and whether it's late. */
   const [waiting, setWaiting] = useState<number | null>(null);
   const [late, setLate] = useState(false);
-  /** The wait is over: answered, or the socket that would answer is gone. */
+  /** The wait is over: answered, or the socket that would answer is gone (closed or replaced). */
   const answered = useCallback(() => {
     awaiting.current = null;
     setWaiting(null);
@@ -79,6 +79,8 @@ export function useRoom(code: string) {
 
     const connect = () => {
       clearTimeout(retry);
+      // The socket replaced here never answers, and its close is ignored below (BUG-9).
+      answered();
       socket.current?.close();
       const ws = new WebSocket(url);
       socket.current = ws;

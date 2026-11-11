@@ -4,11 +4,70 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
-## [2.6.10] - 2026-11-11
+## [2.7.4] - 2026-11-11
 
 ### Fixed
 
 - **Back from a locked screen, the table catches up within 5 seconds.** If your phone's connection died while the screen was locked for under a minute, the game could keep showing the table as you left it for up to another minute, or until you tapped something. Now the phone checks its connection the moment you come back and replaces a dead one within 5 seconds. Reload the game once on every phone to get the fix.
+
+## [2.7.3] - 2026-11-11
+
+### Fixed
+
+- **A dropped connection no longer drops twice.** When your phone lost its connection just after you tapped, it reconnected, and then 5 seconds later it threw that good connection away and reconnected again. In between, "Reconnecting…" stayed up and your taps did nothing. Now it reconnects once, and your next tap plays. Reload the game once on every phone to get the fix.
+
+## [2.7.2] - 2026-11-11
+
+### Fixed
+
+- **Friends on the same Wi-Fi no longer get disconnected for throwing and reacting a lot.** Phones on one Wi-Fi share one allowance of messages a minute, and every throw and reaction used up as much of it as a move. With 6 or more of you on one Wi-Fi all throwing at once, it ran out in about half a minute, and every phone on that Wi-Fi dropped to "Reconnecting…" together for up to a minute. It ran out sooner when someone had left and Auto-play was playing for them. Throws and reactions now use an eighth of what they did, so a full table of 8 on one Wi-Fi can throw as often as the game allows, still one every 3 seconds each.
+
+## [2.7.1] - 2026-11-11
+
+### Fixed
+
+- **Your own points keep counting.** On a phone whose browser translates pages (Chrome offers it when your language isn't the page's), your points and your round score so far could stop changing while your cards and everyone else's numbers went on: for example "0" with a 0, a −1 and a 10 face up. The game now tells browsers not to translate it; it has its own English, Spanish and Portuguese. If you still see a wrong number, turn off Translate in the browser's menu and tell us.
+- **A long name no longer covers another player's points.** On the row of opponents, a name too long for its panel ran over that player's total, so their points couldn't be read. It happened more as a game went on: once the total had three digits, and while the 🤖 of Auto-play or the last seconds of their clock took room beside the name. At tables of five or more, a name of seven letters was enough. The name now ends in "…", and the total, the seconds and the round score so far always show.
+
+## [2.7.0] - 2026-11-11
+
+### Added
+
+- **Seat order.** In the lobby, the host drags a player up or down by the ≡ handle beside their name, to arrange who plays after whom: for example, so couples don't play right after each other. The other players slide aside as you drag, and everyone sees the new order when you let go. Turns go down the list and back to the top, and the order stays for the next game, where it can be changed again. With a keyboard, the arrow keys on a handle do the same.
+
+## [2.6.5] - 2026-11-11
+
+### Fixed
+
+- **Emoji names stay in one piece.** A name with a family 👨‍👩‍👧‍👦, a rainbow flag 🏳️‍🌈, a skin-toned couple or the flag of England, Scotland or Wales showed up at the table broken into its parts (👨👩👧👦, 🏳️, a black flag). Those emoji now arrive whole.
+- The name box no longer stops halfway through such an emoji: a name is still 16 characters at most, and one that is too long is cut between emoji, never inside one.
+
+## [2.6.4] - 2026-11-11
+
+### Fixed
+
+- **The host stays the host after Play again.** When the host finished a game on Auto-play (switched on, or after running out of time) and someone tapped Play again, every phone showed "Start game" and nobody saw "Waiting for host": anyone could start or change the knockout option, and the host had no way to take the lobby back. Play again now switches everyone's Auto-play off, so the host leads the lobby as before. If the host's phone is off or the page is closed, the others can still start.
+
+## [2.6.3] - 2026-11-11
+
+### Fixed
+
+- **No more throws that nobody sees.** From a round summary or the final scores, View table let you tap an opponent and throw something: your items went to rest for 3 seconds, but nothing flew on any phone. Throws, like reactions, are for a round being played, so at a summary an opponent's cards now open without the row of things to throw.
+
+## [2.6.2] - 2026-11-11
+
+### Fixed
+
+- **Out of a knockout game, your own reactions show by your thumb.** Once you were out and watching, your laugh, love or anger popped on your thin "Out · watching" row, up among the other players and far from the button you had just tapped. It now pops right over the reaction button, in the bottom corner. Everyone else still sees it on your row, and a migajero still flies to its player.
+- **A tap on the discard pile the instant your turn appears is no longer lost.** Throwing the drawn card away in the same moment the table drew your turn could do nothing, and needed a second tap.
+
+## [2.6.1] - 2026-11-11
+
+### Changed
+
+- **Love and Angry have new sounds,** both chosen by ear this time:
+  - **Love:** a drawn-out "aww, yeah" in place of the sigh. It starts as the face pops in, and the "yeah" lands on its second heartbeat.
+  - **Angry:** a scream of rage through gritted teeth, like the face on the sticker, in place of the low growl. It starts as the face slams down.
 
 ## [2.6.0] - 2026-10-29
 

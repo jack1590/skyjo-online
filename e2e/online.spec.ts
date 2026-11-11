@@ -77,6 +77,17 @@ test("a phone that joins mid-game watches without a grid", async ({ browser }, i
   expect(tooSmall).toBe(0);
 });
 
+test("BUG-8: a name of joined emoji is seated whole, and the input cuts a longer one between emoji", async ({
+  page,
+}) => {
+  const family = "👨\u200D👩\u200D👧\u200D👦";
+  const code = await createRoom(page);
+  const input = page.getByRole("textbox", { name: "Your name" });
+  await input.fill(family.repeat(3));
+  await expect(input).toHaveValue(family.repeat(2));
+  await join(page, code, `😀${family}🏳\uFE0F\u200D🌈`);
+});
+
 test("everyone sees who is offline and when the server will move for them", async ({
   browser,
 }, info) => {
@@ -263,6 +274,52 @@ test("UX-5: 'Reconnecting…' shows within 1 s of going offline and clears once 
   hold = false;
   for (const send of held.splice(0)) send();
   await expect(toast).toHaveCount(0);
+});
+
+test("BUG-9: a socket replaced while a tap waits for its answer isn't replaced again 5 s later, and the next tap goes out on it", async ({
+  browser,
+}, info) => {
+  test.skip(info.project.name !== "pixel", "a client rule; one device is enough");
+  const [page] = await phones(browser, info, 1);
+  // The first socket goes dead without closing, as a phone's does in a tunnel; the next one works.
+  let [dead, sockets, pongs] = [false, 0, 0];
+  const knockouts: number[] = [];
+  await page.routeWebSocket(/\/api\/rooms\/[A-Z0-9]+\/ws$/, (ws) => {
+    const n = ++sockets;
+    const server = ws.connectToServer();
+    ws.onMessage((m) => {
+      if (n === 1 && dead) return;
+      if (String(m).includes('"t":"knockout"')) knockouts.push(n);
+      server.send(m);
+    });
+    server.onMessage((m) => {
+      if (n === 1 && dead) return;
+      if (m === "pong") pongs++;
+      ws.send(m);
+    });
+  });
+  await page.clock.install();
+  await join(page, await createRoom(page), "Ana");
+  await page.clock.pauseAt(Date.now() + 2_000);
+  // Up to the page's next 20 s check, so the ones after it are known: +20 s, +40 s, +60 s.
+  await expect(async () => {
+    await page.clock.runFor(1_000);
+    expect(pongs).toBe(1);
+  }).toPass({ intervals: [50] });
+  dead = true;
+  await page.clock.runFor(57_000);
+  const option = page.getByRole("checkbox", { name: "Play until one is left" });
+  await option.click(); // into the dead socket, 2 to 3 s before the check that replaces it
+  await page.clock.runFor(3_500);
+  await expect.poll(() => sockets).toBe(2);
+  // The new socket owes that tap nothing: no "Reconnecting…", and the next tap is sent.
+  await expect(page.getByText("Reconnecting…")).toHaveCount(0);
+  await option.click();
+  await expect(option).toBeChecked();
+  expect(knockouts).toEqual([2]);
+  await page.clock.runFor(5_000); // past the first tap's 5 s
+  await expect(option).toBeEnabled();
+  expect(sockets, "the working socket stays").toBe(2);
 });
 
 test("screenshots: M10 Reconnecting…", async ({ browser }, info) => {
@@ -796,6 +853,145 @@ test("the host can remove a player who left without leaving", async ({ browser }
   await remove.click();
   await expect(pages[0].getByTestId("seats")).not.toContainText("Ben");
   await expect(pages[2].getByTestId("seats")).not.toContainText("Ben");
+});
+
+/**
+ * Drags `name`'s seat row by its handle (M26) until the pointer is at `y` of the screen, holds it
+ * there, and returns the drop. With a finger on Chromium (`touch`, through CDP: Playwright has no
+ * touch drag), else with the mouse: the page listens to pointer events, which both send.
+ */
+async function dragSeat(page: Page, name: string, y: number, touch = false) {
+  const handle = page.getByRole("button", { name: `Drag to reorder ${name}` });
+  await handle.scrollIntoViewIfNeeded();
+  const box = await handle.boundingBox();
+  if (!box) throw new Error(`no handle for ${name}`);
+  const x = box.x + box.width / 2;
+  const from = box.y + box.height / 2;
+  if (!touch) {
+    await page.mouse.move(x, from);
+    await page.mouse.down();
+    await page.mouse.move(x, y, { steps: 8 });
+    return () => page.mouse.up();
+  }
+  const cdp = await page.context().newCDPSession(page);
+  const finger = (type: string, at?: number) =>
+    cdp.send("Input.dispatchTouchEvent", {
+      type: type as "touchStart",
+      touchPoints: at === undefined ? [] : [{ x, y: at }],
+    });
+  await finger("touchStart", from);
+  for (let step = 1; step <= 8; step++) await finger("touchMove", from + ((y - from) * step) / 8);
+  return () => finger("touchEnd");
+}
+
+test("M26: the host drags the last player to the top, and moves one with the arrow keys; every phone shows the new order, only the host gets the handles, and turns follow it", async ({
+  browser,
+}, info) => {
+  const { pages } = await seatedRoom(browser, info, ["Ana", "Ben", "Cris"]);
+  const [ana, ben, cris] = pages;
+  const handles = (page: Page) => page.getByRole("button", { name: /^Drag to reorder / });
+  const rows = (page: Page) => page.getByTestId("seats").locator("li");
+  await expect(handles(ana)).toHaveCount(3);
+  for (const guest of [ben, cris]) await expect(handles(guest)).toHaveCount(0);
+
+  // Held over the first row, Cris's row follows the pointer and the two it passed step down.
+  const top = await rows(ana).first().boundingBox();
+  const drop = await dragSeat(ana, "Cris", (top?.y ?? 0) + 4, info.project.name === "pixel");
+  await expect(rows(ana).nth(2)).toHaveClass(/dragging/);
+  const height = top?.height ?? 0;
+  for (const passed of [0, 1]) {
+    await expect(rows(ana).nth(passed)).toHaveCSS("transform", `matrix(1, 0, 0, 1, 0, ${height})`);
+  }
+  if (process.env.SHOTS && info.project.name === "iphone") {
+    const path = "docs/screenshots/m26/01-host-dragging.jpg";
+    await ana.screenshot({ path, type: "jpeg", quality: 80, scale: "css", fullPage: true });
+  }
+  await drop();
+  for (const page of pages) {
+    await expect(rows(page)).toHaveText([/^Cris/, /^Ana/, /^Ben/]);
+    await expect(rows(page).nth(1)).toContainText("host"); // still Ana
+  }
+  await expect(rows(cris).first()).toContainText("you");
+  await expect(rows(ana).first()).toHaveCSS("transform", "none");
+
+  // Without dragging: Arrow Down on a focused handle, which keeps the focus for the next press.
+  const own = ana.getByRole("button", { name: "Drag to reorder Ana" });
+  await own.press("ArrowDown");
+  for (const page of pages) await expect(rows(page)).toHaveText([/^Cris/, /^Ben/, /^Ana/]);
+  await expect(own).toBeFocused();
+  if (process.env.SHOTS && info.project.name === "iphone") {
+    for (const [page, name] of [
+      [ana, "02-host-reordered"],
+      [cris, "03-guest-reordered"],
+    ] as const) {
+      const path = `docs/screenshots/m26/${name}.jpg`;
+      await page.screenshot({ path, type: "jpeg", quality: 80, scale: "css", fullPage: true });
+    }
+  }
+
+  // Seats are turn order (R5): after whoever starts, the lobby's next row plays.
+  const order = [cris, ben, ana];
+  await startGame(ana);
+  await pastFlips(order);
+  const table = ana.getByTestId("table");
+  const first = Number(await table.getAttribute("data-current"));
+  expect(await botStep(order[first])).toBe(true); // draws
+  expect(await botStep(order[first])).toBe(true); // places
+  const next = (first + 1) % 3;
+  await expect(table).toHaveAttribute("data-current", String(next));
+  await expect(order[next].getByTestId("table")).toHaveAttribute("data-myturn", "true");
+});
+
+test("M26: 8 seats with the longest names and the host's handles fit at 360 px, in en, es and pt, online and offline; a row dragged to the screen's edge scrolls the lobby", async ({
+  browser,
+}, info) => {
+  const [host] = await phones(browser, info, 1);
+  await host.setViewportSize({ width: 360, height: 640 });
+  const code = await createRoom(host);
+  await join(host, code, "Wwwwwwwwwwwwwww0");
+  // The other 7 seats, as sockets of this page: connected until it reloads.
+  await host.evaluate((code) => {
+    for (let i = 1; i < 8; i++) {
+      const ws = new WebSocket(`${location.origin.replace("http", "ws")}/api/rooms/${code}/ws`);
+      ws.onopen = () => {
+        ws.send(JSON.stringify({ t: "hello", token: `ghost-seat-${i}` }));
+        ws.send(JSON.stringify({ t: "join", name: `Wwwwwwwwwwwwwww${i}` }));
+      };
+    }
+  }, code);
+  const rows = host.getByTestId("seats").locator("li");
+  await expect(rows).toHaveCount(8);
+  await expect(host.getByRole("button", { name: /^Drag to reorder / })).toHaveCount(8);
+  await expectMobileFriendly(host);
+  const shot = async (name: string) => {
+    if (!process.env.SHOTS || info.project.name !== "iphone") return;
+    const path = `docs/screenshots/m26/${name}.jpg`;
+    await host.screenshot({ path, type: "jpeg", quality: 80, scale: "css", fullPage: true });
+  };
+  await shot("04-eight-seats-360");
+
+  // The last row's handle is below the first row's screen: held at the top edge, the page scrolls
+  // up under it until the row is over the first seat.
+  const last = (await rows.last().textContent())?.slice(0, 16) ?? "";
+  const drop = await dragSeat(host, last, 10, info.project.name === "pixel");
+  expect(await host.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+  await expect.poll(() => host.evaluate(() => window.scrollY)).toBe(0);
+  await drop();
+  await expect(rows.first()).toContainText(last);
+
+  // After a reload the 7 are offline: each row also gets its tag and the ✕, the widest it gets.
+  for (const [locale, remove] of [
+    ["es", "Quitar a"],
+    ["pt", "Remover"],
+  ]) {
+    await host.evaluate((l) => localStorage.setItem("skyjo:locale", l), locale);
+    await host.reload();
+    await expect(host.getByRole("button", { name: new RegExp(`^${remove} `) })).toHaveCount(7, {
+      timeout: 10_000,
+    });
+    await expectMobileFriendly(host);
+    await shot(`05-eight-seats-offline-${locale}`);
+  }
 });
 
 test("joining from the home screen with a code", async ({ browser }, info) => {
