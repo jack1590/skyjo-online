@@ -10,8 +10,10 @@ import {
   allowMessage,
   autoMove,
   type Conn,
+  costs,
   dead,
   EMPTY_IDLE_MS,
+  GAGS_PER_UNIT,
   HELLO_MS,
   IDLE_MS,
   IP_MESSAGES_PER_MINUTE,
@@ -1271,30 +1273,17 @@ describe("reactions (M23)", () => {
   });
 });
 
-describe("gags on one address (BUG-4)", () => {
-  it("BUG-4: seated phones on one address share one phone's gag rate: each waits TOSS_MS times their number, as its view says", () => {
-    const t = setup();
-    const [a, b, c] = startedGame(t, 3);
-    a.ip = b.ip = "203.0.113.7";
-    c.ip = "198.51.100.9";
-    // A spectator on the same Wi-Fi can't gag, so it doesn't slow anyone.
-    t.connect("spectator-token").ip = "203.0.113.7";
-    expect(t.room.view(a, t.live).rest).toBe(2 * TOSS_MS);
-    expect(t.room.view(c, t.live).rest).toBe(TOSS_MS);
-    t.send(a, { t: "toss", to: 1, item: "beer" });
-    t.send(c, { t: "react", kind: "laugh" });
-    t.advance(TOSS_MS);
-    expect(t.send(a, { t: "react", kind: "laugh" })).toBe("none");
-    expect(t.send(c, { t: "react", kind: "love" })).toBe("view");
-    t.advance(TOSS_MS);
-    expect(t.send(a, { t: "toss", to: 2, item: "bomb" })).toBe("view");
-    // When the other phone on its address goes stale, or leaves, a's wait is TOSS_MS again.
-    t.advance(STALE_MS, [a, c]);
-    expect(t.room.view(a, t.live).rest).toBe(TOSS_MS);
-    t.advance(1); // b pings again
-    expect(t.room.view(a, t.live).rest).toBe(2 * TOSS_MS);
-    t.drop(b);
-    expect(t.room.view(a, t.live).rest).toBe(TOSS_MS);
+describe("what a message costs (BUG-4)", () => {
+  it("BUG-4: every message costs a unit, but a socket's throws and reactions only the first of every GAGS_PER_UNIT", () => {
+    const conn = newConn(0, "203.0.113.7");
+    const toss = { t: "toss", to: 1, item: "bomb" } as const;
+    expect(costs(conn, { t: "hello", token: "token-0-abcdef" })).toBe(true);
+    expect(costs(conn, null)).toBe(true); // a malformed one
+    const paid = Array.from({ length: 2 * GAGS_PER_UNIT + 1 }, (_, i) =>
+      costs(conn, i % 2 ? toss : { t: "react", kind: "laugh" }),
+    );
+    expect(paid.flatMap((p, i) => (p ? [i] : []))).toEqual([0, GAGS_PER_UNIT, 2 * GAGS_PER_UNIT]);
+    expect(costs(conn, { t: "auto", on: true })).toBe(true);
   });
 });
 

@@ -5,6 +5,7 @@ import {
   type ClientMsg,
   type RoomView,
   type ServerMsg,
+  TOSS_MS,
   TURN_MS,
 } from "../protocol";
 import {
@@ -12,6 +13,7 @@ import {
   AUTO_NEXT_MS,
   type Conn,
   EMPTY_IDLE_MS,
+  GAGS_PER_UNIT,
   HELLO_MS,
   IDLE_MS,
   IP_MESSAGES_PER_MINUTE,
@@ -753,12 +755,12 @@ describe("RoomDO auto-play (M8)", () => {
   });
 });
 
-describe("RoomDO gags on one address (BUG-4)", () => {
+describe("RoomDO gags (BUG-4)", () => {
   /**
    * `n` phones on one IP play for 5 minutes, a tap every `tap` ms, and every phone throws or reacts
-   * as often as the app lets it: when its view's `rest` (and the app's 250 ms margin) has passed.
-   * `dropped`: the last phone lost its connection at the deal, so its seat goes on Auto-play.
-   * Returns the busiest minute of the IP's budget after the deal, and every socket.
+   * as often as the app lets it: every TOSS_MS, plus the app's 250 ms margin. `dropped`: the last
+   * phone lost its connection at the deal, so its seat goes on Auto-play. Returns the busiest
+   * minute of the IP's budget after the deal, and every socket.
    */
   async function gagging(n: number, tap: number, dropped = false) {
     const env = { MESSAGES: messageLimiter() };
@@ -767,16 +769,13 @@ describe("RoomDO gags on one address (BUG-4)", () => {
     await t.send(phones[0], { t: "start" });
     const from = Date.now();
     const there = dropped ? phones.slice(0, -1) : phones;
-    const gagged = there.map(() => 0);
-    for (let ms = 0; ms < 5 * 60_000; ms += 500) {
-      await t.advance(500, there);
-      for (const [i, ws] of there.entries()) {
-        if (Date.now() < gagged[i] + lastView(ws).rest + 250) continue;
-        gagged[i] = Date.now();
-        await t.send(
-          ws,
-          i % 2 ? { t: "react", kind: "laugh" } : { t: "toss", to: (i + 1) % n, item: "bomb" },
-        );
+    for (let ms = 0; ms < 5 * 60_000; ms += 250) {
+      await t.advance(250, there);
+      if (ms % (TOSS_MS + 250) === 0) {
+        for (const [i, ws] of there.entries()) {
+          const gag = { t: "toss", to: (i + 1) % n, item: "bomb" } as const;
+          await t.send(ws, i % 2 ? { t: "react", kind: "laugh" } : gag);
+        }
       }
       const game = t.game();
       if (!game || game.phase === "gameOver") break;
@@ -798,27 +797,58 @@ describe("RoomDO gags on one address (BUG-4)", () => {
     return { peak: peakMinute(played, HOME), phones };
   }
 
-  it("BUG-4: 8 friends on one Wi-Fi who all throw and react as often as the app lets them stay under 0.75 of the budget", async () => {
-    // Before, each seat could gag every 3 s whoever shared its address: 8 phones spent the 120
-    // units 27.5 s after the deal, and the next alarm closed all 8 sockets (1008).
-    const { peak, phones } = await gagging(8, 2_000);
-    expect(phones.filter((ws) => ws.closed !== null)).toEqual([]);
-    expect(peak).toBeLessThanOrEqual(0.75 * IP_MESSAGES_PER_MINUTE);
-  });
-
-  it("BUG-4: ... also when one of them drops and its seat goes on Auto-play, at 6 phones too", async () => {
-    // Before: 145 units a minute at 6 phones, and the 5 still there were closed 98.5 s in.
-    for (const n of [6, 8]) {
-      const { peak, phones } = await gagging(n, 2_000, true);
-      expect(phones.filter((ws) => ws.closed !== null)).toEqual([]);
-      expect(peak).toBeLessThanOrEqual(0.75 * IP_MESSAGES_PER_MINUTE);
+  it("BUG-4: 3, 4, 6 or 8 friends on one Wi-Fi who all throw and react every 3 s are never closed, and stay under 0.75 of the budget, also when one of them drops", async () => {
+    // Before, a gag cost a unit: 6 phones spent the 120 units 37.5 s after the deal and 8 phones
+    // 27.5 s after it, and the next alarm closed every socket of the address (1008).
+    for (const n of [3, 4, 6, 8]) {
+      for (const dropped of [false, true]) {
+        const { peak, phones } = await gagging(n, 2_000, dropped);
+        expect(phones.filter((ws) => ws.closed !== null)).toEqual([]);
+        expect(peak).toBeLessThanOrEqual(0.75 * IP_MESSAGES_PER_MINUTE);
+      }
     }
   });
 
-  it("BUG-4: ... and tapping once a second, faster than anyone plays, still trips nothing", async () => {
+  it("BUG-4: ... and 8 of them tapping once a second, faster than anyone plays, still trip nothing", async () => {
     const { peak, phones } = await gagging(8, 1_000);
     expect(phones.filter((ws) => ws.closed !== null)).toEqual([]);
     expect(peak).toBeLessThanOrEqual(IP_MESSAGES_PER_MINUTE);
+  });
+
+  it("BUG-4: a socket's throws and reactions cost its IP a unit for every 10, the first of each 10 paying, too soon or not, across hibernation", async () => {
+    const env = { MESSAGES: messageLimiter() };
+    const t = await harness(env);
+    const [a, b] = await t.seat(2);
+    await t.send(a, { t: "start" });
+    await flipAll(t, [a, b]);
+    const before = spent(env, HOME);
+    await t.send(a, { t: "toss", to: 1, item: "bomb" });
+    expect(spent(env, HOME)).toBe(before + 1);
+    t.wake();
+    for (let i = 1; i < GAGS_PER_UNIT; i++) await t.send(a, { t: "react", kind: "laugh" }); // too soon
+    expect(spent(env, HOME)).toBe(before + 1);
+    await t.send(a, { t: "toss", to: 1, item: "kiss" });
+    expect(spent(env, HOME)).toBe(before + 2);
+    // Each socket counts its own.
+    await t.send(b, { t: "react", kind: "love" });
+    expect(spent(env, HOME)).toBe(before + 3);
+  });
+
+  it("BUG-4: an IP out of budget keeps its sockets through the gags it already paid for; the next one it can't pay for closes that socket, like any message", async () => {
+    const env = { MESSAGES: messageLimiter() };
+    const t = await harness(env);
+    const [a, b] = await t.seat(2);
+    await t.send(a, { t: "start" });
+    nextMinute();
+    await t.send(a, { t: "toss", to: 1, item: "bomb" });
+    while (spent(env, HOME) < 2 * IP_MESSAGES_PER_MINUTE && b.closed === null) {
+      await t.send(b, { t: "hello", token: token(1) });
+    }
+    expect(b.closed).toBe(1008);
+    for (let i = 1; i < GAGS_PER_UNIT; i++) await t.send(a, { t: "toss", to: 1, item: "bomb" });
+    expect(a.closed).toBeNull();
+    await t.send(a, { t: "toss", to: 1, item: "bomb" });
+    expect(a.closed).toBe(1008);
   });
 });
 
@@ -1088,15 +1118,23 @@ describe("RoomDO alarm charges (SEC-11)", () => {
     // Before SEC-11 rows ran out in 1.8–1.9 h holding, 10.2 h spamming first and 7.5 h hitting and
     // running. Leaving games mid-turn took 12.2 h before the last socket out paid for its alarm
     // (SEC-13); now it takes 21.0 h. The least of all: 14.0 h for the rows, 18.2 h for the requests.
+    // BUG-4: throwing from every seat it holds, at 8 gags a unit, takes 19.2 h for the requests
+    // (holding first; at 10 a unit it took 17.8 h) and writes fewer rows than holding alone.
     const ways = [
       "hold only",
       "hold, then spam",
       "spam, then hold",
       "hit and run",
       "leave mid-turn",
+      "hold, then gag",
+      "gag, then hold",
     ] as const;
     for (const how of ways) {
-      const day = await holdRooms(24, how);
+      // The gag modes send over 20,000 throws an hour, so they simulate 2 h and 1 h. Over 24 h:
+      // 19.4 h and 19.2 h holding first, 163.7 h and 30.1 h gagging first.
+      const gags = how === "hold, then gag" ? 2 : how === "gag, then hold" ? 1 : 0;
+      const day = await holdRooms(gags || 24, how);
+      expect(day.thrown > 0).toBe(gags > 0);
       expect(day.hoursToRows).toBeGreaterThanOrEqual(14);
       expect(day.hoursToRequests).toBeGreaterThanOrEqual(18);
     }
@@ -1112,13 +1150,23 @@ describe("RoomDO alarm charges (SEC-11)", () => {
  * and run" closes each socket right after its hello or join, before the room's presence check.
  * "leave mid-turn" (SEC-13) does the same in games its guests deal before leaving (all but the
  * loop's room), so each return's hello restarts a turn clock whose alarm then runs with nobody there.
+ * The gag modes (BUG-4) deal a game in every room and keep every socket open: each minute, before
+ * or after the rest, every seat throws until the budget closes a socket.
  * Stops at a day's quota or after `hours`; says how long one IP needs to use up the 100,000 rows
  * and the 100,000 DO requests a day.
  */
 async function holdRooms(
   hours: number,
-  how: "hold only" | "hold, then spam" | "spam, then hold" | "hit and run" | "leave mid-turn",
+  how:
+    | "hold only"
+    | "hold, then spam"
+    | "spam, then hold"
+    | "hit and run"
+    | "leave mid-turn"
+    | "hold, then gag"
+    | "gag, then hold",
 ) {
+  const gags = how === "hold, then gag" || how === "gag, then hold";
   const BOT = "192.0.2.66";
   const QUOTA = 100_000;
   type Harness = Awaited<ReturnType<typeof harness>>;
@@ -1201,11 +1249,29 @@ async function holdRooms(
       await tell(h, spam, lastView(spam).you === null ? { t: "join", name: "x" } : { t: "leave" });
     }
   };
+  /**
+   * BUG-4: throws from every seat it holds in a game, 100 a socket a minute (under the per-socket
+   * flood limit), until its budget closes one. 8 gags a unit, each 1/20 of a DO request, no row.
+   */
+  let thrown = 0;
+  const gag = async () => {
+    for (const h of rooms.values()) {
+      for (const ws of [...h.sockets]) {
+        for (let i = 0; i < 100 && ws.closed === null; i++) {
+          const view = ws.sent.some((m) => m.t === "state") ? lastView(ws) : null;
+          if (!view?.game || view.you === null) break;
+          if (!(await tell(h, ws, { t: "toss", to: 1 - view.you, item: "bomb" }))) return;
+          thrown++;
+        }
+      }
+    }
+  };
   let minute = 0;
   for (; minute < hours * 60; minute++) {
     vi.setSystemTime(start + minute * 60_000);
-    if (how !== "hold only") await ready();
+    if (how !== "hold only" && !gags) await ready();
     if (how === "spam, then hold") await spend();
+    if (how === "gag, then hold") await gag();
     for (const r of held) {
       if (r.host?.closed === null) continue;
       const ws = await open(r.code);
@@ -1229,9 +1295,12 @@ async function holdRooms(
         if (who === "host") r.host = ws;
         if (how === "hit and run" || how === "leave mid-turn") r.host = await leave(h, ws);
       }
+      // Throws need a game, which the host deals.
+      if (gags && r.host?.closed === null) await tell(h, r.host, { t: "start" });
       res = await api("/api/rooms", { method: "POST" });
     }
-    if (how !== "spam, then hold") await spend();
+    if (how !== "spam, then hold" && !gags) await spend();
+    if (how === "hold, then gag") await gag();
     const until = start + (minute + 1) * 60_000;
     for (;;) {
       let next: Harness | null = null;
@@ -1252,6 +1321,7 @@ async function holdRooms(
   const { rows, requests } = used();
   const simulated = (minute + 1) / 60;
   return {
+    thrown,
     hoursToRows: (simulated * QUOTA) / rows,
     hoursToRequests: (simulated * QUOTA) / requests,
   };

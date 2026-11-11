@@ -129,11 +129,6 @@ export interface RoomView {
   clocks: Wait[];
   /** The lobby's "Play until one is left" option (R16), which the next start deals with. */
   knockout: boolean;
-  /**
-   * Ms you wait between your throws and reactions: TOSS_MS for each seated phone on your address,
-   * which share one message budget (BUG-4).
-   */
-  rest: number;
   game: GameView | null;
   /** The latest throw, in views sent within TOSS_SHOW_MS of it (M21). */
   toss?: Toss;

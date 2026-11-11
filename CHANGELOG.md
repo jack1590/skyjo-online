@@ -8,7 +8,7 @@ Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When
 
 ### Fixed
 
-- **Friends on the same Wi-Fi no longer get disconnected for throwing and reacting a lot.** Phones on one Wi-Fi share one allowance of messages a minute, and every throw and reaction used it up. With 6 or more of you on one Wi-Fi all throwing at once, it ran out in about half a minute, and every phone on that Wi-Fi dropped to "Reconnecting…" together for up to a minute. It ran out sooner when someone had left and Auto-play was playing for them. Now phones on the same Wi-Fi take turns: your throw and reaction buttons rest 3 seconds for each player on your Wi-Fi (6 seconds with 2 of you, 24 with 8). Players each on their own connection still wait 3 seconds. Reload the game once on every phone to get the fix.
+- **Friends on the same Wi-Fi no longer get disconnected for throwing and reacting a lot.** Phones on one Wi-Fi share one allowance of messages a minute, and every throw and reaction used up as much of it as a move. With 6 or more of you on one Wi-Fi all throwing at once, it ran out in about half a minute, and every phone on that Wi-Fi dropped to "Reconnecting…" together for up to a minute. It ran out sooner when someone had left and Auto-play was playing for them. Throws and reactions now use an eighth of what they did, so a full table of 8 on one Wi-Fi can throw as often as the game allows, still one every 3 seconds each.
 
 ## [2.6.0] - 2026-10-29
 

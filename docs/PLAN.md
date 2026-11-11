@@ -1304,9 +1304,23 @@ The sticker sits centred over the opponent's panel head, or 24 px above your nam
 
 **Not the cause** (checked): `Room.admit` only displaces a socket at 20 sockets in the room; `dead` is only read there; a hello with another token only answers that socket; and an exception in an alarm or a broadcast closes no socket (read in the code, not reproduced).
 
-**Fix (v2.6.3).** The charging rules and the 120-unit budget stay, so `holdRooms`' 14 h and 18 h hold. The gag rate becomes per address: a seat waits `TOSS_MS` for each seated phone on its address (`rest` in `room.ts`), told to its client as `RoomView.rest`, which greys the tray and the reaction button for that long. Only sockets seen within `STALE_MS` count. One address then gags 20 times a minute on average (24 in its worst minute), what one phone could before. Friends each on their own connection still wait 3 s.
-- After: 8 phones on one address, a tap every 2 s, all gagging as often as the app lets them: 72 units in the busiest minute; with one of them dropped, 59–75 at 6 or 8 phones over 20 runs (the deal is random); 102–104 at a tap a second. Nothing is closed.
-- A tab loaded before 2.6.3 still greys its buttons for 3 s; its early gags are dropped (`"none"`) and still cost a unit each, until it reloads.
+**First fix, rejected (owner, 2026-11-11).** A seat waited `TOSS_MS` for each seated phone on its address (`RoomView.rest`): 6 s with 2 phones, 24 s with 8. It held the budget (72 units at 8 phones), but the owner found the wait too slow: gags must never disconnect anyone, and the wait stays 3 s per seat whatever the network. A QA agent confirmed the cause on its own (8 phones on one address gagging every 3 s: all 8 closed within about 45 s).
+
+**What a gag costs Cloudflare.** A gag returns `"view"`: no `put`, so no row, unless it brings the alarm forward (a row, charged 1 as before). Incoming WebSocket messages are billed as Durable Object requests at 20:1 ("a 20:1 ratio is applied to incoming WebSocket messages", "100 WebSocket incoming messages would be charged as 5 requests"; outgoing messages are free: https://developers.cloudflare.com/durable-objects/platform/pricing/). So a gag is 1/20 of a request, and a unit of `MESSAGES` paid for 20 times that. Elsewhere a unit buys at most half a request (an alarm run is 2 units: a row and a request).
+
+**Fix (v2.6.3): a socket pays 1 unit for every 8 gags** (`GAGS_PER_UNIT`, `costs` in `room.ts`; `handle` in `worker.ts`, and `node.ts`). The first of each 8 pays, so a new socket gets none free. The count is in the socket's attachment and survives hibernation. Gags too soon count like the rest. The wait stays `TOSS_MS` per seat, and `RoomView.rest` is gone.
+- **Why 8.** 8 gags are 0.4 of a request for a unit, under the alarm's 0.5. `holdRooms` has two new modes, where one address deals a game in every room it holds and throws from every seat until its budget closes a socket, after or before the rest of its minute. Holding first, it needs 19.4 h for the rows and 19.2 h for the requests (24 h simulated; 551,000 throws); gagging first, 163.7 h and 30.1 h. At 10 a unit, holding first took 17.8 h for the requests, under the 18 h bound, so 10 was rejected. The other modes are unchanged: 14.0 h and 18.2 h at the least.
+- **Not free, and not dropped without a charge.** Free gags, or gags dropped silently once the budget is spent, would let one address throw from every seat it holds for nothing: rooms left at a round summary with the host gone run no alarm, so nothing would ever close those sockets, and 700 held seats at 20 gags a minute are 700 requests a minute. So a gag an address can't pay for closes its socket like any message. That needs the address's whole budget spent: a house of 8 gagging every 3 s now spends 20 units a minute on gags, where it spent 160.
+- **After** (the same model, a tap every 2 s, every seat gagging every 3.25 s, the app's limit with its margin; one run each, the deal is random). Busiest minute of the address's 120 units, and sockets closed:
+
+  | Phones on one address | All there | One phone dropped (its seat on Auto-play) |
+  | --------------------- | --------- | ----------------------------------------- |
+  | 3                     | 47, none  | 62, none                                  |
+  | 4                     | 52, none  | 68, none                                  |
+  | 6                     | 62, none  | 57, none                                  |
+  | 8                     | 72, none  | 59, none                                  |
+
+  8 phones at a tap a second, faster than anyone plays: 102, none closed.
 - `shut` in `worker.ts` now logs `socket shut: 1008 Too many messages` for each socket closed over the budget, so the next report can be checked in Workers Logs.
 
 **Suspected, not proven** (for the owner to check on real phones):
@@ -1315,9 +1329,9 @@ The sticker sits centred over the opponent's panel head, or 24 px above your nam
 - **`API_REQUESTS` (30 a minute per address).** 8 phones on a Wi-Fi that stutters each retry up to every 8 s; `flaky.spec.ts` measured 22 in the busiest minute, not far under.
 
 **Acceptance:**
-- `worker.test.ts`: the three BUG-4 tests above fail on `main` (sockets closed) and pass with the fix.
-- `room.test.ts`: two seats on one address wait 2 × `TOSS_MS` each, a third on its own address `TOSS_MS`; a spectator on the address doesn't count; the wait drops back when the other phone leaves.
-- `holdRooms` unchanged and passing.
+- `worker.test.ts`, "RoomDO gags (BUG-4)": 3, 4, 6 and 8 phones on one address gagging every 3 s, with and without a dropped phone, close no socket and stay under 0.75 of the budget; 8 at a tap a second stay under it. Both fail without the fix.
+- A socket's gags cost 1 unit per 8, the first paying, too soon or not, across hibernation; a gag its address can't pay for closes it, and the ones already paid for don't.
+- `holdRooms`: every mode, the two gag modes included, needs at least 14 h for the rows and 18 h for the requests.
 
 ### M16 — Launch in the App Store and Google Play (user decision, 2026-10-24) · last
 

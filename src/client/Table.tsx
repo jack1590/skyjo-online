@@ -64,8 +64,6 @@ interface TableProps {
   reaction?: Reaction;
   /** Sends a reaction; none for spectators. */
   onReact?: (kind: ReactionKind, to?: number) => void;
-  /** Ms between your throws and reactions (RoomView.rest, BUG-4). */
-  rest?: number;
   onPlayAgain: () => void;
   onExit: () => void;
 }
@@ -236,8 +234,8 @@ export function Table(props: TableProps) {
   const mine = useRef<HTMLElement>(null);
   const [throwsOn, toggleThrows] = useThrowsOn();
   const [tossedAt, setTossedAt] = useState(0);
-  // A little past the server's wait, so a throw or reaction at the edge isn't dropped on the way.
-  const restUntil = tossedAt + (props.rest ?? TOSS_MS) + 250;
+  // A little past the server's 3 s, so a throw or reaction at the edge isn't dropped on the way.
+  const restUntil = tossedAt + TOSS_MS + 250;
   const side = useRoomBeside(gridRef, me !== null);
   // Seated players react, out ones (R16) too; spectators only watch (M23).
   const reactButton = (place: "side" | "bar" | "corner") =>

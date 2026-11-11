@@ -92,7 +92,6 @@ export function Online({ code }: { code: string }) {
         onToss={toss}
         reaction={room.reaction}
         onReact={react}
-        rest={room.rest}
         waiting={waiting}
         onAction={(action) => send({ t: "act", action })}
         onAuto={(on) => send({ t: "auto", on })}

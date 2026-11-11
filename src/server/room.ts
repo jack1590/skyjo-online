@@ -73,6 +73,8 @@ export interface Conn {
   ack: number;
   windowStart: number;
   windowCount: number;
+  /** Throws and reactions it has sent: its IP pays for the first of every GAGS_PER_UNIT (BUG-4). */
+  gags: number;
   /** The client's `ipKey`, which its messages count against; null = a local run, not limited. */
   ip: string | null;
   /** When the socket opened (ms). A deploy closes every socket, so no attachment predates it. */
@@ -131,6 +133,15 @@ const WINDOW_MAX = 120;
  */
 export const IP_MESSAGES_PER_MINUTE = 120;
 /**
+ * Throws and reactions (gags) a socket sends per unit of its IP's budget (BUG-4). A gag writes no
+ * row, and Cloudflare bills 20 incoming WebSocket messages as one Durable Object request, so 8 of
+ * them cost 0.4 of a request, under the half a unit buys elsewhere (an alarm run is 2 units): one
+ * IP throwing from every seat it holds still needs 19.2 h to use up the requests (worker.test.ts;
+ * 17.8 h at 10 a unit). At a unit each, 6 phones on one Wi-Fi gagging every 3 s spent the whole
+ * budget and were all closed.
+ */
+export const GAGS_PER_UNIT = 8;
+/**
  * Sockets per room that said hello (SEC-2): 8 players and a dozen spectators. Each one gets every
  * broadcast and can send its own writes, so a room can't take as many as a script opens.
  */
@@ -176,6 +187,7 @@ export const newConn = (now: number, ip: string | null): Conn => ({
   ack: 0,
   windowStart: now,
   windowCount: 0,
+  gags: 0,
   ip,
   openedAt: now,
 });
@@ -196,6 +208,15 @@ function count(w: Window, now: number, ms: number, max: number): boolean {
 
 /** The per-socket flood limit. */
 export const allowMessage = (conn: Conn, now: number) => count(conn, now, WINDOW_MS, WINDOW_MAX);
+
+/**
+ * Whether this message costs its IP a unit: any message does, but of a socket's gags only the
+ * first of every GAGS_PER_UNIT, landed or too soon. Paid ahead, so a new socket gets none free.
+ */
+export function costs(conn: Conn, msg: ClientMsg | null): boolean {
+  if (msg?.t !== "toss" && msg?.t !== "react") return true;
+  return conn.gags++ % GAGS_PER_UNIT === 0;
+}
 
 /** The per-IP budget, for a server without the Worker's MESSAGES binding (node.ts). */
 export function allowIp(windows: Map<string, Window>, key: string, now: number): boolean {
@@ -380,9 +401,7 @@ export class Room {
           throw new RoomError("not-allowed");
         }
         // Too soon: the client greys the items out meanwhile, so only a script gets here.
-        if (now - (this.tossed.get(seat) ?? Number.NEGATIVE_INFINITY) < this.rest(conn, live)) {
-          return "none";
-        }
+        if (now - (this.tossed.get(seat) ?? -TOSS_MS) < TOSS_MS) return "none";
         this.tossed.set(seat, now);
         this.toss = { id: now, from: seat, to: msg.to, item: msg.item };
         return "view";
@@ -395,10 +414,8 @@ export class Room {
         // A tap that arrives as the round ends, or as the turn passes: too late, not an error.
         const playing = game.phase === "flip" || game.phase === "draw" || game.phase === "place";
         if (!playing || (msg.kind === "migajero" && at !== lastMover(game, seat))) return "none";
-        // One gag per seat per `rest`, a throw or a reaction.
-        if (now - (this.tossed.get(seat) ?? Number.NEGATIVE_INFINITY) < this.rest(conn, live)) {
-          return "none";
-        }
+        // One gag per seat per TOSS_MS, a throw or a reaction.
+        if (now - (this.tossed.get(seat) ?? -TOSS_MS) < TOSS_MS) return "none";
         this.tossed.set(seat, now);
         this.reaction = {
           id: now,
@@ -454,27 +471,11 @@ export class Room {
       lead: this.canLead(you, live),
       clocks: this.clocks(live),
       knockout: this.data.knockout === true,
-      rest: this.rest(conn, live),
       game: this.data.game && toView(this.data.game),
       ...(this.toss && this.deps.now() - this.toss.id < TOSS_SHOW_MS && { toss: this.toss }),
       ...(this.reaction &&
         this.deps.now() - this.reaction.id < TOSS_SHOW_MS && { reaction: this.reaction }),
     };
-  }
-
-  /**
-   * How long `conn`'s seat waits between its gags (throws and reactions): TOSS_MS for each seated
-   * phone connected on its address. Each gag costs a unit of the address's budget, so friends on
-   * one Wi-Fi share one phone's rate, 20 a minute on average, instead of spending it all and
-   * being closed (BUG-4). A socket gone stale can't gag without showing up again, so it isn't counted.
-   */
-  private rest(conn: Conn, live: Conn[]): number {
-    const now = this.deps.now();
-    const near = live.filter(
-      (c) =>
-        c.ip !== null && c.ip === conn.ip && this.seatOf(c) !== null && now - c.seenAt < STALE_MS,
-    );
-    return TOSS_MS * Math.max(1, new Set(near.map((c) => c.token)).size);
   }
 
   /** Every seat the table waits on whose clock runs, and when and why the server moves for it. */
