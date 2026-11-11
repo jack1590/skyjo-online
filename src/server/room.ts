@@ -15,9 +15,9 @@ import {
   type ClientMsg,
   CODE_ALPHABET,
   CODE_LENGTH,
+  cutName,
   type ErrorCode,
   lastMover,
-  NAME_MAX,
   type Reaction,
   type RoomView,
   TOSS_MS,
@@ -242,9 +242,25 @@ export function ipKey(ip: string): string {
 const playing = (game: GameState) =>
   game.phase === "flip" || game.phase === "draw" || game.phase === "place";
 
-/** Strips control/format characters (zero-width, bidi overrides), trims, caps length in code points (never splits an emoji). */
+/**
+ * A name keeps a `\p{C}` character (control, zero-width, bidi, tag, private use) only inside an
+ * emoji on Unicode's list (RGI): the joiner of a family or a rainbow flag, the tags of the England,
+ * Scotland and Wales flags (BUG-8). Anywhere else it could hide text or pass one name off as
+ * another.
+ */
+// biome-ignore lint/complexity/useRegexLiterals: a literal with the "v" flag needs target ES2024
+const RGI_EMOJI = new RegExp("^\\p{RGI_Emoji}$", "v");
+const clusters = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+/** Strips those characters cluster by cluster, trims, and cuts (`cutName`). */
 const cleanName = (name: string) =>
-  [...name.replace(/\p{C}/gu, "").trim()].slice(0, NAME_MAX).join("").trim();
+  cutName(
+    Array.from(clusters.segment(name), ({ segment }) =>
+      RGI_EMOJI.test(segment) ? segment : segment.replace(/\p{C}/gu, ""),
+    )
+      .join("")
+      .trim(),
+  ).trim();
 
 export class Room {
   /**
