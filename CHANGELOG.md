@@ -4,6 +4,12 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.7.5] - 2026-11-11
+
+### Fixed
+
+- **A game left in a background tab no longer drops and reconnects every minute.** Chrome slows a hidden tab's timers to about once a minute. The game took that for a dead connection and replaced it, every minute, for as long as the tab stayed in the background: a forgotten tab kept its room busy all day, and each drop could show you to the others as offline for a moment. Now a hidden tab keeps its connection and only replaces a dead one when you come back to it. A player whose tab stays hidden for minutes can still show as offline now and then; they aren't looking, and Auto-play covers their turns as before. Reload the game once on every device to get the fix.
+
 ## [2.7.4] - 2026-11-11
 
 ### Fixed

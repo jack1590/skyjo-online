@@ -808,7 +808,8 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 26  | BUG-4                              | Phones on one Wi-Fi dropped together: throws and reactions spent their shared message budget                            | 2.7.2         | a live report from the owner; hotfix                                                                             |
 | 27  | BUG-9                              | A socket replaced while a tap waited was replaced again 5 s later, taps dropped meanwhile                               | 2.7.3         | a QA read after the owner's disconnect report; proven in a browser                                               |
 | 28  | BUG-10                             | Back from a locked screen, a dead socket that looked open showed a stale table for up to a minute                       | 2.7.4         | BUG-4's open suspicion; the page's side proven in a browser                                                      |
-| 29  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
+| 29  | BUG-11                             | A hidden tab, its timers slowed to one a minute, replaced its socket every minute                                       | 2.7.5         | a QA read after the owner's disconnect report; breaks SEC-9's bound                                              |
+| 30  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
 
 Deferred: Turnstile (SEC-4) and SEC-12 (until M16). Quick reactions, deferred until now, are M23 (user request, 2026-10-29). Declined: SEC-7. Versions assume this order; a PR that reorders says so.
 
@@ -927,6 +928,25 @@ The limit stays 16 code points, so a stored name is no bigger than before. `cutN
 **Fix (v2.7.4).** The room answers every hello, to its sender at least. `wake` now waits `ACK_MS` (5 s) for anything from the socket after its hello and replaces the socket if nothing came. No wire or server change, and no new message: a working socket costs what it did.
 
 **Acceptance:** `e2e/online.spec.ts`, "BUG-10": fails on `main` (still 1 socket 5 s after the unlock) and passes with the fix; a second lock on the working socket says hello, is answered, and keeps the socket.
+
+### BUG-11 — A hidden tab replaces its socket every minute (QA read, 2026-11-11) · v2.7.5
+
+**Report.** The owner: "devices disconnect randomly" (BUG-4). A QA read suspected that browsers throttle a hidden page's timers to about once a minute, so the 20 s ping misses `STALE_MS` (45 s) and the seat flickers offline, with its host role and clock.
+
+**Evidence.**
+- **The throttle is real, with a socket open.** Playwright's Chromium, headed, window minimized, `IntensiveWakeUpThrottling` with a 10 s grace period, a page with an open WebSocket and a 5 s `setInterval`: it fired 58, 60, 117 and 120 s in. Chrome's default grace period was not measured (documented as 5 min, or 10 s for a loaded page). Safari and Firefox were not measured.
+- **What the page does with it (Pixel project, local workerd, the page's clock stepped by hand).** A hidden page whose timers run once a minute (`page.clock.fastForward(60_000)`, which fires a due timer once): on `main` 0122f4e it opened a new socket and said hello every minute, 5 in 5 minutes, and sent no ping.
+- **What that costs (`RoomDO` on the fake runtime, scratch, not kept).** 2 seated tabs in a lobby that reconnect and say hello every minute: 2,880 rows and 4,608 DO requests a day, and the room never goes idle. SEC-9's figure for 2 forgotten tabs is about 160 of each.
+
+**Root cause.** `check` (`useRoom.ts:128-134`) replaces a socket not heard from for `SILENT_MS` (45 s), and runs from a 20 s interval. At one run a minute, each run comes 60 s after the last pong, so every run reconnects: a close and a hello a minute. A seat's close is broadcast (`webSocketClose` in `worker.ts`; read in the code, what the others then see was not reproduced), and each hello resets SEC-9's quiet and idle clocks. SEC-9 chose that hidden pages leave returning to `wake`, "or a throttled background tab would keep a forgotten room busy"; this path did it anyway.
+
+**Decided: the flicker itself is intended, the reconnect is the bug.** With pings a minute apart, the room sees the seat stale for the last 15 s of each minute, at whatever event re-broadcasts. That is a player whose tab has been hidden for minutes: the table is right to show them away, anyone seated may lead, and their turns go to Auto-play after 30 s either way (M8). Hiding it would take a longer `STALE_MS`, which slows every real drop, or a wire change. Not done. **PO (PR #49 review): agreed.** A tab hidden for minutes is a player who is away; showing them offline for 15 s of each minute is truer than showing them present, and nothing is lost (their seat, score and turn clock are unchanged). Revisit only if a player reports losing the host role while reading another app.
+
+**Fix (v2.7.5).** `check` only replaces a silent socket on a visible page; a hidden one pings. `wake` already replaces a socket silent for over 45 s when the page shows. No wire or server change.
+
+**Acceptance:** `e2e/online.spec.ts`, "BUG-11": fails on `main` (no ping, a new socket) and passes with the fix: 5 throttled minutes, 5 pings answered, 1 socket; then a socket that died while hidden is replaced as the page shows.
+
+**Delivery (PO, PR #49): `holdRooms` is one case per way.** #42 added three gag modes to the single SEC-11/SEC-13 test in `worker.test.ts`. It takes 12.8 s locally, and on a slow runner it passed vitest's 60 s `testTimeout` (PR #48, run 43114515967, attempt 1: the whole `npm test` took 84.6 s; the rerun passed). It is now `it.each` over the 8 ways, each with its own 60 s: the slowest takes 2.3 s locally. If a single way ever nears 60 s on CI, give that case its own timeout rather than raising the global one.
 
 ### M17 — Play until one is left (knockout) (user request, 2026-10-24) · v2.2.0 · ✅ shipped (PR #24)
 

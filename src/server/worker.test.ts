@@ -1122,23 +1122,24 @@ describe("RoomDO alarm charges (SEC-11)", () => {
     expect([t.rows() - rows, Math.round(t.requests - requests)]).toEqual([1, 1]);
   });
 
-  it("SEC-11, SEC-13: one IP at every limit, holding 2-seat rooms open or leaving games mid-turn, and spending the rest of its budget, needs 14 h to use up the rows and 18 h for the DO requests", async () => {
-    // Before SEC-11 rows ran out in 1.8–1.9 h holding, 10.2 h spamming first and 7.5 h hitting and
-    // running. Leaving games mid-turn took 12.2 h before the last socket out paid for its alarm
-    // (SEC-13); now it takes 21.0 h. The least of all: 14.0 h for the rows, 18.2 h for the requests.
-    // BUG-4: throwing from every seat it holds, at 8 gags a unit, takes 19.2 h for the requests
-    // (holding first; at 10 a unit it took 17.8 h) and writes fewer rows than holding alone.
-    const ways = [
-      "hold only",
-      "hold, then spam",
-      "spam, then hold",
-      "hit and run",
-      "leave mid-turn",
-      "hold, then gag",
-      "gag, then hold",
-      "hold, then gag in lobbies",
-    ] as const;
-    for (const how of ways) {
+  // Before SEC-11 rows ran out in 1.8–1.9 h holding, 10.2 h spamming first and 7.5 h hitting and
+  // running. Leaving games mid-turn took 12.2 h before the last socket out paid for its alarm
+  // (SEC-13); now it takes 21.0 h. The least of all: 14.0 h for the rows, 18.2 h for the requests.
+  // BUG-4: throwing from every seat it holds, at 8 gags a unit, takes 19.2 h for the requests
+  // (holding first; at 10 a unit it took 17.8 h) and writes fewer rows than holding alone.
+  // One case per way: together they take 13 s here and passed 60 s on a slow CI runner (PR #48).
+  it.each([
+    "hold only",
+    "hold, then spam",
+    "spam, then hold",
+    "hit and run",
+    "leave mid-turn",
+    "hold, then gag",
+    "gag, then hold",
+    "hold, then gag in lobbies",
+  ] as const)(
+    "SEC-11, SEC-13 (%s): one IP at every limit, holding 2-seat rooms open or leaving games mid-turn, and spending the rest of its budget, needs 14 h to use up the rows and 18 h for the DO requests",
+    async (how) => {
       // The gag modes send over 20,000 throws an hour, so they simulate 1 or 2 h: what is checked
       // here. Short runs read about 2% high, as rooms are still being made. Over 24 h: 19.4 h and
       // 19.2 h holding first, 163.7 h and 30.1 h gagging first, 28.7 h and 19.2 h in lobbies.
@@ -1151,8 +1152,8 @@ describe("RoomDO alarm charges (SEC-11)", () => {
 
       expect(day.hoursToRows).toBeGreaterThanOrEqual(14);
       expect(day.hoursToRequests).toBeGreaterThanOrEqual(18);
-    }
-  });
+    },
+  );
 });
 
 /**
