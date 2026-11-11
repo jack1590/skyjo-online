@@ -154,6 +154,14 @@ const en = {
   lastCard: "Revealing your last card ends the round",
   everyoneFlips: "Everyone flips 2",
   thisRound: "this round",
+  publicRooms: "Public rooms",
+  publicRoomsNone:
+    "No public rooms right now. Create a room and switch on Public room to open one.",
+  publicRoomOf: "{name}'s room",
+  knockoutTag: "Knockout",
+  refresh: "Refresh",
+  publicRoom: "Public room",
+  publicRoomHelp: "Anyone can find this room on the home screen and join.",
 };
 
 export type Key = keyof typeof en;
@@ -313,6 +321,14 @@ const es: Record<Key, string> = {
   lastCard: "Revelar tu última carta termina la ronda",
   everyoneFlips: "Todos voltean 2",
   thisRound: "en esta ronda",
+  publicRooms: "Salas públicas",
+  publicRoomsNone:
+    "No hay salas públicas ahora. Crea una sala y activa Sala pública para abrir una.",
+  publicRoomOf: "Sala de {name}",
+  knockoutTag: "Eliminación",
+  refresh: "Actualizar",
+  publicRoom: "Sala pública",
+  publicRoomHelp: "Cualquiera puede encontrar esta sala en la pantalla de inicio y unirse.",
 };
 
 /** Brazilian Portuguese. */
@@ -468,6 +484,14 @@ const pt: Record<Key, string> = {
   lastCard: "Revelar sua última carta encerra a rodada",
   everyoneFlips: "Todos viram 2",
   thisRound: "nesta rodada",
+  publicRooms: "Salas públicas",
+  publicRoomsNone:
+    "Não há salas públicas agora. Crie uma sala e ative Sala pública para abrir uma.",
+  publicRoomOf: "Sala de {name}",
+  knockoutTag: "Eliminatória",
+  refresh: "Atualizar",
+  publicRoom: "Sala pública",
+  publicRoomHelp: "Qualquer pessoa pode encontrar esta sala na tela inicial e entrar.",
 };
 
 export const LOCALES = {

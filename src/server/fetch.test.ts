@@ -1,6 +1,8 @@
 // The Worker's fetch handler with fake bindings. Kept apart from worker.test.ts, which stubs the
 // global Response (Node refuses status 101); these tests need the real one.
 import { describe, expect, it, vi } from "vitest";
+import type { PublicRoom } from "../protocol";
+import { LIST_CACHE_MS } from "./directory";
 import worker from "./worker";
 
 vi.mock("cloudflare:workers", () => ({ DurableObject: class {} }));
@@ -9,6 +11,7 @@ vi.mock("cloudflare:workers", () => ({ DurableObject: class {} }));
 const limiter = (max: number) => {
   const seen = new Map<string, number>();
   return {
+    seen,
     limit: async ({ key }: { key: string }) => {
       const n = (seen.get(key) ?? 0) + 1;
       seen.set(key, n);
@@ -23,7 +26,18 @@ function setup() {
   const touched: string[] = [];
   /** IPs whose budget the room refuses to spend on a new room. */
   const broke = new Set<string>();
+  /** The public list (M24) and how often the Worker read it: each read is a DO request. */
+  const list = { rooms: [] as PublicRoom[], reads: 0 };
   const env = {
+    DIRECTORY: {
+      idFromName: (name: string) => name,
+      get: () => ({
+        list: async () => {
+          list.reads++;
+          return list.rooms;
+        },
+      }),
+    },
     API_REQUESTS: limiter(30),
     ROOM_CREATION: limiter(10),
     MESSAGES: limiter(120),
@@ -48,7 +62,7 @@ function setup() {
     call(`https://skyjo-online.example.workers.dev${path}`, ip, init);
   const upgrade = { headers: { Upgrade: "websocket" } };
   const create = { method: "POST" };
-  return { touched, broke, call, api, upgrade, create };
+  return { touched, broke, list, env, call, api, upgrade, create };
 }
 
 describe("Worker per-IP limits", () => {
@@ -112,5 +126,56 @@ describe("Worker per-IP limits", () => {
       expect((await t.call("http://localhost/api/x", "203.0.113.7")).status).toBe(404);
     }
     expect((await t.call("http://localhost/api/x", "203.0.113.7")).status).toBe(429);
+  });
+});
+
+describe("Worker public list (M24)", () => {
+  const room: PublicRoom = { code: "ABCDE", host: "Ana", players: 3, knockout: true };
+  /** Each test starts past the last one's cached list: the cache is the isolate's, not the test's. */
+  let clock = 1_000_000_000;
+  const at = (ms: number) => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(ms);
+  };
+
+  it("M24: GET /api/public returns the list; an isolate reads the directory once per 10 s, whoever asks, and each read costs its caller 2 units", async () => {
+    const t = setup();
+    clock += 60_000;
+    at(clock);
+    t.list.rooms = [room];
+    const first = await t.api("/api/public", "203.0.113.7");
+    expect([first.status, await first.json()]).toEqual([200, [room]]);
+    t.list.rooms = [];
+    at(clock + LIST_CACHE_MS - 1);
+    expect(await (await t.api("/api/public", "198.51.100.1")).json()).toEqual([room]);
+    expect(t.list.reads).toBe(1);
+    expect(t.env.MESSAGES.seen.get("198.51.100.1")).toBeUndefined();
+    at(clock + LIST_CACHE_MS);
+    expect(await (await t.api("/api/public", "198.51.100.1")).json()).toEqual([]);
+    expect(t.list.reads).toBe(2);
+    expect([...t.env.MESSAGES.seen]).toEqual([
+      ["203.0.113.7", 2],
+      ["198.51.100.1", 2],
+    ]);
+    expect((await t.api("/api/public", "203.0.113.7", t.create)).status).toBe(404); // GET only
+  });
+
+  it("M24: an IP past its /api limit or its message budget gets 429, and the directory isn't read", async () => {
+    const t = setup();
+    clock += 60_000;
+    at(clock);
+    for (let i = 0; i < 120; i++) await t.env.MESSAGES.limit({ key: "203.0.113.7" });
+    expect((await t.api("/api/public", "203.0.113.7")).status).toBe(429);
+    for (let i = 0; i < 30; i++) await t.api("/api/x", "198.51.100.1");
+    expect((await t.api("/api/public", "198.51.100.1")).status).toBe(429);
+    expect(t.list.reads).toBe(0);
+  });
+
+  it("M24: a local run reads the list every time, so its tests see a change at once", async () => {
+    const t = setup();
+    clock += 60_000;
+    at(clock);
+    for (let i = 0; i < 3; i++) await t.call("http://localhost:4173/api/public", "127.0.0.1");
+    expect(t.list.reads).toBe(3);
   });
 });

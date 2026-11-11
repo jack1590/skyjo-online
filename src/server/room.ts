@@ -18,6 +18,7 @@ import {
   type ErrorCode,
   lastMover,
   NAME_MAX,
+  type PublicRoom,
   type Reaction,
   type RoomView,
   TOSS_MS,
@@ -56,6 +57,13 @@ export interface RoomData {
   stopped?: number[];
   /** "Play until one is left" (R16), set in the lobby and dealt with at every start. Unset before 2.2.0. */
   knockout?: boolean;
+  /** The host listed the room on Home (M24). Unset before 2.7.0. */
+  public?: boolean;
+  /**
+   * What the public list was last told about this room, and when; unset = not on it. Saved, so a
+   * room back from hibernation tells the list (a row and a request) only what changed.
+   */
+  listed?: { room: PublicRoom; at: number };
 }
 
 /** One open socket, persisted in its attachment. */
@@ -347,6 +355,12 @@ export class Room {
         if ((this.data.knockout === true) === msg.on) return "none";
         this.data.knockout = msg.on;
         return "data";
+      case "public":
+        // Only the host opens the room to strangers: a stand-in leader can't.
+        if (!lobby || seat === null || seat !== this.data.host) throw new RoomError("not-allowed");
+        if ((this.data.public === true) === msg.on) return "none";
+        this.data.public = msg.on;
+        return "data";
       case "auto": {
         // A player who is out has no turns to play (R16).
         if (seat === null || this.isOut(seat)) throw new RoomError("not-allowed");
@@ -450,11 +464,50 @@ export class Room {
       lead: this.canLead(you, live),
       clocks: this.clocks(live),
       knockout: this.data.knockout === true,
+      public: this.data.public === true,
       game: this.data.game && toView(this.data.game),
       ...(this.toss && this.deps.now() - this.toss.id < TOSS_SHOW_MS && { toss: this.toss }),
       ...(this.reaction &&
         this.deps.now() - this.reaction.id < TOSS_SHOW_MS && { reaction: this.reaction }),
     };
+  }
+
+  /**
+   * The room's entry on Home's public list (M24), or null when it isn't to be there: private, in a
+   * game, full, or with nobody seated and connected to welcome a stranger.
+   */
+  listing(live: Conn[]): PublicRoom | null {
+    const { code, seats, host, game } = this.data;
+    const open =
+      this.data.public === true &&
+      game === null &&
+      seats.length < MAX_PLAYERS &&
+      seats.some((_, i) => this.connected(i, live));
+    return open
+      ? {
+          code,
+          host: seats[host].name,
+          players: seats.length,
+          knockout: this.data.knockout === true,
+        }
+      : null;
+  }
+
+  /**
+   * What the public list must be told now: this room's entry, or null to take it off; undefined
+   * when it already knows. A listed room says so again after 12 h, since the list forgets one it
+   * hasn't heard from in 24 h. The adapter tells the list, then calls `told`, then saves the room.
+   */
+  relist(live: Conn[]): PublicRoom | null | undefined {
+    const next = this.listing(live);
+    const was = this.data.listed;
+    const old = was !== undefined && this.deps.now() - was.at >= IDLE_MS / 2;
+    return JSON.stringify(next) === JSON.stringify(was?.room ?? null) && !old ? undefined : next;
+  }
+
+  told(room: PublicRoom | null): void {
+    if (room) this.data.listed = { room, at: this.deps.now() };
+    else delete this.data.listed;
   }
 
   /** Every seat the table waits on whose clock runs, and when and why the server moves for it. */
@@ -512,6 +565,13 @@ export class Room {
     // If the host goes quiet while the table needs a lead, others must learn they may step in.
     if (this.needsLead() && this.connected(this.data.host, live)) {
       due.push(check(this.lastSeen(this.data.host, live) + STALE_MS));
+    }
+    // A listed room leaves Home's list when its last connected seat turns stale (M24).
+    if (this.listing(live)) {
+      const seen = this.data.seats.flatMap((_, i) =>
+        this.connected(i, live) ? [this.lastSeen(i, live)] : [],
+      );
+      due.push(check(Math.max(...seen) + STALE_MS));
     }
     // A step that came due after this event's tick() (a timer that fired a millisecond early) is
     // checked again at once, not dropped: dropping it stalled the turn until the next check.

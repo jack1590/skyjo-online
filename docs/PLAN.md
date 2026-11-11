@@ -1303,13 +1303,13 @@ The sticker sits centred over the opponent's panel head, or 24 px above your nam
 
 **Cost on the free plan** (100,000 Worker requests, 100,000 Durable Object requests and 100,000 rows written a day; SEC-11's rule: whoever causes a row pays for it from their `MESSAGES` budget).
 
-| Event                                                                                    | Rows written                                         | DO requests              | Charged                                                             |
-| ---------------------------------------------------------------------------------------- | ---------------------------------------------------- | ------------------------ | ------------------------------------------------------------------- |
-| Telling the directory (list, update, unlist): the switch, a join, leave, kick, the knockout option, start, play again | 1 in the directory (the room's own row is already paid by the message) | 1                        | 2 units, to the sender, on top of the message's 1                    |
-| The same when the last seated player's socket closes, or comes back with a hello         | 2: the directory's and the room's (`listed`)         | 1                        | 2 units, to that socket's address                                   |
-| The same at a presence check (the last connected seat went stale), or at the room's expiry | 2                                                    | 1, plus the alarm's own  | 2 units to every address with a socket in the room, on top of the alarm's 2 |
-| Evicting the oldest of 200, or dropping a 24 h-old entry                                 | 1 (its second and last: each entry's first told paid 2 units for 1 row) | 0                        | prepaid                                                             |
-| `GET /api/public`                                                                        | 0                                                    | ≤ 1 (0 within 10 s in the same isolate) | `API_REQUESTS`: 30 a minute per address, as a socket upgrade already is |
+| Event                                                                                                                 | Rows written                                                            | DO requests                             | Charged                                                                     |
+| --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- | --------------------------------------- | --------------------------------------------------------------------------- |
+| Telling the directory (list, update, unlist): the switch, a join, leave, kick, the knockout option, start, play again | 1 in the directory (the room's own row is already paid by the message)  | 1                                       | 2 units, to the sender, on top of the message's 1                           |
+| The same when the last seated player's socket closes, or comes back with a hello                                      | 2: the directory's and the room's (`listed`)                            | 1                                       | 2 units, to that socket's address                                           |
+| The same at a presence check (the last connected seat went stale), or at the room's expiry                            | 2                                                                       | 1, plus the alarm's own                 | 2 units to every address with a socket in the room, on top of the alarm's 2 |
+| Evicting the oldest of 200, or dropping a 24 h-old entry                                                              | 1 (its second and last: each entry's first told paid 2 units for 1 row) | 0                                       | prepaid                                                                     |
+| `GET /api/public`                                                                                                     | 0                                                                       | ≤ 1 (0 within 10 s in the same isolate) | `API_REQUESTS`: 30 a minute per address, as a socket upgrade already is     |
 
 So every unit still buys at most one row and half a Durable Object request, and SEC-11's bound holds: one address at every limit needs at least 14 h to use up the rows and 18 h for the requests, now also when it flips the switch in a loop or lists rooms and leaves (`holdRooms` in `worker.test.ts`).
 
@@ -1324,8 +1324,8 @@ Per Home viewer: 1 Worker request when Home opens and 4 a minute while it stays 
 - `directory.test.ts`: set, update, unlist, newest first, 20 at most, the 200 cap, the 24 h expiry.
 - `worker.test.ts`: each row of the table above (rows, requests and units counted on the fake runtime); a listing survives hibernation without a second write; a failed directory call is retried at the next event; `holdRooms` with public rooms keeps 14 h and 18 h.
 - `fetch.test.ts`: `GET /api/public` returns only the four fields, is limited by `API_REQUESTS`, and reuses its answer for 10 s.
-- E2E (`e2e/public.spec.ts`, Worker and `SERVER=node`): phone A creates a room and makes it public; phone B sees it on Home with "1/8" and joins by tapping it; it leaves B's list when the host makes it private, and when the game starts. Home and the lobby pass `expectMobileFriendly` at 360 px in en, es and pt. Screenshots in `docs/screenshots/m24/`.
-- CI wall time stays ≤ 3 min: the new spec is 2 short tests.
+- E2E (in `e2e/online.spec.ts`, the suite CI also runs against the Node server): phone A creates a room and makes it public; phone B sees it on Home with "1/8" and joins by tapping it; it leaves the list when the host makes it private, when the game starts, and while its last seated player is away. Home and the lobby pass `expectMobileFriendly` at 360 px in en, es and pt. Screenshots in `docs/screenshots/m24/`.
+- CI wall time stays ≤ 3 min: it adds 2 short tests.
 
 ### M16 — Launch in the App Store and Google Play (user decision, 2026-10-24) · last
 

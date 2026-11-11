@@ -3,6 +3,7 @@ import { type Action, type GameState, legalActions } from "../engine/game";
 import {
   CLOSE_ROOM_FULL,
   type ClientMsg,
+  type PublicRoom,
   type RoomView,
   type ServerMsg,
   TURN_MS,
@@ -20,7 +21,7 @@ import {
   type Room,
   STALE_MS,
 } from "./room";
-import worker, { RoomDO } from "./worker";
+import worker, { DirectoryDO, RoomDO } from "./worker";
 
 vi.mock("cloudflare:workers", () => ({
   DurableObject: class {
@@ -1025,6 +1026,8 @@ describe("RoomDO alarm charges (SEC-11)", () => {
       "spam, then hold",
       "hit and run",
       "leave mid-turn",
+      "public loop",
+      "list and run",
     ] as const;
     for (const how of ways) {
       const day = await holdRooms(24, how);
@@ -1048,8 +1051,17 @@ describe("RoomDO alarm charges (SEC-11)", () => {
  */
 async function holdRooms(
   hours: number,
-  how: "hold only" | "hold, then spam" | "spam, then hold" | "hit and run" | "leave mid-turn",
+  how:
+    | "hold only"
+    | "hold, then spam"
+    | "spam, then hold"
+    | "hit and run"
+    | "leave mid-turn"
+    | "public loop"
+    | "list and run",
 ) {
+  /** Its sockets leave right after their hello or join. */
+  const runs = how === "hit and run" || how === "leave mid-turn" || how === "list and run";
   const BOT = "192.0.2.66";
   const QUOTA = 100_000;
   type Harness = Awaited<ReturnType<typeof harness>>;
@@ -1058,6 +1070,7 @@ async function holdRooms(
     API_REQUESTS: limiter(30),
     ROOM_CREATION: limiter(10),
     MESSAGES: messageLimiter(),
+    DIRECTORY: fakeDirectory(),
     ROOMS: {
       idFromName: (code: string) => code,
       get: (code: string) => ({
@@ -1109,8 +1122,7 @@ async function holdRooms(
   const start = Math.ceil(Date.now() / 60_000) * 60_000;
   const end = start + hours * 3_600_000;
   const used = () => {
-    let rows = 0;
-    let requests = 0;
+    let { rows, requests } = env.DIRECTORY;
     for (const h of rooms.values()) {
       rows += h.rows();
       requests += h.requests;
@@ -1119,7 +1131,7 @@ async function holdRooms(
   };
   /** A socket in the first room for the join/leave loop, opened before anything else uses the upgrades. */
   const ready = async () => {
-    if (!held.length || spam?.closed === null) return;
+    if (!held.length || spam?.closed === null || how === "public loop") return;
     spam = await open(held[0].code);
     const h = rooms.get(held[0].code) as Harness;
     if (spam && !(await tell(h, spam, { t: "hello", token: "spammer-token" }))) spam = null;
@@ -1128,6 +1140,10 @@ async function holdRooms(
   const spend = async () => {
     if (!held.length) return;
     const h = rooms.get(held[0].code) as Harness;
+    // M24: the first room's host flips its Public switch instead, 2 rows and a request each time.
+    for (let ws = held[0].host; how === "public loop" && ws?.closed === null; ) {
+      await tell(h, ws, { t: "public", on: !lastView(ws).public });
+    }
     while (spam?.closed === null) {
       await tell(h, spam, lastView(spam).you === null ? { t: "join", name: "x" } : { t: "leave" });
     }
@@ -1143,7 +1159,7 @@ async function holdRooms(
       const h = rooms.get(r.code) as Harness;
       r.host = ws && (await tell(h, ws, { t: "hello", token: `${r.code}-host` })) ? ws : null;
       if (!r.host) break;
-      if (how === "hit and run" || how === "leave mid-turn") r.host = await leave(h, r.host);
+      if (runs) r.host = await leave(h, r.host);
     }
     for (let res = await api("/api/rooms", { method: "POST" }); res.status === 200; ) {
       const { code } = JSON.parse(res.body ?? "{}") as { code: string };
@@ -1157,8 +1173,16 @@ async function holdRooms(
         // Every room but the first, where the join/leave loop runs, since a game takes no joins.
         const deal = how === "leave mid-turn" && who === "guest" && held.length > 1;
         if (deal && !(await tell(h, ws, { t: "start" }))) break;
+        // M24: each return of the host lists the room, and each leaving takes it off.
+        if (
+          how === "list and run" &&
+          who === "host" &&
+          !(await tell(h, ws, { t: "public", on: true }))
+        ) {
+          break;
+        }
         if (who === "host") r.host = ws;
-        if (how === "hit and run" || how === "leave mid-turn") r.host = await leave(h, ws);
+        if (runs) r.host = await leave(h, ws);
       }
       res = await api("/api/rooms", { method: "POST" });
     }
@@ -1187,3 +1211,179 @@ async function holdRooms(
     hoursToRequests: (simulated * QUOTA) / requests,
   };
 }
+
+/**
+ * The one DirectoryDO (M24) on a fake runtime that counts its rows written (each `put` and
+ * `delete`) and its requests. `down`: it can't be reached.
+ */
+function fakeDirectory() {
+  const data = new Map<string, unknown>();
+  const storage = {
+    list: async () => structuredClone(data),
+    put: async (key: string, value: unknown) => {
+      d.rows++;
+      data.set(key, structuredClone(value));
+    },
+    delete: async (key: string) => {
+      d.rows++;
+      data.delete(key);
+    },
+  };
+  let durable = new DirectoryDO({ storage } as never, {} as never);
+  const d = {
+    rows: 0,
+    requests: 0,
+    down: false,
+    /** The object is evicted and a fresh instance reads its rows. */
+    wake: () => {
+      durable = new DirectoryDO({ storage } as never, {} as never);
+    },
+    rooms: () => durable.list(),
+    idFromName: (name: string) => name,
+    get: () => ({
+      set: async (code: string, room: PublicRoom | null) => {
+        d.requests++;
+        if (d.down) throw new Error("unreachable");
+        await durable.set(code, room);
+      },
+      list: async () => {
+        d.requests++;
+        return durable.list();
+      },
+    }),
+  };
+  return d;
+}
+
+describe("RoomDO public rooms (M24)", () => {
+  const AWAY = "198.51.100.1";
+  const open: ClientMsg = { t: "public", on: true };
+  const publicRoom = async () => {
+    const DIRECTORY = fakeDirectory();
+    const env = { MESSAGES: messageLimiter(), DIRECTORY };
+    const t = await harness(env);
+    const [host] = await t.seat(1);
+    /** What an event cost: [the room's rows, the directory's rows, its requests, units to `ip`]. */
+    const cost = async (ip: string, run: () => Promise<unknown>) => {
+      const was = [t.rows(), DIRECTORY.rows, DIRECTORY.requests, spent(env, ip)];
+      await run();
+      const now = [t.rows(), DIRECTORY.rows, DIRECTORY.requests, spent(env, ip)];
+      return now.map((n, i) => n - was[i]);
+    };
+    return { DIRECTORY, env, t, host, cost };
+  };
+
+  it("M24: listing a room, each change to its entry and unlisting it cost a row in the directory, a DO request and 2 units to whoever's message did it; other messages cost the list nothing", async () => {
+    const { DIRECTORY, t, host, cost } = await publicRoom();
+    // The room's 2 rows: itself, and its alarm, now a presence check; the 4 units: 1 + 1 + 2.
+    expect(await cost(HOME, () => t.send(host, open))).toEqual([2, 1, 1, 4]);
+    expect(await DIRECTORY.rooms()).toEqual([
+      { code: "ABCDE", host: "P0", players: 1, knockout: false },
+    ]);
+    const guest = await t.connect(AWAY);
+    expect(await cost(AWAY, () => t.send(guest, { t: "hello", token: token(1) }))).toEqual([
+      0, 0, 0, 1,
+    ]);
+    expect(await cost(AWAY, () => t.send(guest, { t: "join", name: "Guest" }))).toEqual([
+      1, 1, 1, 3,
+    ]);
+    expect(await cost(HOME, () => t.send(host, { t: "knockout", on: true }))).toEqual([1, 1, 1, 3]);
+    expect(await DIRECTORY.rooms()).toEqual([
+      { code: "ABCDE", host: "P0", players: 2, knockout: true },
+    ]);
+    // The deal: the room's alarm moves to the turn clock too.
+    expect(await cost(HOME, () => t.send(host, { t: "start" }))).toEqual([2, 1, 1, 4]);
+    expect(await DIRECTORY.rooms()).toEqual([]);
+    expect(await cost(AWAY, () => t.send(guest, { t: "hello", token: token(1) }))).toEqual([
+      0, 0, 0, 1,
+    ]);
+  });
+
+  it("M24: the last seated socket out takes the room off the list and pays 2 for it; its hello puts it back for 2; a spectator's socket changes nothing", async () => {
+    const { DIRECTORY, t, host, cost } = await publicRoom();
+    await t.send(host, open);
+    const watcher = await t.connect(AWAY);
+    await t.send(watcher, { t: "hello", token: token(9) });
+    expect(await cost(AWAY, () => t.close(watcher))).toEqual([0, 0, 0, 0]);
+    // 2 rows: the directory's, and the room's, which remembers it is off the list. 4 units: 2 for
+    // the list and 2 for the presence check it leaves armed (SEC-13).
+    expect(await cost(HOME, () => t.close(host))).toEqual([1, 1, 1, 4]);
+    expect(await DIRECTORY.rooms()).toEqual([]);
+    const back = await t.connect();
+    expect(await cost(HOME, () => t.send(back, { t: "hello", token: token(0) }))).toEqual([
+      1, 1, 1, 3,
+    ]);
+    expect(await DIRECTORY.rooms()).toHaveLength(1);
+  });
+
+  it("M24, SEC-9: a host alone whose phone goes silent leaves the list at the room's presence check, which charges each IP with a socket 2 more; a hello puts the room back", async () => {
+    const { DIRECTORY, env, t, host, cost } = await publicRoom();
+    await t.send(host, open);
+    const watcher = await t.connect(AWAY);
+    await t.send(watcher, { t: "hello", token: token(9) });
+    const away = spent(env, AWAY);
+    // The room's 2 rows: itself, and its next alarm. 4 units each: the alarm run's 2, the list's 2.
+    expect(await cost(HOME, () => t.advance(STALE_MS, [watcher]))).toEqual([2, 1, 1, 4]);
+    expect(spent(env, AWAY) - away).toBe(4);
+    expect(await DIRECTORY.rooms()).toEqual([]);
+    expect(lastView(watcher).public).toBe(true); // still the host's choice
+    await t.send(host, { t: "hello", token: token(0) });
+    expect(await DIRECTORY.rooms()).toHaveLength(1);
+  });
+
+  it("M24: what the list knows survives hibernation, the room's and its own, so nothing is told twice; a list that can't be reached is told at the room's next event, and nobody pays for the miss", async () => {
+    const { DIRECTORY, t, host, cost } = await publicRoom();
+    await t.send(host, open);
+    t.wake();
+    DIRECTORY.wake();
+    expect(await cost(HOME, () => t.send(host, { t: "hello", token: token(0) }))).toEqual([
+      0, 0, 0, 1,
+    ]);
+    expect(await DIRECTORY.rooms()).toHaveLength(1);
+    DIRECTORY.down = true;
+    const guest = await t.connect(AWAY);
+    await t.send(guest, { t: "hello", token: token(1) });
+    const [room, rows, , units] = await cost(AWAY, () => t.send(guest, { t: "join", name: "G" }));
+    expect([room, rows, units]).toEqual([1, 0, 1]);
+    expect(lastView(host).seats).toHaveLength(2); // the room carries on
+    expect(await DIRECTORY.rooms()).toMatchObject([{ players: 1 }]);
+    DIRECTORY.down = false;
+    expect(await cost(HOME, () => t.send(host, { t: "hello", token: token(0) }))).toEqual([
+      1, 1, 1, 3,
+    ]);
+    expect(await DIRECTORY.rooms()).toMatchObject([{ players: 2 }]);
+  });
+
+  it("M24, SEC-9: a public lobby left open with one tab that only pings costs what a 2-seat lobby does, tells the list again at 12 h, and is off it when the room expires", async () => {
+    const { DIRECTORY, t, host } = await publicRoom();
+    await t.send(host, open);
+    const [rows, requests] = [DIRECTORY.rows, DIRECTORY.requests];
+    const left = await dayLeftOpen(t, [host]);
+    expect([DIRECTORY.rows - rows, DIRECTORY.requests - requests]).toEqual([1, 1]);
+    expect(left.rows + 1).toBeLessThanOrEqual(170);
+    expect(left.requests + 1).toBeLessThanOrEqual(170);
+    expect(await DIRECTORY.rooms()).toHaveLength(1);
+    await t.advance(QUIET_MS, [host]);
+    expect(t.exists()).toBe(false);
+    expect(await DIRECTORY.rooms()).toEqual([]);
+  });
+
+  it("M24: an IP past its budget at the presence check that unlists a room loses its sockets, like at any alarm", async () => {
+    const { DIRECTORY, env, t, host } = await publicRoom();
+    await t.send(host, open);
+    const watcher = await t.connect(AWAY);
+    await t.send(watcher, { t: "hello", token: token(9) });
+    await t.advance(60_000 - (Date.now() % 60_000), [host, watcher]); // a fresh limit window
+    // The host's phone goes silent; the check that finds it stale comes in this window.
+    await t.advance(STALE_MS - 1, [watcher]);
+    const minute = Math.floor(Date.now() / 60_000);
+    const used = env.MESSAGES.calls.filter(
+      ([key, when]) => key === AWAY && Math.floor(when / 60_000) === minute,
+    ).length;
+    for (let i = used; i < IP_MESSAGES_PER_MINUTE - 2; i++) await env.MESSAGES.limit({ key: AWAY });
+    await t.advance(1, [watcher]); // the alarm's 2 fit; the list's 2 don't
+    expect(await DIRECTORY.rooms()).toEqual([]);
+    expect(watcher.closed).toBe(1008);
+    expect(host.closed).toBeNull();
+  });
+});

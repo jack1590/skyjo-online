@@ -1397,3 +1397,112 @@ describe("per-IP limits", () => {
     });
   });
 });
+
+describe("public rooms (M24)", () => {
+  const open: ClientMsg = { t: "public", on: true };
+
+  it("M24: only the host switches a room public, in the lobby; everyone sees it; the message carries only a boolean", () => {
+    const t = setup();
+    const [a, b] = t.seated(2);
+    const watcher = t.connect("token-w-abcdef");
+    expect(t.room.view(b, t.live).public).toBe(false);
+    for (const c of [b, watcher]) expect(t.errorOf(() => t.send(c, open))).toBe("not-allowed");
+    expect(t.send(a, open)).toBe("data");
+    expect(t.send(a, open)).toBe("none");
+    for (const c of [a, b, watcher]) expect(t.room.view(c, t.live).public).toBe(true);
+    // A host who is away lets others lead, but not open the room to strangers.
+    t.drop(a);
+    expect(t.errorOf(() => t.send(b, { t: "public", on: false }))).toBe("not-allowed");
+    t.send(b, { t: "start" });
+    expect(t.errorOf(() => t.send(b, open))).toBe("not-allowed");
+    expect(parseClientMsg('{"t":"public","on":true,"code":"ZZZZZ"}')).toEqual(open);
+    for (const raw of ['{"t":"public"}', '{"t":"public","on":1}']) {
+      expect(parseClientMsg(raw)).toBeNull();
+    }
+  });
+
+  it("M24: a room is listed while public, in the lobby, with 1–7 seats and a seated player connected, and with nothing but its code, host name, seat count and knockout", () => {
+    const t = setup();
+    const [a] = t.seated(1);
+    expect(t.room.listing(t.live)).toBeNull(); // private
+    t.send(a, open);
+    expect(t.room.listing(t.live)).toEqual({
+      code: "ABCDE",
+      host: "P0",
+      players: 1,
+      knockout: false,
+    });
+    t.send(a, { t: "knockout", on: true });
+    const more = Array.from({ length: 7 }, (_, i) => t.connect(`token-more${i}-abcdef`));
+    for (const [i, c] of more.slice(0, 6).entries()) t.send(c, { t: "join", name: `Q${i}` });
+    expect(t.room.listing(t.live)).toMatchObject({ players: 7, knockout: true });
+    t.send(more[6], { t: "join", name: "Q6" });
+    expect(t.room.listing(t.live)).toBeNull(); // full
+    t.send(more[6], { t: "leave" });
+    // The host leaves: the next seat hosts, and the room stays public under their name.
+    t.send(a, { t: "leave" });
+    expect(t.room.listing(t.live)).toMatchObject({ host: "Q0", players: 6 });
+    t.send(more[0], { t: "public", on: false });
+    expect(t.room.listing(t.live)).toBeNull();
+    t.send(more[0], open);
+    t.send(more[0], { t: "start" });
+    expect(t.room.listing(t.live)).toBeNull(); // a game in progress
+  });
+
+  it("M24: a room with nobody seated, or nobody seated connected, is not listed; a spectator doesn't count", () => {
+    const t = setup();
+    const [a] = t.seated(1);
+    t.send(a, open);
+    const watcher = t.connect("token-w-abcdef");
+    t.advance(STALE_MS, [watcher]); // the host's phone went silent
+    expect(t.room.listing(t.live)).toBeNull();
+    t.send(a, { t: "hello", token: "token-0-abcdef" });
+    expect(t.room.listing(t.live)).not.toBeNull();
+    t.drop(a);
+    expect(t.room.listing(t.live)).toBeNull();
+    const back = t.connect("token-0-abcdef");
+    t.send(back, { t: "leave" });
+    expect(t.room.listing(t.live)).toBeNull(); // no seats
+  });
+
+  it("M24: relist says what to tell the directory once per change, and again 12 h later, since the directory forgets after 24 h; it survives a reload from storage", () => {
+    const t = setup();
+    const [a] = t.seated(1);
+    expect(t.room.relist(t.live)).toBeUndefined(); // private and never listed
+    t.send(a, open);
+    const first = t.room.relist(t.live);
+    expect(first).toMatchObject({ players: 1 });
+    expect(t.room.relist(t.live)).toEqual(first); // until the adapter confirms it was told
+    t.room.told(first ?? null);
+    expect(t.room.relist(t.live)).toBeUndefined();
+    const deps = { now: t.now, seed: (): Rng => [1, 2, 3, 4] };
+    const reloaded = new Room(JSON.parse(JSON.stringify(t.room.data)), deps);
+    expect(reloaded.relist(t.live)).toBeUndefined();
+    const b = t.connect("token-1-abcdef");
+    t.send(b, { t: "join", name: "Ben" });
+    expect(t.room.relist(t.live)).toMatchObject({ players: 2 });
+    t.room.told(t.room.relist(t.live) ?? null);
+    t.advance(IDLE_MS / 2 - 1);
+    expect(t.room.relist(t.live)).toBeUndefined();
+    t.advance(1);
+    expect(t.room.relist(t.live)).toMatchObject({ players: 2 });
+    t.room.told(t.room.relist(t.live) ?? null);
+    t.send(a, { t: "start" });
+    expect(t.room.relist(t.live)).toBeNull();
+    t.room.told(null);
+    expect(t.room.relist(t.live)).toBeUndefined();
+    t.advance(IDLE_MS); // an unlisted room has nothing to refresh
+    expect(t.room.relist(t.live)).toBeUndefined();
+  });
+
+  it("M24, SEC-9: a listed room checks presence when its last connected seat would turn stale, so a host alone whose phone died leaves the list; a private one-seat lobby schedules nothing", () => {
+    const t = setup();
+    const [a] = t.seated(1);
+    expect(t.room.nextAlarm(t.live)).toBe(t.now() + IDLE_MS);
+    t.send(a, open);
+    expect(t.room.nextAlarm(t.live)).toBe(t.now() + STALE_MS);
+    t.advance(STALE_MS, []);
+    expect(t.room.listing(t.live)).toBeNull();
+    expect(t.room.nextAlarm(t.live)).toBe(t.now() - STALE_MS + IDLE_MS);
+  });
+});

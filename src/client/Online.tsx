@@ -203,6 +203,25 @@ function Lobby({ room, send }: { room: RoomView; send: (msg: ClientMsg) => void 
             />
           </span>
         </label>
+        {/* Everyone sees whether strangers can find the room; only the host decides (M24). */}
+        <label className="option">
+          <span>
+            {t("publicRoom")}
+            <span className="option-help" id="public-help">
+              {t("publicRoomHelp")}
+            </span>
+          </span>
+          <span className="switch">
+            <input
+              type="checkbox"
+              aria-label={t("publicRoom")}
+              aria-describedby="public-help"
+              checked={room.public}
+              disabled={room.you !== room.host}
+              onChange={(e) => send({ t: "public", on: e.target.checked })}
+            />
+          </span>
+        </label>
         {/* Last and quiet, away from Start: a mistaken tap made the next seat host (UX-13). */}
         {room.you !== null && (
           <button type="button" className="btn quiet" onClick={() => send({ t: "leave" })}>

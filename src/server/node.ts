@@ -15,6 +15,7 @@ import {
   parseClientMsg,
   type ServerMsg,
 } from "../protocol";
+import { Directory } from "./directory";
 import {
   allowIp,
   allowMessage,
@@ -54,6 +55,8 @@ interface LiveRoom {
   timer?: NodeJS.Timeout;
 }
 const rooms = new Map<string, LiveRoom>();
+/** Home's public list (M24), in memory like the rooms. */
+const directory = new Directory();
 
 const send = (ws: WebSocket, msg: ServerMsg) => {
   if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg));
@@ -64,6 +67,11 @@ function commit(code: string, only?: WebSocket) {
   const live = rooms.get(code);
   if (!live) return;
   const conns = [...live.sockets.values()];
+  const listing = live.room.relist(conns);
+  if (listing !== undefined) {
+    directory.set(code, listing, Date.now());
+    live.room.told(listing);
+  }
   for (const [ws, conn] of live.sockets) {
     // A socket that hasn't said hello gets nothing until it does (SEC-6).
     if (conn.token === null || (only && ws !== only)) continue;
@@ -81,6 +89,7 @@ function alarm(code: string) {
       send(ws, { t: "missing" });
       ws.close(CLOSE_UNKNOWN_ROOM, "Room expired");
     }
+    directory.set(code, null, Date.now());
     rooms.delete(code);
     return;
   }
@@ -123,6 +132,11 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     rooms.set(code, { room: new Room(newRoom(code, Date.now()), deps), sockets: new Map() });
     commit(code);
     res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ code }));
+    return;
+  }
+  if (pathname === "/api/public" && req.method === "GET") {
+    const list = JSON.stringify(directory.list(Date.now()));
+    res.writeHead(200, { "content-type": "application/json" }).end(list);
     return;
   }
   if (pathname.startsWith("/api/")) {
