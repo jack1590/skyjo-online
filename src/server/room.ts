@@ -342,7 +342,7 @@ export class Room {
         );
         this.data.waitSince = now;
         this.data.turnSince = now;
-        // Auto-play lasts a game: in the lobby it only let others lead while you were away.
+        // A lobby saved before 2.6.4 may still hold a seat on Auto-play (BUG-6).
         for (const s of seats) s.auto = false;
         return "data";
       case "knockout":
@@ -368,6 +368,10 @@ export class Room {
           throw new RoomError("not-allowed");
         }
         this.data.game = null;
+        // Auto-play lasts a game. The lobby has no switch for it, so a host left on it could never
+        // lead again (BUG-6). A host whose page is closed or asleep is offline, so others lead; one
+        // away from an open page holds the lobby, as in any lobby.
+        for (const s of seats) s.auto = false;
         return "data";
       case "act":
         if (game === null || seat === null) throw new RoomError("not-allowed");

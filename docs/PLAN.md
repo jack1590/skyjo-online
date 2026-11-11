@@ -850,6 +850,20 @@ There is a second guard the old rule hid: `autoMove` never flips a seat's last f
 - **Accepted:** a present player who runs out of time while every other connected seat is on Auto-play goes on Auto-play in the same `tick`, so that very move may turn over their last card and end the round, doubled unless lowest (the PO reproduced it). That is the decision above (at that moment nobody is playing by hand), and the round has to end. Computing `mayEnd` before the due seats switch would spare that one move; revisit if players say so.
 - **M17:** `canStall` only counts seats, so a lone connected spectator keeps nothing running (the PO checked on the injected clock), but no test pins it. M17's out-seat test covers it; see there.
 
+### BUG-6 — A host on Auto-play at game over loses the lobby after Play again (QA, 2026-11-11, `main` 0122f4e) · v2.6.4
+
+**Report.** 3 phones, Pixel 7. The host ticks Auto-play (or runs out of time) and the game is played to game over; a guest taps Play again. In the lobby every phone shows "Start game" and an enabled knockout switch, nobody sees "Waiting for host", and a guest can start.
+
+**Root cause.** `canLead` (`room.ts`) treats a host whose `Seat.auto` is set as away, which is right during a game (M8: one absent phone can't freeze a summary). But `rematch` only set `game = null`, and `auto` was cleared only at `start`. So the flag outlived its game, into a lobby that has no Auto-play switch: the host could not clear it, and stayed "away" while connected. M8's room test even asserted it ("Still away in the lobby").
+
+**Fix.** `rematch` clears every seat's Auto-play, as `start` already did (kept, for lobbies saved before 2.6.4). Nothing else to reset: at game over no seat is waited on, so `stopped` is already empty, and `start` sets `turnSince`. A host whose page is closed or whose phone sleeps (the wake lock is game-only) is offline within 45 s, which `canLead` still reads as away, so the others can start.
+
+**PO to decide (review finding).** A host who walks away from a page that stays open and visible (a desktop tab) keeps pinging, so after Play again the lobby waits for them, and a connected seat can't be removed. That is how every lobby already works before a first game; before this fix a timed-out host's Auto-play happened to cover it after a rematch. If it matters, the fix is a lobby rule of its own (for example, guests may lead when the host has sent nothing but pings for N seconds), not a flag that outlives its game.
+
+**PO decision (PR #52 review).** Accepted as is. It is the rule of every first lobby, the game is phone-first and a sleeping phone goes offline within 45 s, so others then lead. No new lobby rule until a player reports a lobby held by an idle host.
+
+**Test.** `room.test.ts`, "BUG-6": after a guest's Play again nobody is on Auto-play, only the host leads, and a guest's `start` and `knockout` are refused.
+
 ### BUG-7 — A throw from "View table" at a summary is accepted but never shown (QA, 2026-11-11, `main` 0122f4e) · v2.6.3
 
 **Report.** Pixel 7. At round over or game over, tap View table, tap an opponent, tap an item. The server broadcasts the throw and the thrower's 3 s rest starts, but no phone draws it.
