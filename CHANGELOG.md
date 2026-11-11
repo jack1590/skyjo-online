@@ -4,6 +4,22 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.8.0] - 2026-11-11
+
+### Added
+
+- **Public rooms.** Until now you could only join a room by its code or link. Now the host can switch on **Public room** in the lobby, and the room appears on the home screen for anyone to join.
+  - **Home** lists the public rooms waiting for players: the host's name, how many of the 8 seats are taken, and a Knockout tag when "Play until one is left" is on. Tap a room, enter your name, and you're in. The list refreshes by itself every 15 seconds while you look at it; ↻ refreshes it now.
+  - A room is listed only while it waits in the lobby with a free seat and someone seated is there. It leaves the list when the game starts, when it fills, when the host switches Public room off, or when everyone leaves. After **Play again** it is listed again.
+  - Rooms are private unless the host says otherwise, and work exactly as before. Only the host can change the switch; everyone in the lobby sees it, so you know when strangers may join.
+  - The list shows nothing but the room's code, the host's name, the seat count and the Knockout option.
+  - **Two public rooms per network.** A third room from the same Wi-Fi or phone line can still be created and played by code or link; switching it to Public says why it stays private.
+  - **The host can remove anyone from a public lobby**, there or not: ✕ by their name, then confirm. Their phone goes back to the home screen with a note, and they can't join that room again for 10 minutes. In a private room the host still removes only players who went offline.
+
+### Fixed
+
+- Removing a player from the lobby can no longer remove the wrong one when someone else leaves at the same moment.
+
 ## [2.7.8] - 2026-11-11
 
 ### Changed

@@ -155,6 +155,17 @@ const en = {
   lastCard: "Revealing your last card ends the round",
   everyoneFlips: "Everyone flips 2",
   thisRound: "this round",
+  publicRooms: "Public rooms",
+  publicRoomsNone:
+    "No public rooms right now. Create a room and switch on Public room to open one.",
+  publicRoomOf: "{name}'s room",
+  knockoutTag: "Knockout",
+  refresh: "Refresh",
+  publicRoom: "Public room",
+  publicRoomHelp: "Anyone can find this room on the home screen and join.",
+  errTooManyPublic: "Your network already has 2 public rooms. This one stays private.",
+  removedNote: "The host removed you from that room.",
+  confirmRemove: "Remove {name} from the room? They can't come back for 10 minutes.",
 };
 
 export type Key = keyof typeof en;
@@ -315,6 +326,17 @@ const es: Record<Key, string> = {
   lastCard: "Revelar tu última carta termina la ronda",
   everyoneFlips: "Todos voltean 2",
   thisRound: "en esta ronda",
+  publicRooms: "Salas públicas",
+  publicRoomsNone:
+    "No hay salas públicas ahora. Crea una sala y activa Sala pública para abrir una.",
+  publicRoomOf: "Sala de {name}",
+  knockoutTag: "Eliminación",
+  refresh: "Actualizar",
+  publicRoom: "Sala pública",
+  publicRoomHelp: "Cualquiera puede encontrar esta sala en la pantalla de inicio y unirse.",
+  errTooManyPublic: "Tu red ya tiene 2 salas públicas. Esta sigue privada.",
+  removedNote: "El anfitrión te sacó de esa sala.",
+  confirmRemove: "¿Sacar a {name} de la sala? No podrá volver por 10 minutos.",
 };
 
 /** Brazilian Portuguese. */
@@ -471,6 +493,17 @@ const pt: Record<Key, string> = {
   lastCard: "Revelar sua última carta encerra a rodada",
   everyoneFlips: "Todos viram 2",
   thisRound: "nesta rodada",
+  publicRooms: "Salas públicas",
+  publicRoomsNone:
+    "Não há salas públicas agora. Crie uma sala e ative Sala pública para abrir uma.",
+  publicRoomOf: "Sala de {name}",
+  knockoutTag: "Eliminatória",
+  refresh: "Atualizar",
+  publicRoom: "Sala pública",
+  publicRoomHelp: "Qualquer pessoa pode encontrar esta sala na tela inicial e entrar.",
+  errTooManyPublic: "Sua rede já tem 2 salas públicas. Esta continua privada.",
+  removedNote: "O anfitrião removeu você dessa sala.",
+  confirmRemove: "Remover {name} da sala? Não poderá voltar por 10 minutos.",
 };
 
 export const LOCALES = {

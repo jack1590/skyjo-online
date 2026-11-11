@@ -277,6 +277,26 @@ li.dragging {
   font-size: 18px;
 }
 
+/* M24: Home's public rooms: the heading with Refresh beside it, and a row to tap per room. */
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.public-room {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 48px;
+  color: inherit;
+  font-weight: 700;
+  text-decoration: none;
+}
+
 .name-input {
   min-height: 48px;
   padding: 0 14px;

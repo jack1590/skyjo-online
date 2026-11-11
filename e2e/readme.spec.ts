@@ -21,7 +21,6 @@ test("README stills", async ({ browser, page }, info) => {
   await page.goto("/");
   const gotIt = page.getByRole("button", { name: "Got it" });
   if (await gotIt.count()) await gotIt.click();
-  await shot(page, "home");
 
   const { pages } = await seatedRoom(browser, info, ["Ana", "Ben", "Cris", "Dani"]);
   // Show the live site's address, not the test server's.
@@ -31,7 +30,13 @@ test("README stills", async ({ browser, page }, info) => {
   });
   await pages[0].getByRole("checkbox", { name: "Play until one is left" }).click({ force: true });
   await expect(pages[1].getByRole("checkbox", { name: "Play until one is left" })).toBeChecked();
+  // A public room (M24): the switch in the lobby, and the room on Home's list.
+  await pages[0].getByRole("checkbox", { name: "Public room" }).click({ force: true });
+  await expect(pages[1].getByRole("checkbox", { name: "Public room" })).toBeChecked();
   await shot(pages[0], "lobby");
+  await page.getByRole("button", { name: "Refresh" }).click();
+  await expect(page.getByTestId("public-rooms")).toContainText("Ana's room");
+  await shot(page, "home");
 
   // Your turn with 9 s on the clock (M8).
   const four = atTurnStart(4);

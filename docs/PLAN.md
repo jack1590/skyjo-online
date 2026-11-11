@@ -812,7 +812,8 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 30  | BUG-12                             | With the host away, a second leader's tap on Next round, Play again or Start game got an error                          | 2.7.6         | a QA read; proven in room.test.ts                                                                                |
 | 31  | BUG-13                             | The lobby's ✕ removed a seat by index, so a seat leaving just before it made it remove someone else                     | 2.7.7         | a QA read; proven in room.test.ts                                                                                |
 | 32  | BUG-5                              | The shuffle, measured (it was fair) and hardened: ChaCha20, unbiased picks, a 256-bit seed per round (owner report)     | 2.7.8         | the owner still finds the deals weak; fairness and cheating come before the launch                               |
-| 33  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
+| 33  | M24                                | Public rooms: a lobby switch and a list on Home (owner request, 2026-11-11)                                             | 2.8.0         | the owner asked for it; ahead of M16, which waits on the owner                                                   |
+| 34  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
 
 Deferred: Turnstile (SEC-4) and SEC-12 (until M16). Quick reactions, deferred until now, are M23 (user request, 2026-10-29). Declined: SEC-7. Versions assume this order; a PR that reorders says so.
 
@@ -1582,6 +1583,65 @@ An earlier run of the same script, without the new generator, gave the old round
 - **Seeded fixtures moved.** A new generator deals other cards for every seed, so the tests that tell a story chose new seeds: the knockout games 1 → 61 and 2 → 53, the round summaries 11, 4 and 3 → 344. `roundOver` in `e2e/harness.ts` now throws when its seed ends the game instead of the round, which two tests would have missed.
 - **The README's images are not regenerated:** the UI is unchanged. The next `npm run shots:readme` will show other cards.
 - **Delivery.** The engine and room unit suites take 20.3 s with the new generator and 20.9 s without, on the same machine: no cost. The harness specs pass on Pixel and iPhone, the screenshot tests included.
+
+
+### M24 — Public rooms (owner request, 2026-11-11) · v2.8.0
+
+**Request.** Today you join only by room code or link. The owner wants public rooms: strangers can find an open room and join.
+
+**Defaults chosen for the owner** (each is a small change later):
+- In the lobby the host, and only the host, can switch the room to **Public room** (off by default). Everyone in the lobby sees the switch's state, so guests know strangers may join. A private room works exactly as before.
+- Home shows **Public rooms**: each row has the host's display name, seats taken out of 8, and a "Knockout" tag when "Play until one is left" is on. A tap opens the room's lobby, where the player enters a name as today.
+- A room is listed while it is public, in the lobby, has 1–7 seats, and at least one seated player is connected. It leaves the list when its game starts, it fills, the host makes it private, everyone seated leaves or goes offline, or it expires. After "Play again" it is back in the lobby and listed again. Games in progress are never listed.
+- No chat, search, accounts or matchmaking. The list shows the 20 rooms that changed most recently.
+
+**Design.**
+- **Protocol.** `{ t: "public", on }`, parsed like `knockout`. `RoomView.public` tells every phone the switch's state; tabs loaded before 2.8.0 ignore it. `PublicRoom` is `{ code, host, players, knockout }`: nothing else leaves the server, never a token or an address.
+- **Room** (`room.ts`). `RoomData.public` is the switch. `listing(live)` is the room's `PublicRoom`, or null when it must not be listed: the server alone decides membership. `RoomData.listed` is what the directory was last told and when. `relist(live)` returns what to tell it now, or undefined when nothing changed. A listed room also checks presence when its last connected seat would turn stale (SEC-9's cadence), so a host alone in a public lobby whose phone dies leaves the list in about 45 s, or 10 min once the room is quiet.
+- **Directory** (`directory.ts`). A map from code to `PublicRoom` plus the time it was told. `set(code, room | null)`, `list()`. It holds at most 200 rooms (the oldest goes), forgets an entry 24 h after it was last told (a room whose "unlist" was lost), and a listed room tells it again after 12 h.
+- **Cloudflare.** One more Durable Object class, `DirectoryDO`, a single instance, SQLite-backed (migration `v2`; no dashboard step, no paid feature). It keeps the map in memory and one storage row per listed room, read once when it wakes. `RoomDO.commit` calls it when `relist` says so, then saves the room with the new `listed`. `GET /api/public` returns the list. Each Worker isolate reuses its last answer for 10 s. The Cache API would be the real edge cache, but it does nothing on `workers.dev`, where the game lives.
+- **Node.** The same `Directory` in memory, the same route.
+- **Client.** Home fetches `/api/public` when it opens and every 15 s while the page is visible, 20 times (5 min), then stops; coming back to the tab or tapping Refresh starts again. The lobby gets the switch under the knockout option.
+
+**Cost on the free plan** (100,000 Worker requests, 100,000 Durable Object requests and 100,000 rows written a day; SEC-11's rule: whoever causes a row pays for it from their `MESSAGES` budget).
+
+| Event                                                                                                                 | Rows written                                                            | DO requests                             | Charged                                                                                                                                                                                                                                 |
+| --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Telling the directory (list, update, unlist): the switch, a join, leave, kick, the knockout option, start, play again | 1 in the directory (the room's own row is already paid by the message)  | 1                                       | 2 units, to the sender, on top of the message's 1                                                                                                                                                                                       |
+| The same when the last seated player's socket closes, or comes back with a hello                                      | 2: the directory's and the room's (`listed`)                            | 1                                       | 2 units, to that socket's address                                                                                                                                                                                                       |
+| The same at a presence check (the last connected seat went stale), or at the room's expiry                            | 2                                                                       | 1, plus the alarm's own                 | 2 units to every address with a socket in the room, on top of the alarm's 2                                                                                                                                                             |
+| Evicting the oldest of 200, or dropping a 24 h-old entry                                                              | 1 (its second and last: each entry's first told paid 2 units for 1 row) | 0                                       | prepaid                                                                                                                                                                                                                                 |
+| `GET /api/public`                                                                                                     | 0                                                                       | 1, or 0 within 10 s in the same isolate | 2 units per read of the directory; nothing for a cached answer, which costs what a 429 would (a Worker request). Not counted in `API_REQUESTS`: 8 friends on one router waiting on Home would use up its 30 and couldn't create or join |
+
+So every unit still buys at most one row and half a Durable Object request, and SEC-11's bound holds: one address at every limit needs at least 14 h to use up the rows and 18 h for the requests, now also when it flips the switch in a loop or lists rooms and leaves (`holdRooms` in `worker.test.ts`).
+
+Per public room, a typical life (host switches it on, 3 friends or strangers join, the game starts): 5 directory updates = 5 rows and 5 DO requests more than a private room, 10 units spread over 4 phones. A host who backgrounds the phone to share the link and returns: 2 updates more. A public lobby left open with a tab that only pings costs what a 2-seat lobby already does (about 160 rows and requests a day, SEC-9), since its presence checks are the same ones.
+
+Per Home viewer: 1 Worker request when Home opens and 4 a minute while it stays visible, at most 21 per visit until they tap or return (a forgotten visible tab stops after 5 min). Durable Object requests for reads are at most 6 a minute per busy isolate, however many people look. 500 Home visits of a minute each a day: 2,500 Worker requests and at most 2,500 DO requests, 2.5% of each quota. The directory object is awake only while it answers; rows read are at most 200 per cold start, under 1.8 million a day at the worst (the quota is 5 million).
+
+**Owner decisions (2026-11-11), built in the same PR.**
+- **2 public rooms per address.** Before, one address could keep about 45 rooms listed (each open socket's presence checks cost it 2 units every 45 s) and fill the 20-row list with names of its choosing. Now the directory counts listings per address (`ipKey`: IPv4, or the IPv6 /64) and refuses a third: the room stays private and playable by code, and the host reads why in the lobby, in en, es and pt. The address that owns a listing is the host's when it switched Public on (`RoomData.publicBy`), kept through every later update. A refusal costs 3 units and one row (the room's); the directory writes nothing.
+- **The host removes anyone from a public lobby**, online or not, after a confirm. The removed phone goes back to Home with a note and its token can't join that room for 10 min (the room remembers the latest 20). Private rooms keep the old rule: a leader clears offline seats only.
+- **`kick` names the seat by name, not index.** QA found that an index can point at someone else when a seat leaves at the same moment. Names are unique in a room and never sent as secrets, unlike tokens. The message still takes `seat` from tabs loaded before 2.8.0. If another PR fixes the same race for private rooms, the two must agree on this field when the second one rebases.
+- **A host who leaves others behind** hands the next seat a room that stays public (no change). A room emptied of seats turns private.
+
+**Follow-ups.**
+- **Name moderation.** Names on the public list are cleaned (no control characters, 16 code points) but not moderated. To be decided with the kids and store review (M16). No change here.
+- **Duration billing.** In the first week after launch, check the Cloudflare dashboard for `DirectoryDO`'s duration (GB-s). The design assumes an idle object isn't billed; if Home's polling keeps it billed most of the day, raise `LIST_CACHE_MS` or the poll interval.
+- **E2E on iPhone.** M24's three E2E tests run on Pixel and the Node job only: with them, `e2e (iphone)` took 3:01, against 2:35–2:38 before.
+
+**Not bounded by this milestone.**
+- Ratelimit counts are per Cloudflare location: a list read spends in the Worker's location and a room's events in the room object's, so on the real network reads may not trade off against writes. Reads are still at most 60 a minute per address (2 units each), the rate alarms already allow.
+- While the directory can't be reached, each event in a public room retries (a request nobody pays for), and an "unlist" lost at the last close stays on Home until someone opens the room or 24 h pass. Clients can't cause the failure.
+
+**Acceptance.**
+- `room.test.ts`: only the host can switch Public; `listing` is null in a private room, in a game, at 0 or 8 seats, and with nobody seated connected; `relist` reports a change once, and again after 12 h; a listed room schedules a presence check for its last connected seat. `parseClientMsg` takes `public` only with a boolean.
+- `directory.test.ts`: set, update, unlist, newest first, 20 at most, the 200 cap, the 24 h expiry, 2 per address.
+- `room.test.ts` and `worker.test.ts`: the kick by name, the host's kick in a public lobby and its 10 min, the refused third listing and what it costs.
+- `worker.test.ts`: each row of the table above (rows, requests and units counted on the fake runtime); a listing survives hibernation without a second write; a failed directory call is retried at the next event; `holdRooms` with public rooms keeps 14 h and 18 h.
+- `fetch.test.ts`: `GET /api/public` returns the list, reuses its answer for 10 s, charges 2 units a read, refuses past the budget, and leaves `API_REQUESTS` alone.
+- E2E (in `e2e/online.spec.ts`, the suite CI also runs against the Node server): phone A creates a room and makes it public; phone B sees it on Home with "1/8" and joins by tapping it; it leaves the list when the host makes it private, when the game starts, and while its last seated player is away. Home and the lobby pass `expectMobileFriendly` at 360 px in en, es and pt. Screenshots in `docs/screenshots/m24/`.
+- CI wall time stays ≤ 3 min: it adds 2 short tests.
 
 ### M16 — Launch in the App Store and Google Play (user decision, 2026-10-24) · last
 

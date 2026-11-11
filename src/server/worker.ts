@@ -7,9 +7,11 @@ import {
   isRoomCode,
   PING,
   PONG,
+  type PublicRoom,
   parseClientMsg,
   type ServerMsg,
 } from "../protocol";
+import { Directory, LIST_CACHE_MS, type Listed } from "./directory";
 import {
   allowMessage,
   type Change,
@@ -54,7 +56,11 @@ const clientKey = (request: Request) => {
  * - each alarm run, 2 (a row and a Durable Object request) to every IP with a live socket in the
  *   room: a lobby whose sockets only ping re-checks presence every ≤ 45 s, and each auto-play step
  *   (M8) is an alarm run that also saves the room (2 rows, a request);
- * - a new room, 3: two rows now, one when it expires.
+ * - a new room, 3: two rows now, one when it expires;
+ * - telling the public list about a room (M24), 2: a row there and a Durable Object request (and
+ *   the room's own row, when the event didn't save it already), to whoever's message or close
+ *   changed the listing, or at an alarm to every IP in the room;
+ * - reading the public list from its object, 2: a request.
  * So one IP writes about a row per unit at most, however it splits them.
  */
 async function spend(env: Env, key: string, units: number): Promise<boolean> {
@@ -86,12 +92,29 @@ const tooMany = (what: string) =>
     headers: { "Retry-After": "60" },
   });
 
+/** The one DirectoryDO. */
+const directory = (env: Env) => env.DIRECTORY.get(env.DIRECTORY.idFromName("public"));
+
+/** This isolate's last read of the public list (M24), reused for LIST_CACHE_MS. */
+let listed = { at: Number.NEGATIVE_INFINITY, rooms: [] as PublicRoom[] };
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     // Only /api/* reaches the Worker (run_worker_first). A 429 costs this Worker request and no
     // Durable Object request; it still counts toward the Worker quota, which only a WAF rule saves.
     const key = clientKey(request);
+    // Home polls the public list (M24), so it stays out of API_REQUESTS: 8 friends on one router
+    // waiting on Home would use it up and couldn't create or join. A cached answer costs what a
+    // 429 would, this Worker request; a read of the directory spends 2 of MESSAGES.
+    if (url.pathname === "/api/public" && request.method === "GET") {
+      // A local run always reads afresh, so its tests see a change at once.
+      if (!key || Date.now() - listed.at >= LIST_CACHE_MS) {
+        if (key && !(await spend(env, key, 2))) return tooMany("requests");
+        listed = { at: Date.now(), rooms: await directory(env).list() };
+      }
+      return Response.json(listed.rooms);
+    }
     if (key && !(await env.API_REQUESTS.limit({ key })).success) return tooMany("requests");
     if (url.pathname === "/api/rooms" && request.method === "POST") {
       if (key && !(await env.ROOM_CREATION.limit({ key })).success) return tooMany("rooms");
@@ -216,9 +239,9 @@ export class RoomDO extends DurableObject<Env> {
     ws.serializeAttachment(conn);
     // Ticking auto-play on may make a step due now, and a returning player may restart auto-play.
     if (room.tick([...live.values()])) change = "data";
-    if ((await this.commit(live, change, ws)) && conn.ip && !(await spend(this.env, conn.ip, 1))) {
-      shut(ws, conn);
-    }
+    const { moved, told } = await this.commit(live, change, ws);
+    const units = (moved ? 1 : 0) + (told ? 2 : 0);
+    if (units && conn.ip && !(await spend(this.env, conn.ip, units))) shut(ws, conn);
   }
 
   webSocketClose(ws: WebSocket) {
@@ -230,11 +253,12 @@ export class RoomDO extends DurableObject<Env> {
       if (!room || !conn) return;
       // The seat's last sign of life is kept in memory only: a close writes no row unless it moves
       // the alarm earlier, and then its IP pays for it.
-      const moved = await this.commit(live, room.closed(conn) ? "view" : "none");
+      // The last seated player out also takes the room off the public list (M24), and pays.
+      const { moved, told } = await this.commit(live, room.closed(conn) ? "view" : "none");
       // The last socket out also pays for an alarm it leaves armed before the room's expiry: that
       // run (a row and a request) finds no IP in the room to charge (SEC-13).
       const early = live.size === 0 && this.alarmAt !== null && this.alarmAt < room.nextAlarm([]);
-      const units = (moved ? 1 : 0) + (early ? 2 : 0);
+      const units = (moved ? 1 : 0) + (early ? 2 : 0) + (told ? 2 : 0);
       if (units && conn.ip) await spend(this.env, conn.ip, units);
     });
   }
@@ -250,6 +274,8 @@ export class RoomDO extends DurableObject<Env> {
       if (!room) return;
       const live = this.live();
       if (room.isIdle([...live.values()])) {
+        // Still on the public list (a tab that only pinged for a day): taken off it (M24).
+        if (room.data.listed && (await this.tell(null))) await this.charge(live);
         for (const ws of live.keys()) {
           send(ws, { t: "missing" });
           ws.close(CLOSE_UNKNOWN_ROOM, "Room expired");
@@ -260,18 +286,43 @@ export class RoomDO extends DurableObject<Env> {
       }
       // Every check, and every auto-play step (M8), costs a row and a request, so the IPs holding
       // the room open pay for it (SEC-11). A step also saves the room: 2 rows for the 2 units.
-      for (const ip of new Set([...live.values()].map((conn) => conn.ip))) {
-        if (!ip || (await spend(this.env, ip, 2))) continue;
-        for (const [ws, conn] of live) {
-          if (conn.ip !== ip) continue;
-          room.closed(conn); // its seat keeps the ping-fresh time, so it shows offline only when stale
-          shut(ws, conn);
-          live.delete(ws);
-        }
-      }
+      await this.charge(live);
       // Re-broadcast even without a move: presence and who may lead can change with time alone.
-      await this.commit(live, room.tick([...live.values()]) ? "data" : "view");
+      const { told } = await this.commit(live, room.tick([...live.values()]) ? "data" : "view");
+      // The last connected seat went stale, so the room left the public list (M24): 2 more each.
+      if (told) await this.charge(live);
     });
+  }
+
+  /**
+   * Charges 2 to every IP with a live socket in the room, and closes the sockets of one past its
+   * budget; they stop counting at once, so the next commit sees the room without them.
+   */
+  private async charge(live: Map<WebSocket, Conn>) {
+    for (const ip of new Set([...live.values()].map((conn) => conn.ip))) {
+      if (!ip || (await spend(this.env, ip, 2))) continue;
+      for (const [ws, conn] of live) {
+        if (conn.ip !== ip) continue;
+        this.room?.closed(conn); // its seat keeps the ping-fresh time, so it shows offline only when stale
+        shut(ws, conn);
+        live.delete(ws);
+      }
+    }
+  }
+
+  /**
+   * Tells the public list (M24): a Durable Object request, and a row there unless it refuses.
+   * Returns its answer: false = refused, the host's address has 2 rooms there. Undefined when it
+   * can't be reached: the room tries again at its next event, and the list forgets an expired
+   * room in 24 h.
+   */
+  private async tell(listing: PublicRoom | null) {
+    const { code, publicBy = null } = (this.room as Room).data;
+    try {
+      return await directory(this.env).set(code, listing, publicBy);
+    } catch {
+      return undefined;
+    }
   }
 
   private async load(): Promise<Room | null> {
@@ -305,23 +356,62 @@ export class RoomDO extends DurableObject<Env> {
   /**
    * Persists and broadcasts only what changed (to `from` alone for "none"), and makes sure an
    * alarm comes by the room's next check. Each put and each setAlarm is a row written. Returns
-   * whether it moved the alarm earlier.
+   * whether it moved the alarm earlier, and whether it told the public list (M24), which saves the
+   * room too: what the list knows must survive hibernation.
    */
   private async commit(live: Map<WebSocket, Conn>, change: Change, from?: WebSocket) {
     const room = this.room;
-    if (!room) return false;
+    if (!room) return { moved: false, told: false };
     const conns = [...live.values()];
+    const listing = room.relist(conns);
+    const answer = listing === undefined ? undefined : await this.tell(listing);
+    const told = answer !== undefined;
+    if (listing !== undefined && answer) room.told(listing);
+    // Refused: the room is private again, as everyone's view now says, and the sender is told why.
+    if (answer === false) room.refuse();
+    if (told) change = "data";
     if (change === "data") await this.ctx.storage.put("room", room.data);
     for (const [ws, conn] of live) {
       // A socket that hasn't said hello gets nothing until it does (SEC-6).
       if (conn.token === null || (change === "none" && ws !== from)) continue;
       send(ws, { t: "state", room: room.view(conn, conns), ack: conn.ack });
     }
+    const sender = from && live.get(from);
+    if (answer === false && sender) {
+      send(from, { t: "error", code: "too-many-public", ack: sender.ack });
+    }
     // An alarm that comes early just re-checks and re-arms, so only an earlier time needs a write.
     const next = room.nextAlarm(conns);
-    if (this.alarmAt !== null && next >= this.alarmAt) return false;
+    if (this.alarmAt !== null && next >= this.alarmAt) return { moved: false, told };
     this.alarmAt = next;
     await this.ctx.storage.setAlarm(next);
-    return true;
+    return { moved: true, told };
+  }
+}
+
+/** Home's public list (M24): one object, one row per listed room, read once when it wakes. */
+export class DirectoryDO extends DurableObject<Env> {
+  private directory: Directory | undefined;
+
+  private async load() {
+    this.directory ??= new Directory(await this.ctx.storage.list<Listed>());
+    return this.directory;
+  }
+
+  /**
+   * Lists, updates or (null) unlists a room: one row, or none when there was nothing to unlist or
+   * `owner`, the host's address, has 2 rooms listed already; then it returns false.
+   */
+  async set(code: string, room: PublicRoom | null, owner: string | null): Promise<boolean> {
+    const rooms = await this.load();
+    const { gone, ok } = rooms.set(code, room, Date.now(), owner);
+    for (const dropped of gone) await this.ctx.storage.delete(dropped);
+    const entry = ok && room && rooms.rooms.get(code);
+    if (entry) await this.ctx.storage.put(code, entry);
+    return ok;
+  }
+
+  async list(): Promise<PublicRoom[]> {
+    return (await this.load()).list(Date.now());
   }
 }

@@ -18,6 +18,7 @@ import {
   cutName,
   type ErrorCode,
   lastMover,
+  type PublicRoom,
   type Reaction,
   type RoomView,
   TOSS_MS,
@@ -56,6 +57,20 @@ export interface RoomData {
   stopped?: number[];
   /** "Play until one is left" (R16), set in the lobby and dealt with at every start. Unset before 2.2.0. */
   knockout?: boolean;
+  /** The host listed the room on Home (M24). Unset before 2.8.0. */
+  public?: boolean;
+  /**
+   * What the public list was last told about this room, and when; unset = not on it. Saved, so a
+   * room back from hibernation tells the list (a row and a request) only what changed.
+   */
+  listed?: { room: PublicRoom; at: number };
+  /**
+   * The address (`ipKey`) of the host who switched Public on; null = a local run. The list counts
+   * the room against it (2 an address). Never in a view.
+   */
+  publicBy?: string | null;
+  /** Tokens the host removed from this public lobby, and until when (ms) they can't join it. */
+  removed?: Record<string, number>;
 }
 
 /** One open socket, persisted in its attachment. */
@@ -148,6 +163,8 @@ export const GAGS_PER_UNIT = 8;
 export const MAX_SOCKETS = 20;
 /** A socket that hasn't said hello this long after opening is closed (SEC-6); the client says it at once. */
 export const HELLO_MS = 10_000;
+/** A player the host removed from a public lobby (M24) can't join it again for this long. */
+export const REMOVED_MS = 10 * 60_000;
 /** Views carry a throw this long (M21): later ones, such as a reconnecting phone's, leave it out. */
 export const TOSS_SHOW_MS = 2_000;
 
@@ -346,7 +363,7 @@ export class Room {
         // from `online` that the table saw it offline (SEC-9).
         return this.online(live) === online && !quiet ? "none" : "view";
       case "join": {
-        if (seat !== null || !lobby) throw new RoomError("not-allowed");
+        if (seat !== null || !lobby || this.removed(conn.token)) throw new RoomError("not-allowed");
         if (seats.length >= MAX_PLAYERS) throw new RoomError("room-full");
         const name = cleanName(msg.name);
         if (!name) throw new RoomError("bad-name");
@@ -361,16 +378,27 @@ export class Room {
         this.removeSeat(seat);
         return "data";
       case "kick": {
-        // Clears ghost seats (someone who closed the tab without leaving); online players stay.
         // By name when the client sent one: the index it saw may be another seat's by now (BUG-13).
         const { name } = msg;
         const at = name === undefined ? msg.seat : seats.findIndex((s) => s.name === name);
         // Already gone, by its own leave or another leader's tap: late, not an error.
         if (at === -1) return "none";
-        if (!lobby || !this.canLead(seat, live) || at === seat) {
+        const target = seats[at];
+        if (!lobby || !target || at === seat || !this.canLead(seat, live)) {
           throw new RoomError("not-allowed");
         }
-        if (!seats[at] || this.connected(at, live)) throw new RoomError("not-allowed");
+        // Clears ghost seats (someone who closed the tab without leaving); online players stay,
+        // except in a public lobby (M24), where the host may remove a stranger who is there.
+        const present = this.connected(at, live);
+        if (present && !(this.data.public === true && seat === this.data.host)) {
+          throw new RoomError("not-allowed");
+        }
+        if (present) {
+          // Shut out for a while, or they'd sit straight back down. 20 at most, the latest.
+          const kept = Object.entries(this.data.removed ?? {}).filter(([, until]) => until > now);
+          kept.push([target.token, now + REMOVED_MS]);
+          this.data.removed = Object.fromEntries(kept.slice(-20));
+        }
         this.removeSeat(at);
         return "data";
       }
@@ -410,6 +438,13 @@ export class Room {
         if (!lobby || !this.canLead(seat, live)) throw new RoomError("not-allowed");
         if ((this.data.knockout === true) === msg.on) return "none";
         this.data.knockout = msg.on;
+        return "data";
+      case "public":
+        // Only the host opens the room to strangers: a stand-in leader can't.
+        if (!lobby || seat === null || seat !== this.data.host) throw new RoomError("not-allowed");
+        if ((this.data.public === true) === msg.on) return "none";
+        this.data.public = msg.on;
+        this.data.publicBy = conn.ip;
         return "data";
       case "auto": {
         // A player who is out has no turns to play (R16).
@@ -521,11 +556,64 @@ export class Room {
       lead: this.canLead(you, live),
       clocks: this.clocks(live),
       knockout: this.data.knockout === true,
+      public: this.data.public === true,
+      ...(this.data.game === null &&
+        conn.token !== null &&
+        this.removed(conn.token) && { removed: true }),
       game: this.data.game && toView(this.data.game),
       ...(this.toss && this.deps.now() - this.toss.id < TOSS_SHOW_MS && { toss: this.toss }),
       ...(this.reaction &&
         this.deps.now() - this.reaction.id < TOSS_SHOW_MS && { reaction: this.reaction }),
     };
+  }
+
+  /**
+   * The room's entry on Home's public list (M24), or null when it isn't to be there: private, in a
+   * game, full, or with nobody seated and connected to welcome a stranger.
+   */
+  listing(live: Conn[]): PublicRoom | null {
+    const { code, seats, host, game } = this.data;
+    const open =
+      this.data.public === true &&
+      game === null &&
+      seats.length < MAX_PLAYERS &&
+      seats.some((_, i) => this.connected(i, live));
+    return open
+      ? {
+          code,
+          host: seats[host].name,
+          players: seats.length,
+          knockout: this.data.knockout === true,
+        }
+      : null;
+  }
+
+  /**
+   * What the public list must be told now: this room's entry, or null to take it off; undefined
+   * when it already knows. A listed room says so again after 12 h, since the list forgets one it
+   * hasn't heard from in 24 h. The adapter tells the list, then calls `told`, then saves the room.
+   */
+  relist(live: Conn[]): PublicRoom | null | undefined {
+    const next = this.listing(live);
+    const was = this.data.listed;
+    const old = was !== undefined && this.deps.now() - was.at >= IDLE_MS / 2;
+    return JSON.stringify(next) === JSON.stringify(was?.room ?? null) && !old ? undefined : next;
+  }
+
+  told(room: PublicRoom | null): void {
+    if (room) this.data.listed = { room, at: this.deps.now() };
+    else delete this.data.listed;
+  }
+
+  /** The list refused the room, its address having 2 there already: it is private again. */
+  refuse(): void {
+    delete this.data.public;
+    delete this.data.listed;
+  }
+
+  /** Whether the host removed this token from the public lobby less than REMOVED_MS ago. */
+  private removed(token: string): boolean {
+    return (this.data.removed?.[token] ?? 0) > this.deps.now();
   }
 
   /** Every seat the table waits on whose clock runs, and when and why the server moves for it. */
@@ -583,6 +671,13 @@ export class Room {
     // If the host goes quiet while the table needs a lead, others must learn they may step in.
     if (this.needsLead() && this.connected(this.data.host, live)) {
       due.push(check(this.lastSeen(this.data.host, live) + STALE_MS));
+    }
+    // A listed room leaves Home's list when its last connected seat turns stale (M24).
+    if (this.listing(live)) {
+      const seen = this.data.seats.flatMap((_, i) =>
+        this.connected(i, live) ? [this.lastSeen(i, live)] : [],
+      );
+      due.push(check(Math.max(...seen) + STALE_MS));
     }
     // A step that came due after this event's tick() (a timer that fired a millisecond early) is
     // checked again at once, not dropped: dropping it stalled the turn until the next check.
@@ -701,6 +796,8 @@ export class Room {
 
   private removeSeat(seat: number): void {
     this.data.seats.splice(seat, 1);
+    // An emptied room is private again (M24): whoever sits down next didn't choose to be listed.
+    if (this.data.seats.length === 0) delete this.data.public;
     // The next seat inherits the host role.
     if (seat < this.data.host) this.data.host--;
     else if (this.data.host >= this.data.seats.length) this.data.host = 0;

@@ -92,6 +92,16 @@ export function lastMover(
   return null;
 }
 
+/** A room on Home's public list (M24): all a stranger needs to pick one, and nothing else. */
+export interface PublicRoom {
+  code: string;
+  /** The host's display name. */
+  host: string;
+  /** Seats taken, 1–7 of MAX_PLAYERS: a full room isn't listed. */
+  players: number;
+  knockout: boolean;
+}
+
 export type ClientMsg = (
   | { t: "hello"; token: string }
   | { t: "join"; name: string }
@@ -113,6 +123,8 @@ export type ClientMsg = (
   | { t: "auto"; on: boolean }
   /** In the lobby, whoever may lead switches "Play until one is left" (R16) on or off. */
   | { t: "knockout"; on: boolean }
+  /** In the lobby, the host lists the room on Home for anyone to join, or takes it off (M24). */
+  | { t: "public"; on: boolean }
   /** Throws an item at another seat, mid-game (M21). */
   | { t: "toss"; to: number; item: TossItem }
   /** Reacts to a play, mid-game (M23); shares the throws' cooldown. */
@@ -128,7 +140,9 @@ export type ErrorCode =
   | "room-full"
   | "bad-name"
   | "name-taken"
-  | "illegal-move";
+  | "illegal-move"
+  /** The sender's address already lists 2 public rooms (M24): this one stays private. */
+  | "too-many-public";
 
 export interface SeatView {
   name: string;
@@ -162,6 +176,10 @@ export interface RoomView {
   clocks: Wait[];
   /** The lobby's "Play until one is left" option (R16), which the next start deals with. */
   knockout: boolean;
+  /** The lobby's "Public room" switch (M24): the room is on Home's list while it has a free seat. */
+  public: boolean;
+  /** The host removed you from this public lobby (M24): no joining it for a while. */
+  removed?: true;
   game: GameView | null;
   /** The latest throw, in views sent within TOSS_SHOW_MS of it (M21). */
   toss?: Toss;
@@ -223,6 +241,7 @@ function parseBody(msg: Record<string, unknown>): ClientMsg | null {
         : null;
     case "auto":
     case "knockout":
+    case "public":
       return typeof msg.on === "boolean" ? { t: msg.t, on: msg.on } : null;
     case "toss":
       return Number.isInteger(msg.to) && TOSS_ITEMS.includes(msg.item as TossItem)

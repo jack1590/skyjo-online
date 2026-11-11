@@ -521,8 +521,9 @@ test("UX-13: in the lobby, Start game is the first button under the seats, and L
       page.getByRole("button", { name: leave }),
     ];
     await expect(head).toBeVisible();
-    expect(await top(head)).toBeLessThan(await top(option));
-    expect(await top(option)).toBeLessThan(await top(quit));
+    // Two options since M24: the game's, then Public room.
+    expect(await top(head)).toBeLessThan(await top(option.first()));
+    expect(await top(option.last())).toBeLessThan(await top(quit));
     // Quiet: text on the panel, with no fill or border of its own.
     await expect(quit).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
     await expect(quit).toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
@@ -1056,4 +1057,125 @@ test("joining from the home screen with a code", async ({ browser }, info) => {
   await guest.getByRole("button", { name: "Join", exact: true }).click();
   await guest.waitForURL(`**/r/${code}`);
   await expect(guest.getByTestId("room-code")).toHaveText(code);
+});
+
+test("M24: a room its host makes public shows on Home with the host's name and seats; a stranger taps it and joins; it leaves the list when the host makes it private again and when the game starts; rows ≥ 44 px and no sideways scroll at 360 px in en, es and pt", async ({
+  browser,
+}, info) => {
+  // Pixel only (and the Node job, which is Pixel): on iPhone they took CI's job past 3 min.
+  test.skip(info.project.name !== "pixel" && !process.env.SHOTS, "M24 runs on Pixel only");
+  const [ana, ben, cris] = await phones(browser, info, 3);
+  const code = await createRoom(ana);
+  await join(ana, code, "Ana");
+  const option = (page: Page) => page.getByRole("checkbox", { name: "Public room" });
+  /** The room's row on a phone's Home, after asking the server again. */
+  const listed = async (page: Page) => {
+    await page.getByRole("button", { name: /^(Refresh|Actualizar|Atualizar)$/ }).click();
+    return page.getByTestId("public-rooms").locator(`a[href="/r/${code}"]`);
+  };
+  const shot = async (page: Page, name: string) => {
+    if (!process.env.SHOTS || info.project.name !== "iphone") return;
+    const path = `docs/screenshots/m24/${name}.jpg`;
+    await page.screenshot({ path, type: "jpeg", quality: 80, scale: "css", fullPage: true });
+  };
+
+  // Private by default: Home doesn't show it.
+  await ben.goto("/");
+  await expect(ben.getByRole("heading", { name: "Public rooms" })).toBeVisible();
+  await expect(option(ana)).not.toBeChecked();
+  await expect(await listed(ben)).toHaveCount(0);
+
+  await option(ana).click({ force: true });
+  await expect(option(ana)).toBeChecked();
+  await expect(await listed(ben)).toHaveText(/Ana's room.*1\/8/);
+  await shot(ana, "01-lobby-public");
+
+  // Phone-first, in every language.
+  await ben.setViewportSize({ width: 360, height: 740 });
+  for (const [locale, name] of [
+    ["en", "Ana's room"],
+    ["es", "Sala de Ana"],
+    ["pt", "Sala de Ana"],
+  ]) {
+    await ben.evaluate((l) => localStorage.setItem("skyjo:locale", l), locale);
+    await ben.reload();
+    const row = await listed(ben);
+    await expect(row).toContainText(name);
+    expect((await row.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+    await expectMobileFriendly(ben);
+    await shot(ben, `02-home-${locale}`);
+  }
+  await ben.evaluate(() => localStorage.setItem("skyjo:locale", "en"));
+  await ben.reload();
+
+  // Private again: gone. Public again: back.
+  await option(ana).click({ force: true });
+  await expect(option(ana)).not.toBeChecked();
+  await expect(await listed(ben)).toHaveCount(0);
+  await option(ana).click({ force: true });
+  await expect(option(ana)).toBeChecked();
+
+  // A stranger taps the row, sees the lobby and its switch (not theirs to flip), and joins.
+  await (await listed(ben)).click();
+  await ben.waitForURL(`/r/${code}`);
+  await expect(option(ben)).toBeChecked();
+  await expect(option(ben)).toBeDisabled();
+  await join(ben, code, "Ben");
+  await cris.goto("/");
+  await expect(await listed(cris)).toHaveText(/Ana's room.*2\/8/);
+
+  // The game starts: no longer open to strangers.
+  await startGame(ana);
+  await expect(await listed(cris)).toHaveCount(0);
+});
+
+test("M24: a public room leaves Home's list when its last seated player closes the page, and returns with them", async ({
+  browser,
+}, info) => {
+  // Pixel only (and the Node job, which is Pixel): on iPhone they took CI's job past 3 min.
+  test.skip(info.project.name !== "pixel" && !process.env.SHOTS, "M24 runs on Pixel only");
+  const [ana, ben] = await phones(browser, info, 2);
+  const code = await createRoom(ana);
+  await join(ana, code, "Ana");
+  await ana.getByRole("checkbox", { name: "Public room" }).click({ force: true });
+  await expect(ana.getByRole("checkbox", { name: "Public room" })).toBeChecked();
+  await ben.goto("/");
+  const row = ben.getByTestId("public-rooms").locator(`a[href="/r/${code}"]`);
+  const refresh = ben.getByRole("button", { name: "Refresh" });
+  await expect(row).toBeVisible();
+  await ana.goto("/");
+  await expect(async () => {
+    await refresh.click();
+    await expect(row).toHaveCount(0, { timeout: 1_000 });
+  }).toPass();
+  await ana.goto(`/r/${code}`);
+  await expect(ana.getByTestId("seats")).toContainText("Ana");
+  await refresh.click();
+  await expect(row).toBeVisible();
+});
+
+test("M24: in a public lobby the host removes a player who is there; their phone goes back to Home with a note, and the room's link sends it there again; in a private lobby there is no such button", async ({
+  browser,
+}, info) => {
+  // Pixel only (and the Node job, which is Pixel): on iPhone they took CI's job past 3 min.
+  test.skip(info.project.name !== "pixel" && !process.env.SHOTS, "M24 runs on Pixel only");
+  const { pages, code } = await seatedRoom(browser, info, ["Ana", "Ben"]);
+  const [ana, ben] = pages;
+  const remove = ana.getByRole("button", { name: "Remove Ben" });
+  await expect(remove).toHaveCount(0);
+  await ana.getByRole("checkbox", { name: "Public room" }).click({ force: true });
+  await expect(remove).toBeVisible();
+  await expectMobileFriendly(ana);
+  await expect(ben.getByRole("button", { name: "Remove Ana" })).toHaveCount(0);
+  ana.once("dialog", (dialog) => dialog.accept());
+  await remove.click();
+  await expect(ana.getByTestId("seats")).not.toContainText("Ben");
+  await ben.waitForURL("/?removed");
+  await expect(ben.getByText("The host removed you from that room.")).toBeVisible();
+  if (process.env.SHOTS && info.project.name === "iphone") {
+    const path = "docs/screenshots/m24/03-removed.jpg";
+    await ben.screenshot({ path, type: "jpeg", quality: 80, scale: "css", fullPage: true });
+  }
+  await ben.goto(`/r/${code}`);
+  await ben.waitForURL("/?removed");
 });
