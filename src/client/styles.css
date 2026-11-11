@@ -1992,6 +1992,12 @@ dialog.zoom::backdrop {
   row-gap: 2px;
 }
 
+/* Stretched over its column, so a long name ends in "…" before the total: with an auto margin a
+   grid item is as wide as its text, and the name ran under the total (BUG-3). */
+.opponents:not(.watch) .opp-name {
+  margin-right: 0;
+}
+
 .opponents:not(.watch) .opp-total {
   grid-area: 1 / 3;
 }
