@@ -211,7 +211,7 @@ export const allowMessage = (conn: Conn, now: number) => count(conn, now, WINDOW
 
 /**
  * Whether this message costs its IP a unit: any message does, but of a socket's gags only the
- * first of every GAGS_PER_UNIT, landed or too soon. Paid ahead, so a new socket gets none free.
+ * first of every GAGS_PER_UNIT, landed, too soon or refused. Paid ahead, so a new socket gets none free.
  */
 export function costs(conn: Conn, msg: ClientMsg | null): boolean {
   if (msg?.t !== "toss" && msg?.t !== "react") return true;

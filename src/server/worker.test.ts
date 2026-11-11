@@ -815,17 +815,25 @@ describe("RoomDO gags (BUG-4)", () => {
     expect(peak).toBeLessThanOrEqual(IP_MESSAGES_PER_MINUTE);
   });
 
-  it("BUG-4: a socket's throws and reactions cost its IP a unit for every 10, the first of each 10 paying, too soon or not, across hibernation", async () => {
+  it("BUG-4: a socket's throws and reactions cost its IP a unit for every 8, the first of each 8 paying, landed, too soon or refused, across hibernation", async () => {
     const env = { MESSAGES: messageLimiter() };
     const t = await harness(env);
     const [a, b] = await t.seat(2);
+    const lobby = spent(env, HOME);
+    await t.send(a, { t: "toss", to: 1, item: "bomb" }); // refused: no game yet
+    expect(a.sent.at(-1)).toMatchObject({ t: "error", code: "not-allowed" });
+    expect(spent(env, HOME)).toBe(lobby + 1);
     await t.send(a, { t: "start" });
     await flipAll(t, [a, b]);
     const before = spent(env, HOME);
     await t.send(a, { t: "toss", to: 1, item: "bomb" });
-    expect(spent(env, HOME)).toBe(before + 1);
+    expect(spent(env, HOME)).toBe(before);
     t.wake();
-    for (let i = 1; i < GAGS_PER_UNIT; i++) await t.send(a, { t: "react", kind: "laugh" }); // too soon
+    for (let i = 2; i < GAGS_PER_UNIT; i++) await t.send(a, { t: "react", kind: "laugh" }); // too soon
+    expect(spent(env, HOME)).toBe(before);
+    await t.send(a, { t: "toss", to: 1, item: "kiss" });
+    expect(spent(env, HOME)).toBe(before + 1);
+    for (let i = 1; i < GAGS_PER_UNIT; i++) await t.send(a, { t: "react", kind: "laugh" });
     expect(spent(env, HOME)).toBe(before + 1);
     await t.send(a, { t: "toss", to: 1, item: "kiss" });
     expect(spent(env, HOME)).toBe(before + 2);
@@ -1128,13 +1136,19 @@ describe("RoomDO alarm charges (SEC-11)", () => {
       "leave mid-turn",
       "hold, then gag",
       "gag, then hold",
+      "hold, then gag in lobbies",
     ] as const;
     for (const how of ways) {
-      // The gag modes send over 20,000 throws an hour, so they simulate 2 h and 1 h. Over 24 h:
-      // 19.4 h and 19.2 h holding first, 163.7 h and 30.1 h gagging first.
-      const gags = how === "hold, then gag" ? 2 : how === "gag, then hold" ? 1 : 0;
-      const day = await holdRooms(gags || 24, how);
-      expect(day.thrown > 0).toBe(gags > 0);
+      // The gag modes send over 20,000 throws an hour, so they simulate 1 or 2 h: what is checked
+      // here. Short runs read about 2% high, as rooms are still being made. Over 24 h: 19.4 h and
+      // 19.2 h holding first, 163.7 h and 30.1 h gagging first, 28.7 h and 19.2 h in lobbies.
+      const gags = { "hold, then gag": 2, "gag, then hold": 1, "hold, then gag in lobbies": 2 }[
+        how as string
+      ];
+      const day = await holdRooms(gags ?? 24, how);
+      expect(day.thrown).toBeGreaterThanOrEqual((gags ?? 0) * 20_000);
+      if (!gags) expect(day.thrown).toBe(0);
+
       expect(day.hoursToRows).toBeGreaterThanOrEqual(14);
       expect(day.hoursToRequests).toBeGreaterThanOrEqual(18);
     }
@@ -1150,8 +1164,9 @@ describe("RoomDO alarm charges (SEC-11)", () => {
  * and run" closes each socket right after its hello or join, before the room's presence check.
  * "leave mid-turn" (SEC-13) does the same in games its guests deal before leaving (all but the
  * loop's room), so each return's hello restarts a turn clock whose alarm then runs with nobody there.
- * The gag modes (BUG-4) deal a game in every room and keep every socket open: each minute, before
- * or after the rest, every seat throws until the budget closes a socket.
+ * The gag modes (BUG-4) keep every socket open: each minute, before or after the rest, every seat
+ * throws until the budget closes a socket, in a game dealt in every room, or in lobbies, where a
+ * throw is refused and costs the same.
  * Stops at a day's quota or after `hours`; says how long one IP needs to use up the 100,000 rows
  * and the 100,000 DO requests a day.
  */
@@ -1164,9 +1179,12 @@ async function holdRooms(
     | "hit and run"
     | "leave mid-turn"
     | "hold, then gag"
-    | "gag, then hold",
+    | "gag, then hold"
+    | "hold, then gag in lobbies",
 ) {
-  const gags = how === "hold, then gag" || how === "gag, then hold";
+  /** The modes that deal a game in every room, where a throw lands. */
+  const dealt = how === "hold, then gag" || how === "gag, then hold";
+  const gags = dealt || how === "hold, then gag in lobbies";
   const BOT = "192.0.2.66";
   const QUOTA = 100_000;
   type Harness = Awaited<ReturnType<typeof harness>>;
@@ -1250,7 +1268,7 @@ async function holdRooms(
     }
   };
   /**
-   * BUG-4: throws from every seat it holds in a game, 100 a socket a minute (under the per-socket
+   * BUG-4: throws from every seat it holds, 100 a socket a minute (under the per-socket
    * flood limit), until its budget closes one. 8 gags a unit, each 1/20 of a DO request, no row.
    */
   let thrown = 0;
@@ -1259,7 +1277,7 @@ async function holdRooms(
       for (const ws of [...h.sockets]) {
         for (let i = 0; i < 100 && ws.closed === null; i++) {
           const view = ws.sent.some((m) => m.t === "state") ? lastView(ws) : null;
-          if (!view?.game || view.you === null) break;
+          if (!view || view.you === null || (dealt && !view.game)) break;
           if (!(await tell(h, ws, { t: "toss", to: 1 - view.you, item: "bomb" }))) return;
           thrown++;
         }
@@ -1296,11 +1314,11 @@ async function holdRooms(
         if (how === "hit and run" || how === "leave mid-turn") r.host = await leave(h, ws);
       }
       // Throws need a game, which the host deals.
-      if (gags && r.host?.closed === null) await tell(h, r.host, { t: "start" });
+      if (dealt && r.host?.closed === null) await tell(h, r.host, { t: "start" });
       res = await api("/api/rooms", { method: "POST" });
     }
     if (how !== "spam, then hold" && !gags) await spend();
-    if (how === "hold, then gag") await gag();
+    if (how === "hold, then gag" || how === "hold, then gag in lobbies") await gag();
     const until = start + (minute + 1) * 60_000;
     for (;;) {
       let next: Harness | null = null;
