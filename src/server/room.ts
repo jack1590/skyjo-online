@@ -64,6 +64,13 @@ export interface RoomData {
    * room back from hibernation tells the list (a row and a request) only what changed.
    */
   listed?: { room: PublicRoom; at: number };
+  /**
+   * The address (`ipKey`) of the host who switched Public on; null = a local run. The list counts
+   * the room against it (2 an address). Never in a view.
+   */
+  publicBy?: string | null;
+  /** Tokens the host removed from this public lobby, and until when (ms) they can't join it. */
+  removed?: Record<string, number>;
 }
 
 /** One open socket, persisted in its attachment. */
@@ -145,6 +152,8 @@ export const IP_MESSAGES_PER_MINUTE = 120;
 export const MAX_SOCKETS = 20;
 /** A socket that hasn't said hello this long after opening is closed (SEC-6); the client says it at once. */
 export const HELLO_MS = 10_000;
+/** A player the host removed from a public lobby (M24) can't join it again for this long. */
+export const REMOVED_MS = 10 * 60_000;
 /** Views carry a throw this long (M21): later ones, such as a reconnecting phone's, leave it out. */
 export const TOSS_SHOW_MS = 2_000;
 
@@ -313,7 +322,7 @@ export class Room {
         // from `online` that the table saw it offline (SEC-9).
         return this.online(live) === online && !quiet ? "none" : "view";
       case "join": {
-        if (seat !== null || !lobby) throw new RoomError("not-allowed");
+        if (seat !== null || !lobby || this.removed(conn.token)) throw new RoomError("not-allowed");
         if (seats.length >= MAX_PLAYERS) throw new RoomError("room-full");
         const name = cleanName(msg.name);
         if (!name) throw new RoomError("bad-name");
@@ -327,14 +336,28 @@ export class Room {
         if (seat === null || !lobby) throw new RoomError("not-allowed");
         this.removeSeat(seat);
         return "data";
-      case "kick":
-        // Clears ghost seats (someone who closed the tab without leaving); online players stay.
-        if (!lobby || !this.canLead(seat, live) || msg.seat === seat) {
+      case "kick": {
+        const at =
+          msg.name === undefined ? (msg.seat ?? -1) : seats.findIndex((s) => s.name === msg.name);
+        const target = seats[at];
+        if (!lobby || !target || at === seat || !this.canLead(seat, live)) {
           throw new RoomError("not-allowed");
         }
-        if (!seats[msg.seat] || this.connected(msg.seat, live)) throw new RoomError("not-allowed");
-        this.removeSeat(msg.seat);
+        // Clears ghost seats (someone who closed the tab without leaving); online players stay,
+        // except in a public lobby (M24), where the host may remove a stranger who is there.
+        const present = this.connected(at, live);
+        if (present && !(this.data.public === true && seat === this.data.host)) {
+          throw new RoomError("not-allowed");
+        }
+        if (present) {
+          // Shut out for a while, or they'd sit straight back down. 20 at most, the latest.
+          const kept = Object.entries(this.data.removed ?? {}).filter(([, until]) => until > now);
+          kept.push([target.token, now + REMOVED_MS]);
+          this.data.removed = Object.fromEntries(kept.slice(-20));
+        }
+        this.removeSeat(at);
         return "data";
+      }
       case "start":
         if (!lobby || seats.length < MIN_PLAYERS || !this.canLead(seat, live)) {
           throw new RoomError("not-allowed");
@@ -360,6 +383,7 @@ export class Room {
         if (!lobby || seat === null || seat !== this.data.host) throw new RoomError("not-allowed");
         if ((this.data.public === true) === msg.on) return "none";
         this.data.public = msg.on;
+        this.data.publicBy = conn.ip;
         return "data";
       case "auto": {
         // A player who is out has no turns to play (R16).
@@ -465,6 +489,9 @@ export class Room {
       clocks: this.clocks(live),
       knockout: this.data.knockout === true,
       public: this.data.public === true,
+      ...(this.data.game === null &&
+        conn.token !== null &&
+        this.removed(conn.token) && { removed: true }),
       game: this.data.game && toView(this.data.game),
       ...(this.toss && this.deps.now() - this.toss.id < TOSS_SHOW_MS && { toss: this.toss }),
       ...(this.reaction &&
@@ -508,6 +535,17 @@ export class Room {
   told(room: PublicRoom | null): void {
     if (room) this.data.listed = { room, at: this.deps.now() };
     else delete this.data.listed;
+  }
+
+  /** The list refused the room, its address having 2 there already: it is private again. */
+  refuse(): void {
+    delete this.data.public;
+    delete this.data.listed;
+  }
+
+  /** Whether the host removed this token from the public lobby less than REMOVED_MS ago. */
+  private removed(token: string): boolean {
+    return (this.data.removed?.[token] ?? 0) > this.deps.now();
   }
 
   /** Every seat the table waits on whose clock runs, and when and why the server moves for it. */

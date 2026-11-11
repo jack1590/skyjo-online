@@ -13,6 +13,7 @@ const ERRORS: Record<ErrorCode, Key> = {
   "bad-name": "errBadName",
   "name-taken": "errNameTaken",
   "illegal-move": "errIllegalMove",
+  "too-many-public": "errTooManyPublic",
 };
 
 const goHome = () => window.location.assign("/");
@@ -27,6 +28,12 @@ export function Online({ code }: { code: string }) {
     const id = setTimeout(clearError, 4_000);
     return () => clearTimeout(id);
   }, [error, clearError]);
+
+  // The host removed you from a public lobby (M24): back to Home, which says so.
+  const removed = room?.removed === true;
+  useEffect(() => {
+    if (removed) window.location.assign("/?removed");
+  }, [removed]);
 
   if (status === "missing" || status === "full") {
     return (
@@ -149,16 +156,21 @@ function Lobby({ room, send }: { room: RoomView; send: (msg: ClientMsg) => void 
                 {i === room.host && <span className="tag">{t("host")}</span>}
                 {i === room.you && <span className="tag">{t("you")}</span>}
                 {!s.connected && <span className="tag">{t("offline")}</span>}
-                {room.lead && !s.connected && i !== room.you && (
-                  <button
-                    type="button"
-                    className="btn icon"
-                    aria-label={t("removePlayer", { name: s.name })}
-                    onClick={() => send({ t: "kick", seat: i })}
-                  >
-                    ✕
-                  </button>
-                )}
+                {/* A leader clears ghosts; a public room's host may also remove who is there (M24). */}
+                {i !== room.you &&
+                  (s.connected ? room.public && room.you === room.host : room.lead) && (
+                    <button
+                      type="button"
+                      className="btn icon"
+                      aria-label={t("removePlayer", { name: s.name })}
+                      onClick={() =>
+                        (!s.connected || window.confirm(t("confirmRemove", { name: s.name }))) &&
+                        send({ t: "kick", name: s.name })
+                      }
+                    >
+                      ✕
+                    </button>
+                  )}
               </span>
             </li>
           ))}

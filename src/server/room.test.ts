@@ -21,6 +21,7 @@ import {
   newRoom,
   peerKey,
   QUIET_MS,
+  REMOVED_MS,
   Room,
   RoomError,
   STALE_MS,
@@ -1508,5 +1509,70 @@ describe("public rooms (M24)", () => {
     t.advance(STALE_MS, []);
     expect(t.room.listing(t.live)).toBeNull();
     expect(t.room.nextAlarm(t.live)).toBe(t.now() - STALE_MS + IDLE_MS);
+  });
+
+  it("M24: a kick names its seat by name, not by index, so a seat leaving at the same moment can't remove the wrong one; tabs loaded before 2.7.0 still send an index", () => {
+    const t = setup();
+    const [a, b, c] = t.seated(3);
+    t.drop(c);
+    t.send(b, { t: "leave" }); // P2 is now seat 1, where the host's screen still shows P1
+    expect(t.errorOf(() => t.send(a, { t: "kick", name: "P1" }))).toBe("not-allowed");
+    expect(t.room.data.seats.map((s) => s.name)).toEqual(["P0", "P2"]);
+    t.send(a, { t: "kick", name: "P2" });
+    expect(t.room.data.seats.map((s) => s.name)).toEqual(["P0"]);
+    expect(t.errorOf(() => t.send(a, { t: "kick", name: "P0" }))).toBe("not-allowed"); // yourself
+    expect(parseClientMsg('{"t":"kick","name":"P2","seat":0}')).toEqual({ t: "kick", name: "P2" });
+    expect(parseClientMsg('{"t":"kick","seat":1}')).toEqual({ t: "kick", seat: 1 });
+    for (const raw of ['{"t":"kick"}', '{"t":"kick","name":5}']) {
+      expect(parseClientMsg(raw)).toBeNull();
+    }
+  });
+
+  it("M24: in a public lobby the host removes any seat, online or not; the removed phone is told, and can't join again for 10 min; a stand-in leader and a private room keep the old rule", () => {
+    const t = setup();
+    const [a, b, c] = t.seated(3);
+    // Private: only offline seats.
+    expect(t.errorOf(() => t.send(a, { t: "kick", name: "P1" }))).toBe("not-allowed");
+    t.send(a, open);
+    expect(t.errorOf(() => t.send(b, { t: "kick", name: "P2" }))).toBe("not-allowed"); // not the host
+    expect(t.send(a, { t: "kick", name: "P1" })).toBe("data");
+    expect(t.room.data.seats.map((s) => s.name)).toEqual(["P0", "P2"]);
+    expect(t.room.view(b, t.live)).toMatchObject({ you: null, removed: true });
+    expect(t.room.view(c, t.live).removed).toBeUndefined();
+    expect(t.errorOf(() => t.send(b, { t: "join", name: "Again" }))).toBe("not-allowed");
+    // A new socket with the same token is still out; another token isn't.
+    const again = t.connect("token-1-abcdef");
+    expect(t.room.view(again, t.live).removed).toBe(true);
+    t.advance(REMOVED_MS - 1);
+    expect(t.errorOf(() => t.send(b, { t: "join", name: "Again" }))).toBe("not-allowed");
+    t.advance(1);
+    expect(t.room.view(b, t.live).removed).toBeUndefined();
+    t.send(b, { t: "join", name: "Again" });
+    // The host is away: the stand-in may clear ghosts, as in a private room, but not remove the present.
+    t.drop(a);
+    expect(t.errorOf(() => t.send(c, { t: "kick", name: "Again" }))).toBe("not-allowed");
+    t.send(c, { t: "kick", name: "P0" });
+    expect(t.room.data.seats.map((s) => s.name)).toEqual(["P2", "Again"]);
+    expect(t.room.view(a, t.live).removed).toBeUndefined(); // a ghost cleared isn't shut out
+  });
+
+  it("M24: the room remembers at most 20 removed players, and whose address made it public; a refused listing turns it private", () => {
+    const t = setup();
+    const a = newConn(t.now(), "203.0.113.7");
+    t.live.push(a);
+    t.send(a, { t: "hello", token: "token-0-abcdef" });
+    t.send(a, { t: "join", name: "Host" });
+    t.send(a, open);
+    expect(t.room.data.publicBy).toBe("203.0.113.7");
+    for (let i = 0; i < 25; i++) {
+      const c = t.connect(`token-g${i}-abcdef`);
+      t.send(c, { t: "join", name: `G${i}` });
+      t.send(a, { t: "kick", name: `G${i}` });
+    }
+    expect(Object.keys(t.room.data.removed ?? {})).toHaveLength(20);
+    expect(JSON.stringify(t.room.view(a, t.live))).not.toContain("203.0.113.7");
+    t.room.refuse();
+    expect(t.room.view(a, t.live).public).toBe(false);
+    expect(t.room.relist(t.live)).toBeUndefined();
   });
 });

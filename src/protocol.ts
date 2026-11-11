@@ -82,7 +82,11 @@ export type ClientMsg = (
   | { t: "hello"; token: string }
   | { t: "join"; name: string }
   | { t: "leave" }
-  | { t: "kick"; seat: number }
+  /**
+   * Removes a seat in the lobby, named by its name (unique in a room): an index could point at
+   * someone else by the time it arrives. `seat` is what tabs loaded before 2.7.0 send.
+   */
+  | { t: "kick"; name?: string; seat?: number }
   | { t: "start" }
   | { t: "act"; action: Action }
   | { t: "rematch" }
@@ -107,7 +111,9 @@ export type ErrorCode =
   | "room-full"
   | "bad-name"
   | "name-taken"
-  | "illegal-move";
+  | "illegal-move"
+  /** The sender's address already lists 2 public rooms (M24): this one stays private. */
+  | "too-many-public";
 
 export interface SeatView {
   name: string;
@@ -143,6 +149,8 @@ export interface RoomView {
   knockout: boolean;
   /** The lobby's "Public room" switch (M24): the room is on Home's list while it has a free seat. */
   public: boolean;
+  /** The host removed you from this public lobby (M24): no joining it for a while. */
+  removed?: true;
   game: GameView | null;
   /** The latest throw, in views sent within TOSS_SHOW_MS of it (M21). */
   toss?: Toss;
@@ -192,6 +200,7 @@ function parseBody(msg: Record<string, unknown>): ClientMsg | null {
     case "rematch":
       return { t: msg.t };
     case "kick":
+      if (typeof msg.name === "string") return { t: "kick", name: msg.name };
       return Number.isInteger(msg.seat) ? { t: "kick", seat: msg.seat as number } : null;
     case "auto":
     case "knockout":

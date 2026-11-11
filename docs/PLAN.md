@@ -1317,15 +1317,25 @@ Per public room, a typical life (host switches it on, 3 friends or strangers joi
 
 Per Home viewer: 1 Worker request when Home opens and 4 a minute while it stays visible, at most 21 per visit until they tap or return (a forgotten visible tab stops after 5 min). Durable Object requests for reads are at most 6 a minute per busy isolate, however many people look. 500 Home visits of a minute each a day: 2,500 Worker requests and at most 2,500 DO requests, 2.5% of each quota. The directory object is awake only while it answers; rows read are at most 200 per cold start, under 1.8 million a day at the worst (the quota is 5 million).
 
-**Not bounded by this milestone (open for the owner).** One address can keep about 45 public rooms listed (each open socket's presence checks cost it 2 units every 45 s), which can fill the 20-row list with names of its choosing. Names are already cleaned (no control characters, 16 code points) but not moderated. If that happens: cap listed rooms per address, or add Turnstile (SEC-4, deferred). Also open:
-- A host can't remove a stranger who joins and sits there online (`kick` only clears offline seats); the way out today is a new room.
-- A host who leaves a public lobby with others seated hands the next seat a room that is still public (the switch shows it). A room emptied of seats turns private.
+**Owner decisions (2026-11-11), built in the same PR.**
+- **2 public rooms per address.** Before, one address could keep about 45 rooms listed (each open socket's presence checks cost it 2 units every 45 s) and fill the 20-row list with names of its choosing. Now the directory counts listings per address (`ipKey`: IPv4, or the IPv6 /64) and refuses a third: the room stays private and playable by code, and the host reads why in the lobby, in en, es and pt. The address that owns a listing is the host's when it switched Public on (`RoomData.publicBy`), kept through every later update. A refusal costs 3 units and one row (the room's); the directory writes nothing.
+- **The host removes anyone from a public lobby**, online or not, after a confirm. The removed phone goes back to Home with a note and its token can't join that room for 10 min (the room remembers the latest 20). Private rooms keep the old rule: a leader clears offline seats only.
+- **`kick` names the seat by name, not index.** QA found that an index can point at someone else when a seat leaves at the same moment. Names are unique in a room and never sent as secrets, unlike tokens. The message still takes `seat` from tabs loaded before 2.7.0. If another PR fixes the same race for private rooms, the two must agree on this field when the second one rebases.
+- **A host who leaves others behind** hands the next seat a room that stays public (no change). A room emptied of seats turns private.
+
+**Follow-ups.**
+- **Name moderation.** Names on the public list are cleaned (no control characters, 16 code points) but not moderated. To be decided with the kids and store review (M16). No change here.
+- **Duration billing.** In the first week after launch, check the Cloudflare dashboard for `DirectoryDO`'s duration (GB-s). The design assumes an idle object isn't billed; if Home's polling keeps it billed most of the day, raise `LIST_CACHE_MS` or the poll interval.
+- **E2E on iPhone.** M24's three E2E tests run on Pixel and the Node job only: with them, `e2e (iphone)` took 3:01, against 2:35–2:38 before.
+
+**Not bounded by this milestone.**
 - Ratelimit counts are per Cloudflare location: a list read spends in the Worker's location and a room's events in the room object's, so on the real network reads may not trade off against writes. Reads are still at most 60 a minute per address (2 units each), the rate alarms already allow.
 - While the directory can't be reached, each event in a public room retries (a request nobody pays for), and an "unlist" lost at the last close stays on Home until someone opens the room or 24 h pass. Clients can't cause the failure.
 
 **Acceptance.**
 - `room.test.ts`: only the host can switch Public; `listing` is null in a private room, in a game, at 0 or 8 seats, and with nobody seated connected; `relist` reports a change once, and again after 12 h; a listed room schedules a presence check for its last connected seat. `parseClientMsg` takes `public` only with a boolean.
-- `directory.test.ts`: set, update, unlist, newest first, 20 at most, the 200 cap, the 24 h expiry.
+- `directory.test.ts`: set, update, unlist, newest first, 20 at most, the 200 cap, the 24 h expiry, 2 per address.
+- `room.test.ts` and `worker.test.ts`: the kick by name, the host's kick in a public lobby and its 10 min, the refused third listing and what it costs.
 - `worker.test.ts`: each row of the table above (rows, requests and units counted on the fake runtime); a listing survives hibernation without a second write; a failed directory call is retried at the next event; `holdRooms` with public rooms keeps 14 h and 18 h.
 - `fetch.test.ts`: `GET /api/public` returns the list, reuses its answer for 10 s, charges 2 units a read, refuses past the budget, and leaves `API_REQUESTS` alone.
 - E2E (in `e2e/online.spec.ts`, the suite CI also runs against the Node server): phone A creates a room and makes it public; phone B sees it on Home with "1/8" and joins by tapping it; it leaves the list when the host makes it private, when the game starts, and while its last seated player is away. Home and the lobby pass `expectMobileFriendly` at 360 px in en, es and pt. Screenshots in `docs/screenshots/m24/`.

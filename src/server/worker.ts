@@ -269,7 +269,7 @@ export class RoomDO extends DurableObject<Env> {
       const live = this.live();
       if (room.isIdle([...live.values()])) {
         // Still on the public list (a tab that only pinged for a day): taken off it (M24).
-        if (room.data.listed && (await this.tell(room.data.code, null))) await this.charge(live);
+        if (room.data.listed && (await this.tell(null))) await this.charge(live);
         for (const ws of live.keys()) {
           send(ws, { t: "missing" });
           ws.close(CLOSE_UNKNOWN_ROOM, "Room expired");
@@ -305,15 +305,17 @@ export class RoomDO extends DurableObject<Env> {
   }
 
   /**
-   * Tells the public list (M24): a row there and a Durable Object request. False when it can't be
-   * reached: the room tries again at its next event, and the list forgets an expired room in 24 h.
+   * Tells the public list (M24): a Durable Object request, and a row there unless it refuses.
+   * Returns its answer: false = refused, the host's address has 2 rooms there. Undefined when it
+   * can't be reached: the room tries again at its next event, and the list forgets an expired
+   * room in 24 h.
    */
-  private async tell(code: string, room: PublicRoom | null) {
+  private async tell(listing: PublicRoom | null) {
+    const { code, publicBy = null } = (this.room as Room).data;
     try {
-      await directory(this.env).set(code, room);
-      return true;
+      return await directory(this.env).set(code, listing, publicBy);
     } catch {
-      return false;
+      return undefined;
     }
   }
 
@@ -356,13 +358,21 @@ export class RoomDO extends DurableObject<Env> {
     if (!room) return { moved: false, told: false };
     const conns = [...live.values()];
     const listing = room.relist(conns);
-    const told = listing !== undefined && (await this.tell(room.data.code, listing));
-    if (told) room.told(listing);
-    if (change === "data" || told) await this.ctx.storage.put("room", room.data);
+    const answer = listing === undefined ? undefined : await this.tell(listing);
+    const told = answer !== undefined;
+    if (listing !== undefined && answer) room.told(listing);
+    // Refused: the room is private again, as everyone's view now says, and the sender is told why.
+    if (answer === false) room.refuse();
+    if (told) change = "data";
+    if (change === "data") await this.ctx.storage.put("room", room.data);
     for (const [ws, conn] of live) {
       // A socket that hasn't said hello gets nothing until it does (SEC-6).
       if (conn.token === null || (change === "none" && ws !== from)) continue;
       send(ws, { t: "state", room: room.view(conn, conns), ack: conn.ack });
+    }
+    const sender = from && live.get(from);
+    if (answer === false && sender) {
+      send(from, { t: "error", code: "too-many-public", ack: sender.ack });
     }
     // An alarm that comes early just re-checks and re-arms, so only an earlier time needs a write.
     const next = room.nextAlarm(conns);
@@ -382,12 +392,17 @@ export class DirectoryDO extends DurableObject<Env> {
     return this.directory;
   }
 
-  /** Lists, updates or (null) unlists a room: one row, or none when there was nothing to unlist. */
-  async set(code: string, room: PublicRoom | null): Promise<void> {
+  /**
+   * Lists, updates or (null) unlists a room: one row, or none when there was nothing to unlist or
+   * `owner`, the host's address, has 2 rooms listed already; then it returns false.
+   */
+  async set(code: string, room: PublicRoom | null, owner: string | null): Promise<boolean> {
     const rooms = await this.load();
-    for (const gone of rooms.set(code, room, Date.now())) await this.ctx.storage.delete(gone);
-    const entry = room && rooms.rooms.get(code);
+    const { gone, ok } = rooms.set(code, room, Date.now(), owner);
+    for (const dropped of gone) await this.ctx.storage.delete(dropped);
+    const entry = ok && room && rooms.rooms.get(code);
     if (entry) await this.ctx.storage.put(code, entry);
+    return ok;
   }
 
   async list(): Promise<PublicRoom[]> {

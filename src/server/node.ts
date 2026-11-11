@@ -62,16 +62,22 @@ const send = (ws: WebSocket, msg: ServerMsg) => {
   if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg));
 };
 
-/** Sends each socket (or only `only`) its own view and schedules the room's next check (the DO alarm's job). */
+/**
+ * Sends each socket (or only `only`) its own view and schedules the room's next check (the DO
+ * alarm's job). Returns whether the public list refused the room (M24), which is private again.
+ */
 function commit(code: string, only?: WebSocket) {
   const live = rooms.get(code);
-  if (!live) return;
+  if (!live) return false;
   const conns = [...live.sockets.values()];
   const listing = live.room.relist(conns);
-  if (listing !== undefined) {
-    directory.set(code, listing, Date.now());
-    live.room.told(listing);
-  }
+  const refused =
+    listing !== undefined &&
+    !directory.set(code, listing, Date.now(), live.room.data.publicBy ?? null).ok;
+  if (refused) {
+    live.room.refuse();
+    only = undefined;
+  } else if (listing !== undefined) live.room.told(listing);
   for (const [ws, conn] of live.sockets) {
     // A socket that hasn't said hello gets nothing until it does (SEC-6).
     if (conn.token === null || (only && ws !== only)) continue;
@@ -79,6 +85,7 @@ function commit(code: string, only?: WebSocket) {
   }
   clearTimeout(live.timer);
   live.timer = setTimeout(() => alarm(code), live.room.nextAlarm(conns) - Date.now());
+  return refused;
 }
 
 function alarm(code: string) {
@@ -228,7 +235,9 @@ function onConnection(ws: WebSocket, code: string, ip: string | null) {
       if (!msg) throw new RoomError("bad-message");
       let change = live.room.receive(conn, msg, conns);
       if (live.room.tick(conns)) change = "data";
-      commit(code, change === "none" ? ws : undefined);
+      if (commit(code, change === "none" ? ws : undefined)) {
+        send(ws, { t: "error", code: "too-many-public", ack: conn.ack });
+      }
     } catch (e) {
       if (e instanceof RoomError) {
         send(ws, { t: "error", code: e.code, ack: conn.ack });

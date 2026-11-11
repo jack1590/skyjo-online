@@ -765,6 +765,8 @@ test("joining from the home screen with a code", async ({ browser }, info) => {
 test("M24: a room its host makes public shows on Home with the host's name and seats; a stranger taps it and joins; it leaves the list when the host makes it private again and when the game starts; rows ≥ 44 px and no sideways scroll at 360 px in en, es and pt", async ({
   browser,
 }, info) => {
+  // Pixel only (and the Node job, which is Pixel): on iPhone they took CI's job past 3 min.
+  test.skip(info.project.name !== "pixel" && !process.env.SHOTS, "M24 runs on Pixel only");
   const [ana, ben, cris] = await phones(browser, info, 3);
   const code = await createRoom(ana);
   await join(ana, code, "Ana");
@@ -833,6 +835,8 @@ test("M24: a room its host makes public shows on Home with the host's name and s
 test("M24: a public room leaves Home's list when its last seated player closes the page, and returns with them", async ({
   browser,
 }, info) => {
+  // Pixel only (and the Node job, which is Pixel): on iPhone they took CI's job past 3 min.
+  test.skip(info.project.name !== "pixel" && !process.env.SHOTS, "M24 runs on Pixel only");
   const [ana, ben] = await phones(browser, info, 2);
   const code = await createRoom(ana);
   await join(ana, code, "Ana");
@@ -851,4 +855,30 @@ test("M24: a public room leaves Home's list when its last seated player closes t
   await expect(ana.getByTestId("seats")).toContainText("Ana");
   await refresh.click();
   await expect(row).toBeVisible();
+});
+
+test("M24: in a public lobby the host removes a player who is there; their phone goes back to Home with a note, and the room's link sends it there again; in a private lobby there is no such button", async ({
+  browser,
+}, info) => {
+  // Pixel only (and the Node job, which is Pixel): on iPhone they took CI's job past 3 min.
+  test.skip(info.project.name !== "pixel" && !process.env.SHOTS, "M24 runs on Pixel only");
+  const { pages, code } = await seatedRoom(browser, info, ["Ana", "Ben"]);
+  const [ana, ben] = pages;
+  const remove = ana.getByRole("button", { name: "Remove Ben" });
+  await expect(remove).toHaveCount(0);
+  await ana.getByRole("checkbox", { name: "Public room" }).click({ force: true });
+  await expect(remove).toBeVisible();
+  await expectMobileFriendly(ana);
+  await expect(ben.getByRole("button", { name: "Remove Ana" })).toHaveCount(0);
+  ana.once("dialog", (dialog) => dialog.accept());
+  await remove.click();
+  await expect(ana.getByTestId("seats")).not.toContainText("Ben");
+  await ben.waitForURL("/?removed");
+  await expect(ben.getByText("The host removed you from that room.")).toBeVisible();
+  if (process.env.SHOTS && info.project.name === "iphone") {
+    const path = "docs/screenshots/m24/03-removed.jpg";
+    await ben.screenshot({ path, type: "jpeg", quality: 80, scale: "css", fullPage: true });
+  }
+  await ben.goto(`/r/${code}`);
+  await ben.waitForURL("/?removed");
 });

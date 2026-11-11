@@ -126,6 +126,11 @@ export function Home() {
       </h1>
       <p className="tagline">{t("tagline")}</p>
 
+      {new URLSearchParams(window.location.search).has("removed") && (
+        <p className="panel" role="status">
+          {t("removedNote")}
+        </p>
+      )}
       {iosHint && (
         <div className="panel hint" role="note">
           <p>{t("installHint")}</p>

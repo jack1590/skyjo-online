@@ -1241,10 +1241,10 @@ function fakeDirectory() {
     rooms: () => durable.list(),
     idFromName: (name: string) => name,
     get: () => ({
-      set: async (code: string, room: PublicRoom | null) => {
+      set: async (code: string, room: PublicRoom | null, owner: string | null) => {
         d.requests++;
         if (d.down) throw new Error("unreachable");
-        await durable.set(code, room);
+        return durable.set(code, room, owner);
       },
       list: async () => {
         d.requests++;
@@ -1385,5 +1385,48 @@ describe("RoomDO public rooms (M24)", () => {
     expect(await DIRECTORY.rooms()).toEqual([]);
     expect(watcher.closed).toBe(1008);
     expect(host.closed).toBeNull();
+  });
+
+  it("M24: an address lists 2 rooms; its third stays private: the host is told why, everyone sees the switch back off, and the try costs it 3; another address's room is listed", async () => {
+    const DIRECTORY = fakeDirectory();
+    const env = { MESSAGES: messageLimiter(), DIRECTORY };
+    const hosts: FakeSocket[] = [];
+    const rooms: Harness[] = [];
+    for (const code of ["AAAAA", "BBBBB", "CCCCC"]) {
+      const t = await harness(env, code);
+      const [host] = await t.seat(1);
+      hosts.push(host);
+      rooms.push(t);
+    }
+    await rooms[0].send(hosts[0], open);
+    await rooms[1].send(hosts[1], open);
+    const [t, host] = [rooms[2], hosts[2]];
+    const guest = await t.connect(AWAY);
+    await t.send(guest, { t: "hello", token: token(1) });
+    const was = [t.rows(), DIRECTORY.rows, DIRECTORY.requests, spent(env, HOME)];
+    await t.send(host, { ...open, seq: 7 });
+    const now = [t.rows(), DIRECTORY.rows, DIRECTORY.requests, spent(env, HOME)];
+    expect(now.map((n, i) => n - was[i])).toEqual([1, 0, 1, 3]);
+    expect(host.sent.at(-1)).toEqual({ t: "error", code: "too-many-public", ack: 7 });
+    expect(lastView(host).public).toBe(false);
+    expect(lastView(guest).public).toBe(false);
+    expect((await DIRECTORY.rooms()).map((r) => r.code).sort()).toEqual(["AAAAA", "BBBBB"]);
+    t.wake();
+    await t.send(host, { t: "hello", token: token(0) });
+    expect(lastView(host).public).toBe(false); // saved
+    // One of the two starts its game: now the third fits.
+    const second = await rooms[1].connect(AWAY);
+    await rooms[1].send(second, { t: "hello", token: token(1) });
+    await rooms[1].send(second, { t: "join", name: "Guest" });
+    await rooms[1].send(hosts[1], { t: "start" });
+    await t.send(host, open);
+    expect((await DIRECTORY.rooms()).map((r) => r.code).sort()).toEqual(["AAAAA", "CCCCC"]);
+    // Another address has its own two.
+    const other = await harness(env, "DDDDD");
+    const far = await other.connect(AWAY);
+    await other.send(far, { t: "hello", token: token(5) });
+    await other.send(far, { t: "join", name: "Far" });
+    await other.send(far, open);
+    expect(await DIRECTORY.rooms()).toHaveLength(3);
   });
 });
