@@ -125,10 +125,14 @@ export function useRoom(code: string) {
     };
 
     // Phones freeze sockets in the background without closing them, so a silent socket is replaced.
+    // Only on a visible page: a hidden one gets its timers about once a minute (Chrome), so every
+    // check came 60 s after the last pong and replaced a working socket, each time with a hello
+    // that kept a forgotten room busy (BUG-11, SEC-9). `wake` replaces a dead one when it shows.
     const check = () => {
       const ws = socket.current;
       if (ws?.readyState === WebSocket.OPEN) {
-        if (Date.now() - lastHeard > SILENT_MS) connect();
+        const silent = Date.now() - lastHeard > SILENT_MS;
+        if (silent && document.visibilityState === "visible") connect();
         else ws.send(PING);
       }
     };

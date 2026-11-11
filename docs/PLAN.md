@@ -802,6 +802,7 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 20  | ✅ M21                             | Throws: bombs, beers, donkeys and more at other players (user request, 2026-10-27)                                      | 2.5.0         | the user asked for it; ahead of M16, which waits on the owner                                                    |
 | 21  | ✅ M22                             | Throws, part 2: stickers, choreography, marks, real sounds (user feedback)                                              | 2.5.1         | the owner found v2.5.0 throws not fun                                                                            |
 | 22  | ✅ M23                             | Reactions: laugh, love, anger and the migajero, from a button beside your grid (user request)                           | 2.6.0         | the user asked for it; reuses M21/M22's in-memory throw path and sticker pipeline                                |
+| —   | BUG-11                             | A hidden tab, its timers slowed to one a minute, replaced its socket every minute                                       | 2.6.11        | a QA read after the owner's disconnect report; breaks SEC-9's bound                                              |
 | 23  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
 
 Deferred: Turnstile (SEC-4) and SEC-12 (until M16). Quick reactions, deferred until now, are M23 (user request, 2026-10-29). Declined: SEC-7. Versions assume this order; a PR that reorders says so.
@@ -848,6 +849,23 @@ There is a second guard the old rule hid: `autoMove` never flips a seat's last f
 - **The motion test's race → first thing in SEC-9's PR, test only.** `e2e/motion.spec.ts:28` ("an opponent's flip animates") failed 10 of 40 runs on iPhone at 12 local workers and 0 of 20 at 1 worker. It predates BUG-1 and hasn't failed on CI yet, but `failOnFlakyTests` would block a deploy. Ben's reload may not have rendered the dealt table when Ana flips, so his first view already holds the flip and there is nothing to animate; the fixed 400 ms wait is the other half. The fix, which the PO ran 80 of 80 times at 12 workers (both tests in the file): before Ana's tap, wait for Ben's `table` to have `data-phase="flip"`; after it, wait for Ben's `opponent` grid to show one `[data-face="up"]` card instead of waiting 400 ms.
 - **Accepted:** a present player who runs out of time while every other connected seat is on Auto-play goes on Auto-play in the same `tick`, so that very move may turn over their last card and end the round, doubled unless lowest (the PO reproduced it). That is the decision above (at that moment nobody is playing by hand), and the round has to end. Computing `mayEnd` before the due seats switch would spare that one move; revisit if players say so.
 - **M17:** `canStall` only counts seats, so a lone connected spectator keeps nothing running (the PO checked on the injected clock), but no test pins it. M17's out-seat test covers it; see there.
+
+### BUG-11 — A hidden tab replaces its socket every minute (QA read, 2026-11-11) · v2.6.11
+
+**Report.** The owner: "devices disconnect randomly" (BUG-4). A QA read suspected that browsers throttle a hidden page's timers to about once a minute, so the 20 s ping misses `STALE_MS` (45 s) and the seat flickers offline, with its host role and clock.
+
+**Evidence.**
+- **The throttle is real, with a socket open.** Playwright's Chromium, headed, window minimized, `IntensiveWakeUpThrottling` with a 10 s grace period, a page with an open WebSocket and a 5 s `setInterval`: it fired 58, 60, 117 and 120 s in. Chrome's default grace period was not measured (documented as 5 min, or 10 s for a loaded page). Safari and Firefox were not measured.
+- **What the page does with it (Pixel project, local workerd, the page's clock stepped by hand).** A hidden page whose timers run once a minute (`page.clock.fastForward(60_000)`, which fires a due timer once): on `main` 0122f4e it opened a new socket and said hello every minute, 5 in 5 minutes, and sent no ping.
+- **What that costs (`RoomDO` on the fake runtime, scratch, not kept).** 2 seated tabs in a lobby that reconnect and say hello every minute: 2,880 rows and 4,608 DO requests a day, and the room never goes idle. SEC-9's figure for 2 forgotten tabs is about 160 of each.
+
+**Root cause.** `check` (`useRoom.ts:128-134`) replaces a socket not heard from for `SILENT_MS` (45 s), and runs from a 20 s interval. At one run a minute, each run comes 60 s after the last pong, so every run reconnects: a close and a hello a minute. A seat's close is broadcast (`webSocketClose` in `worker.ts`; read in the code, what the others then see was not reproduced), and each hello resets SEC-9's quiet and idle clocks. SEC-9 chose that hidden pages leave returning to `wake`, "or a throttled background tab would keep a forgotten room busy"; this path did it anyway.
+
+**Decided: the flicker itself is intended, the reconnect is the bug.** With pings a minute apart, the room sees the seat stale for the last 15 s of each minute, at whatever event re-broadcasts. That is a player whose tab has been hidden for minutes: the table is right to show them away, anyone seated may lead, and their turns go to Auto-play after 30 s either way (M8). Hiding it would take a longer `STALE_MS`, which slows every real drop, or a wire change. Not done; a PO call if players complain.
+
+**Fix (v2.6.11).** `check` only replaces a silent socket on a visible page; a hidden one pings. `wake` already replaces a socket silent for over 45 s when the page shows. No wire or server change.
+
+**Acceptance:** `e2e/online.spec.ts`, "BUG-11": fails on `main` (no ping, a new socket) and passes with the fix: 5 throttled minutes, 5 pings answered, 1 socket; then a socket that died while hidden is replaced as the page shows.
 
 ### M17 — Play until one is left (knockout) (user request, 2026-10-24) · v2.2.0 · ✅ shipped (PR #24)
 

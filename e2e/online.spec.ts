@@ -88,6 +88,46 @@ test("everyone sees who is offline and when the server will move for them", asyn
   await expect(pages[0].getByText(/^Ben is offline · auto-play in \d+ s$/)).toBeVisible();
 });
 
+test("BUG-11: a hidden page whose timers run once a minute keeps its socket and pings; shown again, it replaces a socket that died meanwhile", async ({
+  browser,
+}, info) => {
+  test.skip(info.project.name !== "pixel", "a client rule; one device is enough");
+  const [page] = await phones(browser, info, 1);
+  let [dead, sockets, pongs] = [false, 0, 0];
+  await page.routeWebSocket(/\/api\/rooms\/[A-Z0-9]+\/ws$/, (ws) => {
+    const n = ++sockets;
+    const server = ws.connectToServer();
+    ws.onMessage((m) => (n === 1 && dead) || server.send(m));
+    server.onMessage((m) => {
+      if (n === 1 && dead) return;
+      if (m === "pong") pongs++;
+      ws.send(m);
+    });
+  });
+  await page.clock.install();
+  await join(page, await createRoom(page), "Ana");
+  await page.clock.pauseAt(Date.now() + 2_000);
+  const show = (state: "hidden" | "visible") =>
+    page.evaluate((state) => {
+      Object.defineProperty(document, "visibilityState", { value: state, configurable: true });
+      document.dispatchEvent(new Event("visibilitychange"));
+    }, state);
+  await show("hidden");
+  // Chrome runs a hidden page's timers about once a minute: each 20 s check comes 60 s after the
+  // last pong, past the 45 s of silence that replaces a socket on a visible page.
+  for (const minute of [1, 2, 3, 4, 5]) {
+    await page.clock.fastForward(60_000);
+    await expect.poll(() => pongs, "a ping, answered").toBe(minute);
+  }
+  expect(sockets, "the same socket all along").toBe(1);
+
+  dead = true;
+  await page.clock.fastForward(60_000);
+  expect(sockets).toBe(1);
+  await show("visible");
+  await expect.poll(() => sockets, "silent for a minute: replaced as the page shows").toBe(2);
+});
+
 test("SEC-9: a visible phone the room shows offline says hello once, since its pings never reach the room", async ({
   browser,
 }, info) => {
