@@ -67,8 +67,10 @@ button {
   font-weight: 700;
 }
 
+/* Pressed in. A transform, not `translate`: Undo is placed with that (below), and losing it mid-tap
+   moved the button from under the finger, so the tap never landed. */
 .btn:active:not(:disabled) {
-  translate: 0 1px;
+  transform: translateY(1px);
 }
 
 .btn:disabled {
@@ -108,6 +110,7 @@ button {
 /* A text button for a way out, such as the lobby's Leave seat (UX-13): no fill, same target. */
 .btn.quiet {
   align-self: center;
+  border-color: transparent;
   background: none;
   box-shadow: none;
   color: var(--muted);
