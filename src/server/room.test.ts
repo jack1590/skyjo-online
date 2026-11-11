@@ -1288,7 +1288,11 @@ describe("gags on one address (BUG-4)", () => {
     expect(t.send(c, { t: "react", kind: "love" })).toBe("view");
     t.advance(TOSS_MS);
     expect(t.send(a, { t: "toss", to: 2, item: "bomb" })).toBe("view");
-    // When the other phone on its address leaves, a's wait is TOSS_MS again.
+    // When the other phone on its address goes stale, or leaves, a's wait is TOSS_MS again.
+    t.advance(STALE_MS, [a, c]);
+    expect(t.room.view(a, t.live).rest).toBe(TOSS_MS);
+    t.advance(1); // b pings again
+    expect(t.room.view(a, t.live).rest).toBe(2 * TOSS_MS);
     t.drop(b);
     expect(t.room.view(a, t.live).rest).toBe(TOSS_MS);
   });

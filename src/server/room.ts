@@ -464,11 +464,16 @@ export class Room {
 
   /**
    * How long `conn`'s seat waits between its gags (throws and reactions): TOSS_MS for each seated
-   * phone on its address. Each gag costs a unit of the address's budget, so friends on one Wi-Fi
-   * share one phone's rate, 20 a minute, instead of spending it all and being closed (BUG-4).
+   * phone connected on its address. Each gag costs a unit of the address's budget, so friends on
+   * one Wi-Fi share one phone's rate, 20 a minute on average, instead of spending it all and
+   * being closed (BUG-4). A socket gone stale can't gag without showing up again, so it isn't counted.
    */
   private rest(conn: Conn, live: Conn[]): number {
-    const near = live.filter((c) => c.ip !== null && c.ip === conn.ip && this.seatOf(c) !== null);
+    const now = this.deps.now();
+    const near = live.filter(
+      (c) =>
+        c.ip !== null && c.ip === conn.ip && this.seatOf(c) !== null && now - c.seenAt < STALE_MS,
+    );
     return TOSS_MS * Math.max(1, new Set(near.map((c) => c.token)).size);
   }
 

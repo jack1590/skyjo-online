@@ -1304,10 +1304,10 @@ The sticker sits centred over the opponent's panel head, or 24 px above your nam
 
 **Not the cause** (checked): `Room.admit` only displaces a socket at 20 sockets in the room; `dead` is only read there; a hello with another token only answers that socket; and an exception in an alarm or a broadcast closes no socket (read in the code, not reproduced).
 
-**Fix (v2.6.3).** The charging rules and the 120-unit budget stay, so `holdRooms`' 14 h and 18 h hold. The gag rate becomes per address: a seat waits `TOSS_MS` for each seated phone on its address (`rest` in `room.ts`), told to its client as `RoomView.rest`, which greys the tray and the reaction button for that long. One address then gags 20 times a minute at most, what one phone could before. Friends each on their own connection still wait 3 s.
-- After: 8 phones on one address, a tap every 2 s, all gagging as often as the app lets them: 72 units in the busiest minute; 59 with one of them dropped (64 at 6 phones); 102 at a tap a second. Nothing is closed.
+**Fix (v2.6.3).** The charging rules and the 120-unit budget stay, so `holdRooms`' 14 h and 18 h hold. The gag rate becomes per address: a seat waits `TOSS_MS` for each seated phone on its address (`rest` in `room.ts`), told to its client as `RoomView.rest`, which greys the tray and the reaction button for that long. Only sockets seen within `STALE_MS` count. One address then gags 20 times a minute on average (24 in its worst minute), what one phone could before. Friends each on their own connection still wait 3 s.
+- After: 8 phones on one address, a tap every 2 s, all gagging as often as the app lets them: 72 units in the busiest minute; with one of them dropped, 59–75 at 6 or 8 phones over 20 runs (the deal is random); 102–104 at a tap a second. Nothing is closed.
 - A tab loaded before 2.6.3 still greys its buttons for 3 s; its early gags are dropped (`"none"`) and still cost a unit each, until it reloads.
-- `shut` in `worker.ts` now logs `socket shut: <code> <reason>` for every socket the Worker closes on purpose, so the next report can be checked in Workers Logs.
+- `shut` in `worker.ts` now logs `socket shut: 1008 Too many messages` for each socket closed over the budget, so the next report can be checked in Workers Logs.
 
 **Suspected, not proven** (for the owner to check on real phones):
 - **A deploy closes every socket.** Each merge to `main` deploys, and players in a game see "Reconnecting…" for about a second. Compare the time of a drop with the time of a deploy.
