@@ -9,6 +9,30 @@ export const isRoomCode = (code: string) =>
 
 export const NAME_MAX = 16;
 
+/**
+ * The start of a name that fits `NAME_MAX` code points, cut between clusters (an emoji with its
+ * joiners, a letter with its accents), never inside one (BUG-8). The input cuts as you type and
+ * the server cuts again.
+ */
+export function cutName(name: string): string {
+  // Firefox before 125 has no Intl.Segmenter: there the input cuts by code point.
+  const parts =
+    "Segmenter" in Intl
+      ? Array.from(
+          new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(name),
+          (s) => s.segment,
+        )
+      : [...name];
+  let kept = "";
+  let size = 0;
+  for (const part of parts) {
+    size += [...part].length;
+    if (size > NAME_MAX) break;
+    kept += part;
+  }
+  return kept;
+}
+
 /** Closing code for a room that doesn't exist. Close codes can get lost, so a "missing" message precedes it. */
 export const CLOSE_UNKNOWN_ROOM = 4004;
 /** Closing code (policy violation) for a socket over the per-socket or per-IP message limit. */
@@ -74,9 +98,14 @@ export type ClientMsg = (
   | { t: "leave" }
   /**
    * `name`: the seat as the sender saw it. Its index shifts when an earlier seat leaves, and names
-   * are unique in a room (BUG-13). Tabs loaded before 2.6.13 send only `seat`.
+   * are unique in a room (BUG-13). Tabs loaded before 2.7.7 send only `seat`.
    */
   | { t: "kick"; seat: number; name?: string }
+  /**
+   * In the lobby, whoever may lead moves a player to seat `to`: seat order is turn order (M26).
+   * By name, unique in a room: an index is someone else once a seat above it leaves.
+   */
+  | { t: "move"; name: string; to: number }
   | { t: "start" }
   | { t: "act"; action: Action }
   | { t: "rematch" }
@@ -188,6 +217,10 @@ function parseBody(msg: Record<string, unknown>): ClientMsg | null {
         seat: msg.seat as number,
         ...(typeof msg.name === "string" && { name: msg.name }),
       };
+    case "move":
+      return typeof msg.name === "string" && Number.isInteger(msg.to)
+        ? { t: "move", name: msg.name, to: msg.to as number }
+        : null;
     case "auto":
     case "knockout":
       return typeof msg.on === "boolean" ? { t: msg.t, on: msg.on } : null;

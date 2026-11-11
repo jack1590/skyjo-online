@@ -10,8 +10,10 @@ import {
   allowMessage,
   autoMove,
   type Conn,
+  costs,
   dead,
   EMPTY_IDLE_MS,
+  GAGS_PER_UNIT,
   HELLO_MS,
   IDLE_MS,
   IP_MESSAGES_PER_MINUTE,
@@ -130,6 +132,53 @@ describe("lobby", () => {
     expect(t.room.data.seats[2].name).toBe(`${"x".repeat(15)}😀`);
   });
 
+  it("BUG-8: a name keeps its joined emoji whole and loses every other invisible character", () => {
+    const family = "👨\u200D👩\u200D👧\u200D👦"; // 7 code points
+    const rainbow = "🏳\uFE0F\u200D🌈";
+    const tags = (s: string) =>
+      [...s].map((c) => String.fromCodePoint(0xe0000 + c.charCodeAt(0))).join("");
+    const flag = (region: string) => `🏴${tags(region)}\u{E007F}`;
+    const kiss = "👩🏽\u200D❤\uFE0F\u200D💋\u200D👨🏿"; // 10 code points
+    const names: [sent: string, kept: string][] = [
+      [`😀${family}${rainbow}`, `😀${family}${rainbow}`],
+      [`${flag("gbeng")}${flag("gbsct")}`, `${flag("gbeng")}${flag("gbsct")}`],
+      [kiss, kiss],
+      // A joiner anywhere else is invisible: alone, between letters, after an emoji, before one.
+      ["\u200D", ""],
+      ["a\u200Db", "ab"],
+      ["😀\u200Dx", "😀x"],
+      ["x\u200D😀", "x😀"],
+      ["😀\u200D\u200B😀", "😀😀"],
+      // Nor between two emoji that make no emoji together: 😀😀 and ©® must stay one name each.
+      ["😀\u200D😀", "😀😀"],
+      ["©\u200D®", "©®"],
+      // U+1F02C is unassigned, yet reserved as a pictograph: it must not carry a joiner in.
+      ["a\u{1F02C}\u200D\u{1F02C}b", "ab"],
+      ["\u{1F02C}\u200D\u{1F02C}", ""],
+      // Tags only as one of the three flags: no hidden text, no tags after another emoji.
+      [`🏴${tags("usca")}\u{E007F}`, "🏴"],
+      [`🏴${tags("gb")}\u200B${tags("eng")}\u{E007F}`, "🏴"],
+      [`😀${tags("gbeng")}\u{E007F}`, "😀"],
+      [`Zed${tags("hidden")}`, "Zed"],
+      // Bidi overrides, isolates and marks, and controls, as before.
+      ["\u202Eevil\u202C", "evil"],
+      ["\u2066a\u2069\u200F\u061Cb\u0007", "ab"],
+      // The cut, 16 code points, never splits a cluster: one that doesn't fit is left out.
+      [`${family}${family}${family}`, `${family}${family}`],
+      [`${"x".repeat(10)}${family}`, "x".repeat(10)],
+      [`${"x".repeat(9)}${family}yz`, `${"x".repeat(9)}${family}`],
+      [`${"x".repeat(15)} ${family}`, "x".repeat(15)],
+      [`e${"\u0301".repeat(16)}`, ""],
+    ];
+    for (const [sent, kept] of names) {
+      const t = setup();
+      const c = t.connect("token-x-abcdef");
+      if (kept) t.send(c, { t: "join", name: sent });
+      else expect(t.errorOf(() => t.send(c, { t: "join", name: sent }))).toBe("bad-name");
+      expect(t.room.data.seats.map((seat) => seat.name)).toEqual(kept ? [kept] : []);
+    }
+  });
+
   it("a 9th player stays a spectator", () => {
     const t = setup();
     t.seated(8);
@@ -166,7 +215,7 @@ describe("lobby", () => {
     expect(t.room.data.seats.map((s) => s.name)).toEqual(["P0", "P2"]);
   });
 
-  it("BUG-13: a kick names its seat, so a seat that leaves just before it can't make it remove someone else; a tab loaded before 2.6.13 still sends only the index", () => {
+  it("BUG-13: a kick names its seat, so a seat that leaves just before it can't make it remove someone else; a tab loaded before 2.7.7 still sends only the index", () => {
     const t = setup();
     const [host, p1, p2, p3] = t.seated(4);
     t.drop(p2);
@@ -189,6 +238,81 @@ describe("lobby", () => {
     expect(t.send(host, { t: "kick", seat: 1 })).toBe("data");
     expect(t.room.data.seats.map((s) => s.name)).toEqual(["P0"]);
     expect(parseClientMsg('{"t":"kick","seat":1,"name":5}')).toEqual({ t: "kick", seat: 1 });
+  });
+
+  it("M26: whoever may lead moves a player to another seat in the lobby; the host stays the same person; turn order follows (R5)", () => {
+    const t = setup();
+    const [a, b, c] = t.seated(4);
+    const watcher = t.connect("token-watcher-abc");
+    const names = () => t.room.data.seats.map((s) => s.name).join(" ");
+    const top: ClientMsg = { t: "move", name: "P3", to: 0 };
+    for (const who of [b, watcher]) expect(t.errorOf(() => t.send(who, top))).toBe("not-allowed");
+    // To the top, past the host: the host is still P0, one seat down.
+    expect(t.send(a, top)).toBe("data");
+    expect(names()).toBe("P3 P0 P1 P2");
+    expect(t.room.view(a, t.live)).toMatchObject({ you: 1, host: 1, lead: true });
+    expect(t.room.view(c, t.live)).toMatchObject({ you: 3, host: 1, lead: false });
+    // No such seat or player; where they already sit, nothing to save.
+    for (const [name, to] of [
+      ["P0", -1],
+      ["P0", 4],
+      ["Nobody", 0],
+    ] as const) {
+      expect(t.errorOf(() => t.send(a, { t: "move", name, to }))).toBe("not-allowed");
+    }
+    expect(t.send(a, { t: "move", name: "P0", to: 1 })).toBe("none");
+    // The host's own seat moves, down and back up.
+    t.send(a, { t: "move", name: "P0", to: 3 });
+    expect(names()).toBe("P3 P1 P2 P0");
+    expect(t.room.view(a, t.live)).toMatchObject({ you: 3, host: 3, lead: true });
+    t.send(a, { t: "move", name: "P0", to: 2 });
+    expect(names()).toBe("P3 P1 P0 P2");
+    expect(t.room.data.host).toBe(2);
+    // A seat from below the host to above it.
+    t.send(a, { t: "move", name: "P2", to: 1 });
+    expect(names()).toBe("P3 P2 P1 P0");
+    expect(t.room.data.host).toBe(3);
+    // A token still finds its person after a reconnect.
+    t.drop(b);
+    expect(t.room.view(t.connect("token-1-abcdef"), t.live).you).toBe(2);
+    // With the host away, a stand-in leader may, as it may start.
+    t.drop(a);
+    expect(t.send(c, { t: "move", name: "P2", to: 0 })).toBe("data");
+    expect(names()).toBe("P2 P3 P1 P0");
+    expect(t.room.data.host).toBe(3);
+
+    t.send(c, { t: "start" });
+    expect(t.room.data.game?.players.map((p) => p.name).join(" ")).toBe(names());
+    expect(t.errorOf(() => t.send(c, top))).toBe("not-allowed"); // mid-game
+  });
+
+  it("M26: after Play again the lobby keeps the last order and can be rearranged again", () => {
+    const t = setup();
+    const conns = t.seated(2);
+    t.send(conns[0], { t: "move", name: "P1", to: 0 });
+    t.send(conns[0], { t: "start" });
+    t.room.data.game = { ...(t.room.data.game as GameState), phase: "gameOver" };
+    t.send(conns[0], { t: "rematch" });
+    expect(t.room.data.seats.map((s) => s.name)).toEqual(["P1", "P0"]);
+    expect(t.send(conns[0], { t: "move", name: "P0", to: 0 })).toBe("data");
+    expect(t.room.view(conns[0], t.live)).toMatchObject({ you: 0, host: 0 });
+  });
+
+  it("M26: parseClientMsg takes a move of a named player to a seat, and nothing else", () => {
+    expect(parseClientMsg('{"t":"move","name":"Ana","to":2,"seat":1}')).toEqual({
+      t: "move",
+      name: "Ana",
+      to: 2,
+    });
+    for (const raw of [
+      '{"t":"move","name":"Ana"}',
+      '{"t":"move","name":1,"to":1}',
+      '{"t":"move","seat":1,"to":1}',
+      '{"t":"move","name":"Ana","to":1.5}',
+      '{"t":"move","name":"Ana","to":"1"}',
+    ]) {
+      expect(parseClientMsg(raw)).toBeNull();
+    }
   });
 
   it("messages before hello are rejected", () => {
@@ -337,6 +461,39 @@ describe("play", () => {
     t.send(late, { t: "join", name: "Late" });
     t.send(conns[0], { t: "start" });
     expect(t.room.data.game?.players.map((p) => p.name)).toEqual(["P0", "P1", "Late"]);
+  });
+
+  it("BUG-12: with the host away, a second leader's tap on Next round, Play again or Start game, landing after the first, is late: no error, nothing changes", () => {
+    const t = setup();
+    const [host, a, b] = startedGame(t, 3);
+    for (const p of t.room.data.game?.players ?? []) p.total = -200; // round 1 can't end the game
+    while (t.room.data.game?.phase !== "roundOver") stepAny(t, [host, a, b]);
+    t.drop(host);
+    const next: ClientMsg = { t: "act", action: { type: "nextRound" } };
+    const unchanged = (msg: ClientMsg) => {
+      const before = structuredClone(t.room.data);
+      expect(t.errorOf(() => expect(t.send(b, msg)).toBe("none"))).toBeNull();
+      expect({ ...t.room.data, updatedAt: 0 }).toEqual({ ...before, updatedAt: 0 });
+    };
+    // Both saw the summary with the button; a's tap deals round 2, then b's arrives.
+    expect(t.send(a, next)).toBe("data");
+    expect(t.room.data.game?.phase).toBe("flip");
+    unchanged(next);
+
+    (t.room.data.game as GameState).phase = "gameOver";
+    expect(t.send(a, { t: "rematch" })).toBe("data");
+    unchanged({ t: "rematch" });
+    expect(t.send(a, { t: "start" })).toBe("data");
+    unchanged({ t: "start" });
+
+    // Not late: a seat that may not lead is still refused.
+    const back = t.connect("token-0-abcdef");
+    (t.room.data.game as GameState).phase = "roundOver";
+    expect(t.errorOf(() => t.send(b, next))).toBe("not-allowed");
+    (t.room.data.game as GameState).phase = "gameOver";
+    expect(t.errorOf(() => t.send(b, { t: "rematch" }))).toBe("not-allowed");
+    t.send(back, { t: "rematch" });
+    expect(t.errorOf(() => t.send(b, { t: "start" }))).toBe("not-allowed");
   });
 
   it("nobody can join or leave mid-game", () => {
@@ -732,8 +889,26 @@ describe("turn clock (M8)", () => {
     }
     t.send(conns[1], { t: "rematch" });
     expect(t.room.data.game).toBeNull();
-    // Still away in the lobby: the others may start without the host.
-    expect(t.room.view(conns[1], t.live).lead).toBe(true);
+  });
+
+  it("BUG-6: Play again ends everyone's Auto-play, so a connected host leads the lobby again", () => {
+    const t = setup();
+    const conns = startedGame(t, 3);
+    t.send(conns[0], { t: "auto", on: true });
+    t.send(conns[2], { t: "auto", on: true });
+    while (t.room.data.game?.phase !== "gameOver") {
+      if (t.room.data.game?.phase === "roundOver") {
+        t.send(conns[1], { t: "act", action: { type: "nextRound" } });
+      } else stepAny(t, conns);
+    }
+    t.send(conns[1], { t: "rematch" });
+    // The lobby has no Auto-play switch: left on, the host could never take the lobby back.
+    expect(autoSeats(t)).toEqual([false, false, false]);
+    expect(conns.map((c) => t.room.view(c, t.live).lead)).toEqual([true, false, false]);
+    expect(t.errorOf(() => t.send(conns[1], { t: "start" }))).toBe("not-allowed");
+    expect(t.errorOf(() => t.send(conns[1], { t: "knockout", on: true }))).toBe("not-allowed");
+    t.send(conns[0], { t: "start" });
+    expect(t.room.data.game?.phase).toBe("flip");
   });
 
   it("M8: ticking Auto-play on and off gives a fresh clock once per move, so it can't hold a turn open", () => {
@@ -1205,6 +1380,19 @@ describe("throws (M21)", () => {
     expect(t.room.view(b, t.live).toss).toMatchObject({ from: 0, to: 2, item: "bomb" });
   });
 
+  it("BUG-7: a throw at a round summary or at game over is dropped, like a reaction: nobody sees it and no cooldown starts", () => {
+    const t = setup();
+    const [a, b] = startedGame(t, 2);
+    const game = t.room.data.game as GameState;
+    for (const phase of ["roundOver", "gameOver"] as const) {
+      game.phase = phase;
+      expect(t.send(a, { t: "toss", to: 1, item: "bomb" })).toBe("none");
+      expect(t.room.view(b, t.live).toss).toBeUndefined();
+    }
+    game.phase = "draw";
+    expect(t.send(a, { t: "toss", to: 1, item: "bomb" })).toBe("view");
+  });
+
   it("M21: views carry a throw for TOSS_SHOW_MS only, so a phone that reconnects later doesn't replay it", () => {
     const t = setup();
     const [a, b] = startedGame(t, 2);
@@ -1293,6 +1481,20 @@ describe("reactions (M23)", () => {
     // And a reaction holds back the same seat's throw.
     t.advance(TOSS_MS - 1);
     expect(t.send(a, { t: "toss", to: 2, item: "bomb" })).toBe("none");
+  });
+});
+
+describe("what a message costs (BUG-4)", () => {
+  it("BUG-4: every message costs a unit, but a socket's throws and reactions only the first of every GAGS_PER_UNIT", () => {
+    const conn = newConn(0, "203.0.113.7");
+    const toss = { t: "toss", to: 1, item: "bomb" } as const;
+    expect(costs(conn, { t: "hello", token: "token-0-abcdef" })).toBe(true);
+    expect(costs(conn, null)).toBe(true); // a malformed one
+    const paid = Array.from({ length: 2 * GAGS_PER_UNIT + 1 }, (_, i) =>
+      costs(conn, i % 2 ? toss : { t: "react", kind: "laugh" }),
+    );
+    expect(paid.flatMap((p, i) => (p ? [i] : []))).toEqual([0, GAGS_PER_UNIT, 2 * GAGS_PER_UNIT]);
+    expect(costs(conn, { t: "auto", on: true })).toBe(true);
   });
 });
 
