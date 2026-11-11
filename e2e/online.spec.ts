@@ -131,6 +131,53 @@ test("SEC-9: a visible phone the room shows offline says hello once, since its p
   expect(hellos()).toBe(said + 1);
 });
 
+test("BUG-10: back from a locked screen with a socket that died but still looks open, a phone replaces it within 5 s; a working socket stays", async ({
+  browser,
+}, info) => {
+  test.skip(info.project.name !== "pixel", "a client rule; one device is enough");
+  const [page] = await phones(browser, info, 1);
+  let [dead, sockets, hellos, answers] = [false, 0, 0, 0];
+  await page.routeWebSocket(/\/api\/rooms\/[A-Z0-9]+\/ws$/, (ws) => {
+    const n = ++sockets;
+    const server = ws.connectToServer();
+    ws.onMessage((m) => {
+      if (n === 1 && dead) return;
+      if (String(m).includes('"t":"hello"')) hellos++;
+      server.send(m);
+    });
+    server.onMessage((m) => {
+      if (n === 1 && dead) return;
+      answers++;
+      ws.send(m);
+    });
+  });
+  await page.clock.install();
+  await join(page, await createRoom(page), "Ana");
+  await page.clock.pauseAt(Date.now() + 2_000);
+  /** Locks the screen for 10 s: the page is hidden and its timers stand still. */
+  const lock = async () => {
+    for (const state of ["hidden", "visible"]) {
+      await page.evaluate((state) => {
+        Object.defineProperty(document, "visibilityState", { value: state, configurable: true });
+        document.dispatchEvent(new Event("visibilitychange"));
+      }, state);
+      if (state === "hidden") await page.clock.fastForward(10_000);
+    }
+  };
+  dead = true; // no close event: the socket still looks open
+  await lock();
+  await page.clock.runFor(5_000);
+  await expect.poll(() => sockets, "its hello got no answer").toBe(2);
+  await expect.poll(() => hellos).toBe(2);
+
+  const heard = answers;
+  await lock();
+  await expect.poll(() => hellos, "the hello a returning phone says").toBe(3);
+  await expect.poll(() => answers).toBeGreaterThan(heard);
+  await page.clock.runFor(5_000);
+  expect(sockets, "answered: the socket stays").toBe(2);
+});
+
 test("UX-3: with the server's answers 500 ms late, a tapped card lifts within 50 ms with its sound, which doesn't play again with the answer; a second tap meanwhile sends nothing", async ({
   browser,
 }, info) => {

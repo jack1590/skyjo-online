@@ -4,6 +4,12 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.7.4] - 2026-11-11
+
+### Fixed
+
+- **Back from a locked screen, the table catches up within 5 seconds.** If your phone's connection died while the screen was locked for under a minute, the game could keep showing the table as you left it for up to another minute, or until you tapped something. Now the phone checks its connection the moment you come back and replaces a dead one within 5 seconds. Reload the game once on every phone to get the fix.
+
 ## [2.7.3] - 2026-11-11
 
 ### Fixed

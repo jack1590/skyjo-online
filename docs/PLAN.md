@@ -807,7 +807,8 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 25  | ✅ BUG-3                           | No browser translation of the page (it freezes your own points; cause unconfirmed); long names over totals              | 2.7.1         | the owner's report from real phones ("the count of points in some moments doesn't work"); client only, S         |
 | 26  | BUG-4                              | Phones on one Wi-Fi dropped together: throws and reactions spent their shared message budget                            | 2.7.2         | a live report from the owner; hotfix                                                                             |
 | 27  | BUG-9                              | A socket replaced while a tap waited was replaced again 5 s later, taps dropped meanwhile                               | 2.7.3         | a QA read after the owner's disconnect report; proven in a browser                                               |
-| 28  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
+| 28  | BUG-10                             | Back from a locked screen, a dead socket that looked open showed a stale table for up to a minute                       | 2.7.4         | BUG-4's open suspicion; the page's side proven in a browser                                                      |
+| 29  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
 
 Deferred: Turnstile (SEC-4) and SEC-12 (until M16). Quick reactions, deferred until now, are M23 (user request, 2026-10-29). Declined: SEC-7. Versions assume this order; a PR that reorders says so.
 
@@ -912,6 +913,20 @@ The limit stays 16 code points, so a stored name is no bigger than before. `cutN
 **Fix (v2.7.3).** `connect()` ends the wait itself, since the socket it replaces will never answer. The tap that went into the dead socket is lost, as before: its card drops back and the player taps again.
 
 **Acceptance:** `e2e/online.spec.ts`, "BUG-9": fails on `main` at its first check ("Reconnecting…" still shown) and passes with the fix: 2 sockets, the second tap sent on the second one, still 2 sockets 5 s later.
+
+### BUG-10 — Back from a locked screen, a dead socket that looks open shows a stale table for up to a minute (BUG-4's suspicion, 2026-11-11) · v2.7.4
+
+**Report.** BUG-4 left it "suspected, not proven": a phone back from a locked screen sends its hello into a socket that looks open, and shows a stale table until the next 20 s check, or 5 s after a tap.
+
+**Evidence (Pixel project, local workerd, the page's clock stepped by hand).** One phone in a lobby. Its socket goes dead without closing (`routeWebSocket` drops every frame), the page is hidden for 10 s, then visible again. On `main` 0122f4e the page sent its hello into the dead socket and kept that socket for 50 s more, without a tap. That is longer than BUG-4 guessed: the 20 s check only replaces a socket silent for over `SILENT_MS` (45 s), so a lock of 10 s leaves 35–55 s of stale table.
+
+**Not reproduced: the phone side.** Whether iOS or Android leave a socket open-looking but dead after a short lock was not tested on real phones. `useRoom` already assumes they do ("Phones freeze sockets in the background without closing them"). What is proven is what the page does when one is.
+
+**Root cause.** `wake` (`useRoom.ts:135-144`) replaces a socket at once only when it is closed, or silent for over 45 s. Otherwise it says hello and trusts the socket: nothing waits for the answer.
+
+**Fix (v2.7.4).** The room answers every hello, to its sender at least. `wake` now waits `ACK_MS` (5 s) for anything from the socket after its hello and replaces the socket if nothing came. No wire or server change, and no new message: a working socket costs what it did.
+
+**Acceptance:** `e2e/online.spec.ts`, "BUG-10": fails on `main` (still 1 socket 5 s after the unlock) and passes with the fix; a second lock on the working socket says hello, is answered, and keeps the socket.
 
 ### M17 — Play until one is left (knockout) (user request, 2026-10-24) · v2.2.0 · ✅ shipped (PR #24)
 
