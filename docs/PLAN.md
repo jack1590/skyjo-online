@@ -809,7 +809,8 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 27  | BUG-9                              | A socket replaced while a tap waited was replaced again 5 s later, taps dropped meanwhile                               | 2.7.3         | a QA read after the owner's disconnect report; proven in a browser                                               |
 | 28  | BUG-10                             | Back from a locked screen, a dead socket that looked open showed a stale table for up to a minute                       | 2.7.4         | BUG-4's open suspicion; the page's side proven in a browser                                                      |
 | 29  | BUG-11                             | A hidden tab, its timers slowed to one a minute, replaced its socket every minute                                       | 2.7.5         | a QA read after the owner's disconnect report; breaks SEC-9's bound                                              |
-| 30  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
+| 30  | BUG-12                             | With the host away, a second leader's tap on Next round, Play again or Start game got an error                          | 2.7.6         | a QA read; proven in room.test.ts                                                                                |
+| 31  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
 
 Deferred: Turnstile (SEC-4) and SEC-12 (until M16). Quick reactions, deferred until now, are M23 (user request, 2026-10-29). Declined: SEC-7. Versions assume this order; a PR that reorders says so.
 
@@ -947,6 +948,18 @@ The limit stays 16 code points, so a stored name is no bigger than before. `cutN
 **Acceptance:** `e2e/online.spec.ts`, "BUG-11": fails on `main` (no ping, a new socket) and passes with the fix: 5 throttled minutes, 5 pings answered, 1 socket; then a socket that died while hidden is replaced as the page shows.
 
 **Delivery (PO, PR #49): `holdRooms` is one case per way.** #42 added three gag modes to the single SEC-11/SEC-13 test in `worker.test.ts`. It takes 12.8 s locally, and on a slow runner it passed vitest's 60 s `testTimeout` (PR #48, run 43114515967, attempt 1: the whole `npm test` took 84.6 s; the rerun passed). It is now `it.each` over the 8 ways, each with its own 60 s: the slowest takes 2.3 s locally. If a single way ever nears 60 s on CI, give that case its own timeout rather than raising the global one.
+
+### BUG-12 — A second leader's tap on Next round gets an error (QA read, 2026-11-11) · v2.7.6
+
+**Report.** A QA read of `room.ts` on `main` 0122f4e: with the host away, two stand-ins tap Next round together, and the second gets an "illegal move" toast; `lostToClock` in `Online.tsx` doesn't cover it.
+
+**Evidence (`room.test.ts`, on `main`).** 3 seats at a round summary, the host's socket gone, so both other seats have `lead`. Seat 1's `nextRound` deals round 2. Seat 2's, sent next, throws `illegal-move` ("That move isn't allowed."). The same race on the other two lead actions throws `not-allowed` ("That's not allowed right now."): a second Play again once the room is back in the lobby, and a second Start game once the game is dealt.
+
+**Root cause.** When the host is away, on Auto-play or out, anyone seated may lead (`canLead`), so two phones show the same button. The room handled the later tap as a fresh request: `nextRound` in the flip phase is a `RuleError` in the engine (`room.ts:370-373`), and `rematch` and `start` check the phase with the permission (`room.ts:331`, `room.ts:363`). One phone's own double tap can't do it: `useRoom` sends one message at a time.
+
+**Fix (v2.7.6).** The room answers a lead tap that asks for what already happened with `"none"`, as it does a reaction that arrives late: `start` outside the lobby, `rematch` in the lobby, `nextRound` outside a round summary. Nothing is written and only the sender is answered. A seat that may not lead is still refused where the tap would have done something. Server only, so tabs loaded before 2.7.6 get it too, and no wire change.
+
+**Acceptance:** `room.test.ts`, "BUG-12": fails on `main` (`illegal-move`), passes with the fix: each second tap returns `"none"` and leaves `RoomData` as it was; a seat that may not lead still gets `not-allowed` for all three. `worker.test.ts`'s SEC-3 list of rejected messages loses the lobby `rematch`, now answered with a state, still with no row and nothing sent to anyone else.
 
 ### M17 — Play until one is left (knockout) (user request, 2026-10-24) · v2.2.0 · ✅ shipped (PR #24)
 
@@ -1415,6 +1428,8 @@ The sticker sits centred over the opponent's panel head, or 24 px above your nam
 - E2E (`e2e/online.spec.ts`, also against the Node server): 3 phones, the host drags the last player to the top (with a real touch on Pixel, through CDP; with the mouse on iPhone and desktop, the same pointer events), the passed rows step aside mid-drag, every phone shows the new order and only the host has handles; Arrow Up on a handle moves a seat; the game starts and the turn passes to the lobby's next row. 8 seats with 16-character names at 360 px pass `expectMobileFriendly` in en, es and pt, online and offline (with the ✕), and the last row dragged to the top edge scrolls the lobby and lands first. Screenshots in `docs/screenshots/m26/`.
 - Not covered by a test: a finger on real iOS Safari (WebKit in Playwright has no touch drag). The owner checks it on a phone.
 - CI wall time stays ≤ 3 min: it adds 2 short tests.
+
+**PO follow-up (PR #50 review): the edge-scroll test was flaky on iPhone; fixed in the test.** `e2e/online.spec.ts`, "M26: 8 seats with the longest names…": with the row held at the top edge, the page had not scrolled back to 0 within the poll's 5 s: 9 px short on PR #49 (`e2e (iphone)`, run 43115926087) and 17 px short on PR #50 (run 43117746472), each passing on Playwright's retry. The second run reported the row still dragged, and both stops are 1 px plus a whole number of 8 px steps: the loop was still running, a frame or two from done. It scrolls 8 px a frame, and headless WebKit's frames are slow at 4 workers on CI (about 7 a second here, against 60 locally, where 94 of 94 runs passed). The poll now waits 20 s, since scroll speed isn't what the test checks. The app is unchanged. If a player on a slow phone finds the edge scroll sluggish, scroll by elapsed time instead of by frame.
 
 ### BUG-3 — Your own points stop counting; a long name covers an opponent's (user report, 2026-11-11) · v2.7.1
 

@@ -382,7 +382,11 @@ export class Room {
         return "data";
       }
       case "start":
-        if (!lobby || seats.length < MIN_PLAYERS || !this.canLead(seat, live)) {
+        // A lead tap that lands after another leader's (the host is away, so anyone seated may
+        // lead) asks for what already happened: late, not an error (BUG-12). So with Play again
+        // and Next round below.
+        if (!lobby) return "none";
+        if (seats.length < MIN_PLAYERS || !this.canLead(seat, live)) {
           throw new RoomError("not-allowed");
         }
         this.data.game = createGame(
@@ -414,7 +418,8 @@ export class Room {
       }
       case "rematch":
         // Back to the lobby with the same seats, where people can join, leave, or be removed.
-        if (game?.phase !== "gameOver" || !this.canLead(seat, live)) {
+        if (lobby) return "none";
+        if (game.phase !== "gameOver" || !this.canLead(seat, live)) {
           throw new RoomError("not-allowed");
         }
         this.data.game = null;
@@ -426,6 +431,7 @@ export class Room {
       case "act":
         if (game === null || seat === null) throw new RoomError("not-allowed");
         if (msg.action.type === "nextRound") {
+          if (game.phase !== "roundOver") return "none";
           if (!this.canLead(seat, live)) throw new RoomError("not-allowed");
           // Fresh entropy per round, so reconstructing one round's RNG can't predict the next deal.
           this.play({ ...game, rng: this.deps.seed() }, msg.action);

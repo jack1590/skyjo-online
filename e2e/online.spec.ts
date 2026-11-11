@@ -1015,7 +1015,18 @@ test("M26: 8 seats with the longest names and the host's handles fit at 360 px, 
   const last = (await rows.last().textContent())?.slice(0, 16) ?? "";
   const drop = await dragSeat(host, last, 10, info.project.name === "pixel");
   expect(await host.evaluate(() => window.scrollY)).toBeGreaterThan(0);
-  await expect.poll(() => host.evaluate(() => window.scrollY)).toBe(0);
+  // 8 px a frame, and WebKit's frames are slow at 4 workers on CI: in 5 s it was once 9 px short
+  // and once 17, the row still held (PR #49, PR #50). How fast it scrolls isn't what's checked.
+  await expect
+    .poll(
+      () =>
+        host.evaluate(() => ({
+          scrollY: window.scrollY,
+          dragging: document.querySelectorAll('[data-testid="seats"] li.dragging').length,
+        })),
+      { timeout: 20_000 },
+    )
+    .toEqual({ scrollY: 0, dragging: 1 });
   await drop();
   await expect(rows.first()).toContainText(last);
 

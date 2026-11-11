@@ -4,6 +4,12 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.7.6] - 2026-11-11
+
+### Fixed
+
+- **No error when two of you tap Next round together.** When the host is away, anyone at the table can tap Next round, Play again or Start game. If two players tapped at the same moment, the first tap worked and the second player was told "That move isn't allowed." or "That's not allowed right now." for doing nothing wrong. Now the second tap is simply ignored. The fix is on the server, so no reload is needed.
+
 ## [2.7.5] - 2026-11-11
 
 ### Fixed

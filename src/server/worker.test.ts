@@ -299,9 +299,11 @@ describe("RoomDO storage writes", () => {
       '{"t":"nope"}',
       { t: "join", name: "Again" },
       { t: "kick", seat: 1 },
-      { t: "rematch" },
       { t: "act", action: { type: "draw", seat: 0, source: "deck" } },
     ];
+    // A Play again that lands in the lobby is late, not an error (BUG-12), and as quiet.
+    await t.send(a, { t: "rematch" });
+    expect(a.sent.at(-1)?.t).toBe("state");
     for (const msg of rejected) await t.send(a, msg);
     expect(t.rows()).toBe(rows);
     expect(b.sent.length).toBe(toB);
