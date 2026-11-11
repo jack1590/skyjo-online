@@ -4,6 +4,13 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.7.1] - 2026-11-11
+
+### Fixed
+
+- **Your own points keep counting.** On a phone whose browser translates pages (Chrome offers it when your language isn't the page's), your points and your round score so far could stop changing while your cards and everyone else's numbers went on: for example "0" with a 0, a −1 and a 10 face up. The game now tells browsers not to translate it; it has its own English, Spanish and Portuguese. If you still see a wrong number, turn off Translate in the browser's menu and tell us.
+- **A long name no longer covers another player's points.** On the row of opponents, a name too long for its panel ran over that player's total, so their points couldn't be read. It happened more as a game went on: once the total had three digits, and while the 🤖 of Auto-play or the last seconds of their clock took room beside the name. At tables of five or more, a name of seven letters was enough. The name now ends in "…", and the total, the seconds and the round score so far always show.
+
 ## [2.7.0] - 2026-11-11
 
 ### Added

@@ -804,7 +804,8 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 22  | ✅ M23                             | Reactions: laugh, love, anger and the migajero, from a button beside your grid (user request)                           | 2.6.0         | the user asked for it; reuses M21/M22's in-memory throw path and sticker pipeline                                |
 | 23  | ✅ BUG-2                           | Out of a knockout game, your own reaction popped on your row in the strip, far from the button you tapped               | 2.6.2         | a user report from real phones; effort S. The report's "top of the screen" is still open (see § BUG-2)           |
 | 24  | M26                                | Seat order: the host arranges who plays after whom (owner request, 2026-11-11)                                          | 2.7.0         | the owner asked for it; ahead of M16, which waits on the owner                                                   |
-| 25  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
+| 25  | ✅ BUG-3                           | No browser translation of the page (it freezes your own points; cause unconfirmed); long names over totals              | 2.7.1         | the owner's report from real phones ("the count of points in some moments doesn't work"); client only, S         |
+| 26  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
 
 Deferred: Turnstile (SEC-4) and SEC-12 (until M16). Quick reactions, deferred until now, are M23 (user request, 2026-10-29). Declined: SEC-7. Versions assume this order; a PR that reorders says so.
 
@@ -1362,6 +1363,39 @@ The sticker sits centred over the opponent's panel head, or 24 px above your nam
 - E2E (`e2e/online.spec.ts`, also against the Node server): 3 phones, the host drags the last player to the top (with a real touch on Pixel, through CDP; with the mouse on iPhone and desktop, the same pointer events), the passed rows step aside mid-drag, every phone shows the new order and only the host has handles; Arrow Up on a handle moves a seat; the game starts and the turn passes to the lobby's next row. 8 seats with 16-character names at 360 px pass `expectMobileFriendly` in en, es and pt, online and offline (with the ✕), and the last row dragged to the top edge scrolls the lobby and lands first. Screenshots in `docs/screenshots/m26/`.
 - Not covered by a test: a finger on real iOS Safari (WebKit in Playwright has no touch drag). The owner checks it on a phone.
 - CI wall time stays ≤ 3 min: it adds 2 short tests.
+
+### BUG-3 — Your own points stop counting; a long name covers an opponent's (user report, 2026-11-11) · v2.7.1
+
+**Report.** The owner, playing on real phones: "The count of points in some moments doesn't work", mainly for the player holding the phone. His screenshot (Android Chrome, live v2.6.0, Spanish, round 1, 5 players): his own row reads "0 pts" and a round score of "0" while his face-up cards are 0, −1 and 10 (it should read +9). The three opponents in view are right (+24, 0, +2).
+
+Two bugs were found. The first matches the screenshot; the second was found on the way.
+
+**1. Your own row freezes when the browser translates the page.**
+- **What the screenshot says.** Your row and the opponents' panels use the same `faceUpSum` on the same view in the same render, and your cards (drawn from the same `me.grid`) are current. So React's output was right and the screen wasn't: the number on screen was no longer the text node React updates. A "0" is what the row shows after flipping the 0 first; if so, two later changes never reached the screen.
+- **Root cause.** `index.html` said `lang="en"` and nothing against translation, and the app sets the real language (`es-419`) only after it starts. A browser set to translate English pages (Chrome offers it when the page's language isn't yours, and "always translate" makes it silent) then translates the table. A translator replaces each text node of a run of text with its own `<font>` element. React keeps updating the node it made, which is no longer in the page, so that text stays as it was translated. Your row is where numbers sit in a run of words: your total is one text node with its unit ("0 pts"), between your name and the round score, so a translator has to replace it. An opponent's total is a digits-only cell of its own, which a translator has no reason to touch (assumed, not measured with a real translator). The markers don't stop an extension that rewrites text anyway.
+- **Reproduced (mechanism).** In the table harness in Spanish at 5 seats, with your row's text nodes wrapped in `<font>` as a translator does, 12 moves later your row still read "+2" for cards worth +6, while every opponent's score was current: the screenshot's pattern. In 9 whole games without that (below), no number was ever wrong.
+- **Not confirmed on the owner's phone.** Nobody has seen its Chrome translate the page: the texts in the screenshot are our own Spanish, which a translation into Spanish leaves as they are. The owner can check: Chrome's ⋮ menu, Translate. If the bug shows on v2.7.1 with translation off, this isn't it, and the next step is a screenshot with the room code.
+- **Fix.** `<html translate="no">` and `<meta name="google" content="notranslate">`. The game has its own English, Spanish and Portuguese; a speaker of another language gets English untranslated, which is the price of numbers that are always right.
+- **Test.** `e2e/i18n.spec.ts`, "BUG-3: the page asks browsers not to translate it", on all 3 devices. Playwright can't run a real translator.
+
+**2. A long name covered an opponent's total.**
+- **What was wrong.** On a seated player's row of opponents, a name too long for its panel was drawn over that player's total, and over their clock's seconds: the gold total couldn't be read (`docs/screenshots/bug3/before-4.jpg`, `before-8.jpg`). It came and went, because the room left for the name shrinks during a game. How many letters of "Valentina Rodrig" fit before it reached the total (iPhone 13, 390 px, 12 px text):
+
+  | Opponents on the row | 1-digit total | 3-digit total | 3 digits and 🤖 (Auto-play) | 3 digits, 🤖 and the clock's last seconds |
+  | -------------------- | ------------- | ------------- | --------------------------- | ----------------------------------------- |
+  | 1–3 (2–4 players)    | 14            | 12            | 9                           | 5                                         |
+  | 4–7 (5–8 players)    | 12            | 9             | 6                           | 3                                         |
+
+  So at a table of 5, "Juan Carlos" covers their total from the moment it reaches 100, and "Santiago" does when that player goes on Auto-play. Tests and the PO's games used "Ana", "Ben" and "P1", which always fit. Spectators and out players (the 2-column layout) were never affected, nor your own row.
+- **Root cause.** M14 (v2.4.0) turned the opponent panel's head into a grid, to give the round score a line of its own (`.opponents:not(.watch) .opp-head` in `styles.css`), and kept `.opp-name`'s `margin-right: auto`, which the old flex row needed to push the numbers right. A grid item with an auto margin isn't stretched over its column: it is as wide as its content, and for `white-space: nowrap` text that is the whole name. Its `overflow: hidden` and "…" then never apply, and the name runs into the next columns.
+- **Fix.** One rule: in that grid the name has no auto margin, so it stretches over its `minmax(0, 1fr)` column and ends in "…" (`after-4.jpg`, `after-8.jpg`).
+- **Test.** `e2e/table.spec.ts`, "BUG-3: a 16-character name never covers an opponent's total", on all 3 devices: at 2, 4 and 8 seats, at the device's width and at 360 px, with 16-character names, 3-digit totals, Auto-play on and a clock showing its seconds. On `main` the name reaches 46–56 px into the seconds and the total on all three engines.
+
+**What was checked and found right** (so the next report about points starts further on):
+- **The engine** (R9–R12, R16), by reading it against the rules table and its tests. In the browser runs below, each summary's round scores were also recomputed from the cards on the table, and the ender's doubling from R12's wording: no difference.
+- **The live sum (UX-15), the held totals (M9) and the summary**, with motion on, for your own seat and the opponents'. Through the table harness, 4 seeded games of 2 rounds each (2–4 players, knockout on and off, as a player and as a spectator, views 0–1.2 s apart, Chromium): every sum and total on screen was read at 0, 60 and 200 ms after each view and again before the next one, and the summary's rows after each round. Online, 5 games of 3 phones (1 on Chromium, 4 on WebKit; 4 ended after one round, one after two) with draws from both piles, throw-aways and swaps: all 3 phones were read before and after every move. No number was wrong. Pending taps (M10) change no number: nothing is applied before the server's view.
+
+**Not changed (PO's call).** While your own Auto-play is on, its bar replaces your name, so your total and round score aren't on your screen at all (M8's design, from before UX-15). If players miss them there, keeping the points in the bar needs a layout pass at 360 px in es and pt.
 
 ### M16 — Launch in the App Store and Google Play (user decision, 2026-10-24) · last
 
