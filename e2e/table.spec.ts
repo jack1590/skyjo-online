@@ -971,11 +971,12 @@ const longNames = (players: number): Shown => {
 test("BUG-3: a 16-character name never covers an opponent's total: at 2, 4 and 8 seats it gives way to the total and the clock's seconds, on Auto-play too", async ({
   page,
 }) => {
+  const device = page.viewportSize() ?? { width: 390, height: 664 };
   for (const players of [2, 4, 8]) {
     const table = longNames(players);
     const seat = table.seat ?? 0;
-    for (const width of [0, 360]) {
-      if (width) await page.setViewportSize({ width, height: 740 });
+    for (const size of [device, { width: 360, height: 740 }]) {
+      await page.setViewportSize(size);
       await show(page, table);
       await expect(page.locator(".opp-left")).toBeVisible();
       const heads = await page.getByTestId("opponent").evaluateAll((panels) =>
