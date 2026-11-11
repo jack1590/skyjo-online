@@ -802,7 +802,8 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 20  | ✅ M21                             | Throws: bombs, beers, donkeys and more at other players (user request, 2026-10-27)                                      | 2.5.0         | the user asked for it; ahead of M16, which waits on the owner                                                    |
 | 21  | ✅ M22                             | Throws, part 2: stickers, choreography, marks, real sounds (user feedback)                                              | 2.5.1         | the owner found v2.5.0 throws not fun                                                                            |
 | 22  | ✅ M23                             | Reactions: laugh, love, anger and the migajero, from a button beside your grid (user request)                           | 2.6.0         | the user asked for it; reuses M21/M22's in-memory throw path and sticker pipeline                                |
-| 23  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
+| 23  | ✅ BUG-2                           | Out of a knockout game, your own reaction popped on your row in the strip, at the top of the screen for some seats      | 2.6.1         | a user report from real phones; hotfix, effort S                                                                 |
+| 24  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
 
 Deferred: Turnstile (SEC-4) and SEC-12 (until M16). Quick reactions, deferred until now, are M23 (user request, 2026-10-29). Declined: SEC-7. Versions assume this order; a PR that reorders says so.
 
@@ -1276,11 +1277,28 @@ The sticker sits centred over the opponent's panel head, or 24 px above your nam
 
 **PO follow-ups (PR #40 review, 2026-10-29).** None blocks; each is one small patch, in this order.
 - **The owner listens.** Nobody has heard `giggle`, `sigh`, `grumble`, `coo` and `flap` yet: the PO measured them again (all −19.4 LUFS integrated, peaks −0.7 to −5.7 dBFS; `giggle` pauses at 0.99–1.19 s and `coo` at 0.40–0.58 s, as the choreography expects) but can't judge funny. The owner plays one reaction of each on the live site, in Spanish, and names any cut to swap. This is the bar the owner rejected v2.5.0's throws on.
-- **Your own reaction when you're out (R16).** An out player's laugh, love or anger shows on every other phone but not on theirs: `spot(you)` finds no name bar. Pop it over the corner button, so the reactor sees what they sent.
+- ✅ **Done in BUG-2 (v2.6.1), with the cause corrected: it did show, on their row in the strip.** **Your own reaction when you're out (R16).** An out player's laugh, love or anger shows on every other phone but not on theirs: `spot(you)` finds no name bar. Pop it over the corner button, so the reactor sees what they sent.
 - **Pixel and other narrow phones: confirm the button with the owner.** There it sits at the end of the name bar, above row 1, not where the owner circled (beside row 3). The PO accepts the lead's reason (Pixel 7's cards stay 91 px), but the owner circled the spot on an iPhone. If the owner plays on Android and wants the circle, the asymmetric 56 px right gutter (cards 77 px, grid 28 px off centre) is the fallback measured above.
 - **Delivery: take back the Pixel job's headroom.** `react.spec.ts` adds 43 s of tests to `e2e (pixel)` (2 workers): the job went from 2:33 (PR #39) to 2:56, and PR CI wall time to 3:00, right at the rubric's ceiling and past this milestone's +15 s budget. iPhone (2:18, 4 workers) and desktop (2:09) have room. Run the two heaviest harness cases, "a throw or reaction at a panel scrolled out of the strip…" (7.2 s on Pixel) and "each reaction shows on its seat…" (6.5 s), on iPhone and desktop only (their motion-on Pixel cases stay), and check the Pixel job is back under 2:45.
 - **Delivery: fix the UX-19 flake on iPhone.** "UX-19: thrown away, the drawn card lies on the discard pile…" (`e2e/motion.spec.ts:371`) failed its first try on `e2e (iphone)` in this PR's run 40961612856 (`moving` was below 2: the tap's flight hadn't started), and in runs 40580400974 and 40578482285 before it. `failOnFlakyTests` turns that into a red check, and on `main` a blocked deploy. The test waits one `setTimeout` for React to render the tap; under WebKit's 4-worker CPU contention that isn't enough. Wait for the animations instead (`await expect.poll(() => discard.getAnimations().length)`), then seek them to 300 ms.
 - **Nit:** `AGENTS.md`'s `src/client/Reactions.tsx` row lists `lastMover`, which lives in `src/protocol.ts`.
+
+### BUG-2 — Your own reaction at the top of the screen (user report, 2026-11-11) · v2.6.1
+
+**Report.** Playing on real phones: "My own reactions are sometimes placed at the top of the screen."
+
+**Root cause.** A player who is out of a knockout game (R16) watches the way a spectator does: `Table` sets `seat` to `null`, so there is no name bar, and `others` lists every seat, their own included, in the strip (`Table.tsx`, "a spectator sees everyone").
+- `spot(you)` (`Table.tsx`) looks a seat up in the strip first, so it found their own "Out · watching" row, and `Reactions` popped their laugh, love or anger there, under the row's name.
+- The strip lays seats out in seat order from the top. Out in seat 0 or 1, that row is right under the top bar; in a later seat it is lower down. So it happened "sometimes": only once you are out, and at the top only for some seats. The button they had just tapped is in the bottom right corner (M23: "with no grid, the button sits fixed at the screen's bottom right").
+- M23's follow-up above guessed "not shown on theirs: `spot(you)` finds no name bar". It was shown, in the wrong place.
+- **Ruled out, with the table harness** (iPhone 13, Pixel 7, and 375 × 548 and 320 × 480 viewports; 2, 4 and 8 players; your turn, someone else's, the opening flip, a round's first turn, Auto-play on; motion on; read at 200 ms and 1 s): a seated player's laugh always sat 8–14 px above their name bar's top, 90 of 90 times. The button's place (beside row 3 or in the name bar) changes nothing, and the table never scrolled.
+- **By design, and unchanged:** your own migajero lands on the last mover, in the strip at the top, with your name on its sign. If that is what the owner meant, it is a design question for the PO, not this bug.
+
+**Fix.** `seatOf` in `Reactions.tsx`: your own laugh, love or anger, when the corner button is on screen (only when you are out), pops just over that button, and follows it. Every other reaction goes to `spot(to ?? from)` as before: other phones still show an out player's reaction on their row, throws at an out player still land on their row, and a migajero from an out player still flies from their row.
+
+**Tests.** `e2e/react.spec.ts`, "BUG-2: out of a knockout game, your own reaction pops over the corner button…" (all three devices; it failed by 297 px on iPhone and 319 px on Pixel before the fix). Screenshot: `docs/screenshots/bug2/out-own-laugh.jpg`.
+
+**Not verified.** No real phone was used. If the owner sees it while still in the game, with a laugh, love or anger, the next suspects are device-only: iOS placing `position: fixed` stickers inside the scrolling `.table` differently from `getBoundingClientRect`.
 
 ### M16 — Launch in the App Store and Google Play (user decision, 2026-10-24) · last
 

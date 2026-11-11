@@ -81,7 +81,7 @@ export function Reactions({ reaction, on, you, warned, reduced, spot, names }: R
     if (!reaction || !key || key === last.current) return;
     last.current = key;
     const { kind, from, to } = reaction;
-    const at = spot(to ?? from);
+    const at = seatOf(reaction, you, spot);
     if (!on || !at) return;
     // One migajero per target: someone else's second is dropped, sound and buzz too; yours takes
     // the place of the one there.
@@ -116,7 +116,7 @@ export function Reactions({ reaction, on, you, warned, reduced, spot, names }: R
           shown={s}
           you={you}
           reduced={reduced}
-          spot={spot}
+          now={() => seatOf(s.reaction, you, spot)}
           name={names[s.reaction.from] ?? ""}
           onDone={() => set(live.current.filter((x) => x.key !== s.key))}
         />
@@ -126,6 +126,25 @@ export function Reactions({ reaction, on, you, warned, reduced, spot, names }: R
       </span>
     </>
   );
+}
+
+/**
+ * Where a reaction shows: its target's seat, or the reactor's. Out of a knockout game (R16) you
+ * have no name bar, and your panel is a thin row somewhere in the strip, maybe at the top of the
+ * screen: your own laugh, love or anger pops just over the corner button you tapped (BUG-2).
+ */
+function seatOf(
+  { kind, from, to }: Reaction,
+  you: number | null,
+  spot: (seat: number) => Spot | null,
+): Spot | null {
+  const el =
+    kind !== "migajero" && from === you
+      ? document.querySelector<HTMLElement>(".react-btn.corner")
+      : null;
+  if (!el) return spot(to ?? from);
+  const r = el.getBoundingClientRect();
+  return { x: r.left + r.width / 2, y: r.top - 12, el, panel: el, mark: el, px: 0, py: 0 };
 }
 
 /** The panel's little bounce (added on top of whatever it's doing), at each of `at` (ms). */
@@ -147,12 +166,13 @@ interface PopProps {
   shown: Shown;
   you: number | null;
   reduced: boolean;
-  spot: (seat: number) => Spot | null;
+  /** Where its seat is now. */
+  now: () => Spot | null;
   name: string;
   onDone: () => void;
 }
 
-function Pop({ shown, you, reduced, spot, name, onDone }: PopProps) {
+function Pop({ shown, you, reduced, now, name, onDone }: PopProps) {
   const { t } = useI18n();
   const { reaction, at, from } = shown;
   const { kind } = reaction;
@@ -188,15 +208,10 @@ function Pop({ shown, you, reduced, spot, name, onDone }: PopProps) {
     keepOnScreen(x);
     // The strip scrolls to follow the turn, maybe under a reaction: it moves with its seat, and
     // names the reactor only while their panel is out of view.
-    const stop = follow(
-      box.current,
-      () => spot(reaction.to ?? reaction.from),
-      at,
-      (now) => {
-        keepOnScreen(now.x);
-        setNamed(offHead(now));
-      },
-    );
+    const stop = follow(box.current, now, at, (seat) => {
+      keepOnScreen(seat.x);
+      setNamed(offHead(seat));
+    });
     const anims: Animation[] = [];
     if (!reduced) {
       if (migajero && from && fly.current) {

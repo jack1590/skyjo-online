@@ -4,6 +4,12 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.6.1] - 2026-11-11
+
+### Fixed
+
+- **Out of a knockout game, your own reactions show by your thumb.** Once you were out and watching, your laugh, love or anger popped on your thin "Out · watching" row, wherever it sat among the other players: at the very top of the screen for some seats, far from the button you had just tapped. It now pops right over the reaction button, in the bottom corner. Everyone else still sees it on your row, and a migajero still flies to its player.
+
 ## [2.6.0] - 2026-10-29
 
 ### Added
