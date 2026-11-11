@@ -4,6 +4,14 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.6.1] - 2026-11-11
+
+### Changed
+
+- **Love and Angry have new sounds,** both chosen by ear this time:
+  - **Love:** a drawn-out "aww, yeah" in place of the sigh. It starts as the face pops in, and the "yeah" lands on its second heartbeat.
+  - **Angry:** a scream of rage through gritted teeth, like the face on the sticker, in place of the low growl. It starts as the face slams down.
+
 ## [2.6.0] - 2026-10-29
 
 ### Added
