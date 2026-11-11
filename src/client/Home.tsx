@@ -186,7 +186,7 @@ export function Home() {
                   <span className="seat-tags">
                     {r.knockout && <span className="tag">{t("knockoutTag")}</span>}
                     <span>
-                      {r.players}/{MAX_PLAYERS}
+                      {r.players}/{MAX_PLAYERS} ›
                     </span>
                   </span>
                 </a>
