@@ -238,6 +238,10 @@ export function ipKey(ip: string): string {
   return `${[...left, ...zeros, ...right].slice(0, 4).join(":")}::/64`;
 }
 
+/** Throws and reactions are for a round being played: a summary shows neither. */
+const playing = (game: GameState) =>
+  game.phase === "flip" || game.phase === "draw" || game.phase === "place";
+
 /** Strips control/format characters (zero-width, bidi overrides), trims, caps length in code points (never splits an emoji). */
 const cleanName = (name: string) =>
   [...name.replace(/\p{C}/gu, "").trim()].slice(0, NAME_MAX).join("").trim();
@@ -379,8 +383,9 @@ export class Room {
         if (game === null || seat === null || msg.to === seat || !seats[msg.to]) {
           throw new RoomError("not-allowed");
         }
-        // Too soon: the client greys the items out meanwhile, so only a script gets here.
-        if (now - (this.tossed.get(seat) ?? -TOSS_MS) < TOSS_MS) return "none";
+        // At a summary no phone draws a throw (BUG-7): dropped, like a reaction. Too soon: the
+        // client greys the items out meanwhile, so only a script gets here.
+        if (!playing(game) || now - (this.tossed.get(seat) ?? -TOSS_MS) < TOSS_MS) return "none";
         this.tossed.set(seat, now);
         this.toss = { id: now, from: seat, to: msg.to, item: msg.item };
         return "view";
@@ -391,8 +396,8 @@ export class Room {
           throw new RoomError("not-allowed");
         }
         // A tap that arrives as the round ends, or as the turn passes: too late, not an error.
-        const playing = game.phase === "flip" || game.phase === "draw" || game.phase === "place";
-        if (!playing || (msg.kind === "migajero" && at !== lastMover(game, seat))) return "none";
+        if (!playing(game) || (msg.kind === "migajero" && at !== lastMover(game, seat)))
+          return "none";
         // One gag per seat per TOSS_MS, a throw or a reaction.
         if (now - (this.tossed.get(seat) ?? -TOSS_MS) < TOSS_MS) return "none";
         this.tossed.set(seat, now);

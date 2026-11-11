@@ -850,6 +850,18 @@ There is a second guard the old rule hid: `autoMove` never flips a seat's last f
 - **Accepted:** a present player who runs out of time while every other connected seat is on Auto-play goes on Auto-play in the same `tick`, so that very move may turn over their last card and end the round, doubled unless lowest (the PO reproduced it). That is the decision above (at that moment nobody is playing by hand), and the round has to end. Computing `mayEnd` before the due seats switch would spare that one move; revisit if players say so.
 - **M17:** `canStall` only counts seats, so a lone connected spectator keeps nothing running (the PO checked on the injected clock), but no test pins it. M17's out-seat test covers it; see there.
 
+### BUG-7 — A throw from "View table" at a summary is accepted but never shown (QA, 2026-11-11, `main` 0122f4e) · v2.6.3
+
+**Report.** Pixel 7. At round over or game over, tap View table, tap an opponent, tap an item. The server broadcasts the throw and the thrower's 3 s rest starts, but no phone draws it.
+
+**Root cause.** Two halves of the client disagreed, and the server sided with neither. `Table.tsx` mounts `Tosses` (and `Reactions`) only when there is no summary, but the `Tray` in an opponent's sheet had no such guard. The server took a `toss` in any phase of a game, while it already dropped a `react` outside flip, draw and place.
+
+**Decision.** Throws follow reactions: only while a round is being played. A summary is a pause between rounds; drawing throws over "View table" would also mean flights over a table whose panels the sheet may cover at any tap of Show scores.
+
+**Fix.** Server: one `playing(game)` check for both `toss` and `react`; a throw outside it returns `"none"` before the cooldown is touched. Client: the sheet at a summary shows the cards without the tray.
+
+**Tests.** `room.test.ts`, "BUG-7" (dropped at `roundOver` and `gameOver`, no cooldown started); `e2e/toss.spec.ts`, "BUG-7" (View table, tap an opponent: sheet, no tray).
+
 ### M17 — Play until one is left (knockout) (user request, 2026-10-24) · v2.2.0 · ✅ shipped (PR #24)
 
 The user asked for a game option, **"Play until one is left"**, and approved the rule and the edge cases below after a walkthrough. It is numbered M17 because M9–M16 were already planned, but it ships before them (see § Queue after M7).

@@ -4,6 +4,12 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.6.3] - 2026-11-11
+
+### Fixed
+
+- **No more throws that nobody sees.** From a round summary or the final scores, View table let you tap an opponent and throw something: your items went to rest for 3 seconds, but nothing flew on any phone. Throws, like reactions, are for a round being played, so at a summary an opponent's cards now open without the row of things to throw.
+
 ## [2.6.2] - 2026-11-11
 
 ### Fixed

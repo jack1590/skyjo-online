@@ -685,8 +685,9 @@ export function Table(props: TableProps) {
 
       {zoom !== null && players[zoom] && !isOut(players[zoom], view.round) && (
         <Zoom view={view} seat={zoom} total={total(players[zoom])} onClose={() => setZoom(null)}>
-          {/* Seated players throw, out ones (R16) too; spectators only watch (M21). */}
-          {props.seat !== null && props.onToss && (
+          {/* Seated players throw, out ones (R16) too; spectators only watch (M21). Not at a
+              summary, which shows no throws (BUG-7). */}
+          {props.seat !== null && props.onToss && !summary && (
             <Tray
               name={players[zoom].name}
               on={throwsOn}
