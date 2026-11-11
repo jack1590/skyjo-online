@@ -802,6 +802,7 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 20  | ✅ M21                             | Throws: bombs, beers, donkeys and more at other players (user request, 2026-10-27)                                      | 2.5.0         | the user asked for it; ahead of M16, which waits on the owner                                                    |
 | 21  | ✅ M22                             | Throws, part 2: stickers, choreography, marks, real sounds (user feedback)                                              | 2.5.1         | the owner found v2.5.0 throws not fun                                                                            |
 | 22  | ✅ M23                             | Reactions: laugh, love, anger and the migajero, from a button beside your grid (user request)                           | 2.6.0         | the user asked for it; reuses M21/M22's in-memory throw path and sticker pipeline                                |
+| —   | BUG-4                              | Phones on one Wi-Fi dropped together: throws and reactions spent their shared message budget                            | 2.6.3         | a live report from the owner; hotfix                                                                             |
 | 23  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
 
 Deferred: Turnstile (SEC-4) and SEC-12 (until M16). Quick reactions, deferred until now, are M23 (user request, 2026-10-29). Declined: SEC-7. Versions assume this order; a PR that reorders says so.
@@ -1281,6 +1282,42 @@ The sticker sits centred over the opponent's panel head, or 24 px above your nam
 - **Delivery: take back the Pixel job's headroom.** `react.spec.ts` adds 43 s of tests to `e2e (pixel)` (2 workers): the job went from 2:33 (PR #39) to 2:56, and PR CI wall time to 3:00, right at the rubric's ceiling and past this milestone's +15 s budget. iPhone (2:18, 4 workers) and desktop (2:09) have room. Run the two heaviest harness cases, "a throw or reaction at a panel scrolled out of the strip…" (7.2 s on Pixel) and "each reaction shows on its seat…" (6.5 s), on iPhone and desktop only (their motion-on Pixel cases stay), and check the Pixel job is back under 2:45.
 - **Delivery: fix the UX-19 flake on iPhone.** "UX-19: thrown away, the drawn card lies on the discard pile…" (`e2e/motion.spec.ts:371`) failed its first try on `e2e (iphone)` in this PR's run 40961612856 (`moving` was below 2: the tap's flight hadn't started), and in runs 40580400974 and 40578482285 before it. `failOnFlakyTests` turns that into a red check, and on `main` a blocked deploy. The test waits one `setTimeout` for React to render the tap; under WebKit's 4-worker CPU contention that isn't enough. Wait for the animations instead (`await expect.poll(() => discard.getAnimations().length)`), then seek them to 300 ms.
 - **Nit:** `AGENTS.md`'s `src/client/Reactions.tsx` row lists `lastMover`, which lives in `src/protocol.ts`.
+
+### BUG-4 — Devices disconnect at random, or when another player disconnects (user report, 2026-11-11) · v2.6.3
+
+**Report.** The owner, playing with friends on real phones: "Some devices get disconnected randomly, or when another player disconnects."
+
+**Evidence.**
+- **The model (`worker.test.ts`, the real `RoomDO` on the fake runtime, on `main` 0122f4e).** Phones on one address, a tap every 2 s, every seat throwing or reacting once per 3 s, which is what the app allowed. The busiest minute of the address's `MESSAGES` budget (120 units):
+
+  | Phones on one address | No gags | A gag per seat every 6 s | Every 3 s (the app's limit)  | Every 3 s, one phone dropped (its seat on Auto-play) |
+  | --------------------- | ------- | ------------------------ | ---------------------------- | ---------------------------------------------------- |
+  | 3                     | 41      | 68                       | 98                           | 94                                                   |
+  | 4                     | 44      | 80                       | 120                          | 110                                                  |
+  | 6                     | 50      | 104                      | over: all 6 closed 37.5 s in | over (145): the 5 left closed 98.5 s in              |
+  | 8                     | 56      | 117, 2 closed 45.5 s in  | over: all 8 closed 27.5 s in | over: the 7 left closed 35 s in                      |
+
+  A dropped phone costs a small table more with no gags at all: 41 → 56 at 3 phones (its Auto-play turns are 4 units each, plus the unit a move pays when it brings the alarm forward).
+- **Two real browsers, no per-IP limit (local workerd, Pixel and iPhone projects).** 3 phones mid-game; one goes offline for 100 s, comes back, then its tab closes. Over 170 s the other two phones' sockets never closed, on either device (on Pixel the offline phone's own socket closed and retried, as it should). So nothing but the per-IP budget drops a phone because another one left.
+
+**Root cause.** M21 and M23 added throws and reactions at one `MESSAGES` unit each and one per seat per `TOSS_MS` (3 s), so 20 a minute per seat, whoever shares the seat's address. SEC-11's budget was sized before them: 8 friends on one router without gags peak at 56 (a tap every 2 s) to 87 (a tap a second). With gags, 6 phones on one Wi-Fi spend all 120 units. Then the next message from any of them closes its socket with 1008 (`handle` in `worker.ts`), and the next alarm closes every socket that address has in the room (`alarm` in `worker.ts`). `useRoom` retries a 1008 only every 20 s, and the limiter's minute must roll over first, so the whole Wi-Fi sits on "Reconnecting…" for 20–60 s while a phone on mobile data plays on. That is "some devices, at random". "When another player disconnects": the dropped seat's Auto-play turns are charged to the same address, so the budget runs out sooner.
+
+**Not the cause** (checked): `Room.admit` only displaces a socket at 20 sockets in the room; `dead` is only read there; a hello with another token only answers that socket; and an exception in an alarm or a broadcast closes no socket (read in the code, not reproduced).
+
+**Fix (v2.6.3).** The charging rules and the 120-unit budget stay, so `holdRooms`' 14 h and 18 h hold. The gag rate becomes per address: a seat waits `TOSS_MS` for each seated phone on its address (`rest` in `room.ts`), told to its client as `RoomView.rest`, which greys the tray and the reaction button for that long. One address then gags 20 times a minute at most, what one phone could before. Friends each on their own connection still wait 3 s.
+- After: 8 phones on one address, a tap every 2 s, all gagging as often as the app lets them: 72 units in the busiest minute; 59 with one of them dropped (64 at 6 phones); 102 at a tap a second. Nothing is closed.
+- A tab loaded before 2.6.3 still greys its buttons for 3 s; its early gags are dropped (`"none"`) and still cost a unit each, until it reloads.
+- `shut` in `worker.ts` now logs `socket shut: <code> <reason>` for every socket the Worker closes on purpose, so the next report can be checked in Workers Logs.
+
+**Suspected, not proven** (for the owner to check on real phones):
+- **A deploy closes every socket.** Each merge to `main` deploys, and players in a game see "Reconnecting…" for about a second. Compare the time of a drop with the time of a deploy.
+- **A phone back from a locked screen with a dead socket that still looks open** sends its hello into it and only replaces it at the next 20 s check, or 5 s after a tap. It shows a stale table until then.
+- **`API_REQUESTS` (30 a minute per address).** 8 phones on a Wi-Fi that stutters each retry up to every 8 s; `flaky.spec.ts` measured 22 in the busiest minute, not far under.
+
+**Acceptance:**
+- `worker.test.ts`: the three BUG-4 tests above fail on `main` (sockets closed) and pass with the fix.
+- `room.test.ts`: two seats on one address wait 2 × `TOSS_MS` each, a third on its own address `TOSS_MS`; a spectator on the address doesn't count; the wait drops back when the other phone leaves.
+- `holdRooms` unchanged and passing.
 
 ### M16 — Launch in the App Store and Google Play (user decision, 2026-10-24) · last
 

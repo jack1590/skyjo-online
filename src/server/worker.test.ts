@@ -753,6 +753,75 @@ describe("RoomDO auto-play (M8)", () => {
   });
 });
 
+describe("RoomDO gags on one address (BUG-4)", () => {
+  /**
+   * `n` phones on one IP play for 5 minutes, a tap every `tap` ms, and every phone throws or reacts
+   * as often as the app lets it: when its view's `rest` (and the app's 250 ms margin) has passed.
+   * `dropped`: the last phone lost its connection at the deal, so its seat goes on Auto-play.
+   * Returns the busiest minute of the IP's budget after the deal, and every socket.
+   */
+  async function gagging(n: number, tap: number, dropped = false) {
+    const env = { MESSAGES: messageLimiter() };
+    const t = await harness(env);
+    const phones = await t.seat(n);
+    await t.send(phones[0], { t: "start" });
+    const from = Date.now();
+    const there = dropped ? phones.slice(0, -1) : phones;
+    const gagged = there.map(() => 0);
+    for (let ms = 0; ms < 5 * 60_000; ms += 500) {
+      await t.advance(500, there);
+      for (const [i, ws] of there.entries()) {
+        if (Date.now() < gagged[i] + lastView(ws).rest + 250) continue;
+        gagged[i] = Date.now();
+        await t.send(
+          ws,
+          i % 2 ? { t: "react", kind: "laugh" } : { t: "toss", to: (i + 1) % n, item: "bomb" },
+        );
+      }
+      const game = t.game();
+      if (!game || game.phase === "gameOver") break;
+      if (ms % tap) continue;
+      const legal = legalActions(game);
+      if (game.phase === "flip") {
+        for (const [i, ws] of there.entries()) {
+          const flip = legal.find((a) => a.type === "flip" && a.seat === i);
+          if (flip) await t.send(ws, { t: "act", action: flip });
+        }
+      } else if (game.phase === "roundOver") {
+        await t.send(phones[0], { t: "act", action: legal[0] });
+      } else if (there[game.current] && !lastView(phones[0]).seats[game.current].auto) {
+        const action = legal[game.phase === "place" ? legal.length - 1 : 0] as Action;
+        await t.send(there[game.current], { t: "act", action });
+      }
+    }
+    const played = env.MESSAGES.calls.filter(([, when]) => when > from);
+    return { peak: peakMinute(played, HOME), phones };
+  }
+
+  it("BUG-4: 8 friends on one Wi-Fi who all throw and react as often as the app lets them stay under 0.75 of the budget", async () => {
+    // Before, each seat could gag every 3 s whoever shared its address: 8 phones spent the 120
+    // units 27.5 s after the deal, and the next alarm closed all 8 sockets (1008).
+    const { peak, phones } = await gagging(8, 2_000);
+    expect(phones.filter((ws) => ws.closed !== null)).toEqual([]);
+    expect(peak).toBeLessThanOrEqual(0.75 * IP_MESSAGES_PER_MINUTE);
+  });
+
+  it("BUG-4: ... also when one of them drops and its seat goes on Auto-play, at 6 phones too", async () => {
+    // Before: 145 units a minute at 6 phones, and the 5 still there were closed 98.5 s in.
+    for (const n of [6, 8]) {
+      const { peak, phones } = await gagging(n, 2_000, true);
+      expect(phones.filter((ws) => ws.closed !== null)).toEqual([]);
+      expect(peak).toBeLessThanOrEqual(0.75 * IP_MESSAGES_PER_MINUTE);
+    }
+  });
+
+  it("BUG-4: ... and tapping once a second, faster than anyone plays, still trips nothing", async () => {
+    const { peak, phones } = await gagging(8, 1_000);
+    expect(phones.filter((ws) => ws.closed !== null)).toEqual([]);
+    expect(peak).toBeLessThanOrEqual(IP_MESSAGES_PER_MINUTE);
+  });
+});
+
 describe("RoomDO event order", () => {
   it("SEC-10: a socket's messages are handled in order even when the limiter answers out of order", async () => {
     let calls = 0;

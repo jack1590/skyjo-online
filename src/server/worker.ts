@@ -68,6 +68,8 @@ type Attachment = Conn & { shut?: true };
  * it stops counting as live (or holding the room open) even if its client never answers the close.
  */
 function shut(ws: WebSocket, conn: Conn, code = CLOSE_TOO_MANY, reason = "Too many messages") {
+  // In Workers Logs: why a phone was dropped (BUG-4). No address or token.
+  console.warn(`socket shut: ${code} ${reason}`);
   ws.serializeAttachment({ ...conn, shut: true } satisfies Attachment);
   try {
     ws.close(code, reason);

@@ -1271,6 +1271,29 @@ describe("reactions (M23)", () => {
   });
 });
 
+describe("gags on one address (BUG-4)", () => {
+  it("BUG-4: seated phones on one address share one phone's gag rate: each waits TOSS_MS times their number, as its view says", () => {
+    const t = setup();
+    const [a, b, c] = startedGame(t, 3);
+    a.ip = b.ip = "203.0.113.7";
+    c.ip = "198.51.100.9";
+    // A spectator on the same Wi-Fi can't gag, so it doesn't slow anyone.
+    t.connect("spectator-token").ip = "203.0.113.7";
+    expect(t.room.view(a, t.live).rest).toBe(2 * TOSS_MS);
+    expect(t.room.view(c, t.live).rest).toBe(TOSS_MS);
+    t.send(a, { t: "toss", to: 1, item: "beer" });
+    t.send(c, { t: "react", kind: "laugh" });
+    t.advance(TOSS_MS);
+    expect(t.send(a, { t: "react", kind: "laugh" })).toBe("none");
+    expect(t.send(c, { t: "react", kind: "love" })).toBe("view");
+    t.advance(TOSS_MS);
+    expect(t.send(a, { t: "toss", to: 2, item: "bomb" })).toBe("view");
+    // When the other phone on its address leaves, a's wait is TOSS_MS again.
+    t.drop(b);
+    expect(t.room.view(a, t.live).rest).toBe(TOSS_MS);
+  });
+});
+
 describe("protocol", () => {
   it("M23: parses reactions: a known kind, a migajero with an integer target; other kinds lose their target", () => {
     for (const raw of [

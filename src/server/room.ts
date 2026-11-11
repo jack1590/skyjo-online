@@ -380,7 +380,9 @@ export class Room {
           throw new RoomError("not-allowed");
         }
         // Too soon: the client greys the items out meanwhile, so only a script gets here.
-        if (now - (this.tossed.get(seat) ?? -TOSS_MS) < TOSS_MS) return "none";
+        if (now - (this.tossed.get(seat) ?? Number.NEGATIVE_INFINITY) < this.rest(conn, live)) {
+          return "none";
+        }
         this.tossed.set(seat, now);
         this.toss = { id: now, from: seat, to: msg.to, item: msg.item };
         return "view";
@@ -393,8 +395,10 @@ export class Room {
         // A tap that arrives as the round ends, or as the turn passes: too late, not an error.
         const playing = game.phase === "flip" || game.phase === "draw" || game.phase === "place";
         if (!playing || (msg.kind === "migajero" && at !== lastMover(game, seat))) return "none";
-        // One gag per seat per TOSS_MS, a throw or a reaction.
-        if (now - (this.tossed.get(seat) ?? -TOSS_MS) < TOSS_MS) return "none";
+        // One gag per seat per `rest`, a throw or a reaction.
+        if (now - (this.tossed.get(seat) ?? Number.NEGATIVE_INFINITY) < this.rest(conn, live)) {
+          return "none";
+        }
         this.tossed.set(seat, now);
         this.reaction = {
           id: now,
@@ -450,11 +454,22 @@ export class Room {
       lead: this.canLead(you, live),
       clocks: this.clocks(live),
       knockout: this.data.knockout === true,
+      rest: this.rest(conn, live),
       game: this.data.game && toView(this.data.game),
       ...(this.toss && this.deps.now() - this.toss.id < TOSS_SHOW_MS && { toss: this.toss }),
       ...(this.reaction &&
         this.deps.now() - this.reaction.id < TOSS_SHOW_MS && { reaction: this.reaction }),
     };
+  }
+
+  /**
+   * How long `conn`'s seat waits between its gags (throws and reactions): TOSS_MS for each seated
+   * phone on its address. Each gag costs a unit of the address's budget, so friends on one Wi-Fi
+   * share one phone's rate, 20 a minute, instead of spending it all and being closed (BUG-4).
+   */
+  private rest(conn: Conn, live: Conn[]): number {
+    const near = live.filter((c) => c.ip !== null && c.ip === conn.ip && this.seatOf(c) !== null);
+    return TOSS_MS * Math.max(1, new Set(near.map((c) => c.token)).size);
   }
 
   /** Every seat the table waits on whose clock runs, and when and why the server moves for it. */
