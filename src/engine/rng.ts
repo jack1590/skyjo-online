@@ -43,7 +43,7 @@ export function chachaBlock(
 
 /**
  * Starts a generator from a seed. Also takes the four ints that were the whole state before
- * 2.6.4 (sfc32), so a game saved by an older version carries on.
+ * 2.7.8 (sfc32), so a game saved by an older version carries on.
  */
 export function seedRng(seed: Seed): Rng {
   return { key: Array.from({ length: 8 }, (_, i) => (seed[i] ?? 0) | 0), used: 0 };

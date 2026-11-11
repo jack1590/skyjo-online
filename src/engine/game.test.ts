@@ -67,7 +67,7 @@ describe("setup", () => {
     expect(createGame(names(4), seed(42)).deck).not.toEqual(createGame(names(4), seed(43)).deck);
   });
 
-  it("BUG-5: a game saved before 2.6.4, with the old generator's four ints, plays on (R13, R15)", () => {
+  it("BUG-5: a game saved before 2.7.8, with the old generator's four ints, plays on (R13, R15)", () => {
     const saved = (s: GameState) => ({ ...s, rng: [1, 2, 3, 4] }) as unknown as GameState;
     const flipped = apply(saved(createGame(names(2), seed(1))), { type: "flip", seat: 0, pos: 0 });
     expect(flipped.rng).toEqual({ key: [1, 2, 3, 4, 0, 0, 0, 0], used: 0 });

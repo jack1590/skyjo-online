@@ -117,7 +117,7 @@ function deal(s: GameState): void {
 /** Returns the next state; throws RuleError on an illegal action. Never mutates `state`. */
 export function apply(state: GameState, action: Action): GameState {
   const s = structuredClone(state);
-  // A game saved before 2.6.4 holds the old generator's four ints: key the new one from them.
+  // A game saved before 2.7.8 holds the old generator's four ints: key the new one from them.
   if (Array.isArray(s.rng)) s.rng = seedRng(s.rng);
   switch (action.type) {
     case "flip":

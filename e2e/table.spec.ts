@@ -736,7 +736,21 @@ test("UX-11: the summary is a modal: the first Tab lands inside it and 10 Tabs n
   await page.keyboard.press("Escape");
   await expect(summary).toHaveCount(0);
   const showScores = page.getByRole("button", { name: "Show scores" });
-  await expect(showScores).toBeFocused();
+  // What has the focus, and whether a dialog is still open, so a failure says why. 20 s: WebKit's
+  // frames are slow at 4 workers on CI, where 5 s wasn't enough twice (main, run 43117120506).
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const el = document.activeElement;
+          return {
+            focus: el === document.body ? "body" : (el?.textContent ?? null),
+            open: document.querySelectorAll("dialog[open]").length,
+          };
+        }),
+      { timeout: 20_000 },
+    )
+    .toEqual({ focus: "Show scores", open: 0 });
   await showScores.click();
   await expect(summary).toBeVisible();
 });
@@ -947,6 +961,74 @@ test("UX-15: with a 16-character name in Portuguese, your row stays one line: yo
     expect(Math.abs(sum.middle - pts.middle)).toBeLessThan(3);
     expect(sum.top).toBeGreaterThanOrEqual(row.top);
     expect(sum.bottom).toBeLessThanOrEqual(row.bottom);
+  }
+});
+
+/**
+ * Everyone has a 16-character name, a 3-digit total and Auto-play on, and the next player's clock
+ * shows its last seconds: the most an opponent's panel head ever holds (BUG-3).
+ */
+const longNames = (players: number): Shown => {
+  const state = lastTurnGame(players, 3);
+  state.players.forEach((p, i) => {
+    p.name = "Valentina Rodrig";
+    p.total = 104 + i;
+  });
+  return {
+    view: toView(state),
+    seat: state.current,
+    auto: state.players.map(() => true),
+    wait: [{ seat: (state.current + 1) % players, inMs: 8_950, reason: "timer" }],
+  };
+};
+
+test("BUG-3: a 16-character name never covers an opponent's total: at 2, 4 and 8 seats it gives way to the total and the clock's seconds, on Auto-play too", async ({
+  page,
+}) => {
+  const device = page.viewportSize() ?? { width: 390, height: 664 };
+  for (const players of [2, 4, 8]) {
+    const table = longNames(players);
+    const seat = table.seat ?? 0;
+    for (const size of [device, { width: 360, height: 740 }]) {
+      await page.setViewportSize(size);
+      await show(page, table);
+      await expect(page.locator(".opp-left")).toBeVisible();
+      const heads = await page.getByTestId("opponent").evaluateAll((panels) =>
+        panels.map((panel) => {
+          const box = (selector: string) => panel.querySelector(selector)?.getBoundingClientRect();
+          const [name, total, left] = [box(".opp-name"), box(".opp-total"), box(".opp-left")];
+          return {
+            total: panel.querySelector(".opp-total")?.textContent,
+            // How far the name reaches into the total, or into the seconds before it (px).
+            over: (name?.right ?? 0) - (left?.left ?? total?.left ?? 0),
+            inside: (total?.right ?? 0) <= panel.getBoundingClientRect().right,
+          };
+        }),
+      );
+      expect(heads).toEqual(
+        Array.from({ length: players - 1 }, (_, i) => ({
+          total: String(104 + ((seat + 1 + i) % players)),
+          over: expect.any(Number),
+          inside: true,
+        })),
+      );
+      expect(Math.max(...heads.map((h) => h.over))).toBeLessThanOrEqual(0.5);
+    }
+  }
+});
+
+test("screenshots: BUG-3 long names", async ({ page }, info) => {
+  test.skip(!process.env.SHOTS || info.project.name !== "iphone", "run with SHOTS=1");
+  for (const players of [4, 8]) {
+    await show(page, longNames(players));
+    await expect(page.locator(".opp-left")).toBeVisible();
+    await page.screenshot({
+      path: `docs/screenshots/bug3/after-${players}.jpg`,
+      type: "jpeg",
+      quality: 80,
+      scale: "css",
+      animations: "disabled",
+    });
   }
 });
 
@@ -1235,4 +1317,25 @@ test.describe("with motion allowed", () => {
     });
     await shot("09-summary-bot");
   });
+});
+
+test("UX-19: a tap on the pile as your turn appears, before the page has settled, still throws the card away", async ({
+  page,
+}) => {
+  const state = firstTurn(2, 5);
+  const me = state.current;
+  // The tap lands right as the pile is added to the page: before React runs the table's effects.
+  await page.addInitScript(() => {
+    const watch = new MutationObserver(() => {
+      const pile = document.querySelector<HTMLElement>('[data-testid="discard"]');
+      if (!pile) return;
+      watch.disconnect();
+      pile.click();
+    });
+    watch.observe(document, { childList: true, subtree: true });
+  });
+  const view = toView(apply(state, { type: "draw", seat: me, source: "deck" }));
+  await show(page, { view, seat: me });
+  await expect(page.locator(".undo")).toBeVisible();
+  await expect(page.getByTestId("discard")).toHaveAttribute("data-tilt", "4");
 });

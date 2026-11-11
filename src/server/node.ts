@@ -19,6 +19,7 @@ import {
   allowIp,
   allowMessage,
   type Conn,
+  costs,
   dead,
   systemDeps as deps,
   newConn,
@@ -189,11 +190,12 @@ function onConnection(ws: WebSocket, code: string, ip: string | null) {
       ws.send(PONG);
       return;
     }
-    if (!allowMessage(conn, Date.now()) || (ip && !allowIp(ipWindows, ip, Date.now()))) {
+    const msg = parseClientMsg(raw);
+    const paid = !ip || !costs(conn, msg) || allowIp(ipWindows, ip, Date.now());
+    if (!allowMessage(conn, Date.now()) || !paid) {
       ws.close(CLOSE_TOO_MANY, "Too many messages");
       return;
     }
-    const msg = parseClientMsg(raw);
     if (msg?.t === "hello" && conn.token === null) {
       // SEC-2: turned away, or another socket makes room (a dead one just reconnects if it wakes).
       const out = live.room.admit(conn, msg.token, [...live.sockets.values()]);
