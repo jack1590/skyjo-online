@@ -3470,7 +3470,7 @@ dialog.overlay:focus {
 }
 
 [data-theme="casual"] .btn:active:not(:disabled) {
-  translate: 0 3px;
+  transform: translateY(3px);
   box-shadow:
     inset 0 2px 0 rgb(255 255 255 / 0.22),
     0 1px 0 #1c1466;
@@ -3497,6 +3497,12 @@ dialog.overlay:focus {
   background: none;
   box-shadow: none;
   font-weight: 800;
+}
+
+/* No lip to push in. */
+[data-theme="casual"] .btn.quiet:active:not(:disabled) {
+  transform: none;
+  box-shadow: none;
 }
 
 [data-theme="casual"] .name-input,
@@ -3615,7 +3621,8 @@ dialog.overlay:focus {
   border-color: transparent;
 }
 
-[data-theme="casual"] .ring {
+/* Mint until the clock's last 10 s: orange and red keep their meaning. */
+[data-theme="casual"] .ring:not(.warn, .danger) {
   --ring: var(--go);
 }
 
@@ -3872,7 +3879,10 @@ dialog.overlay:focus {
   gap: 9px;
 }
 
+/* In the empty slot, a card's box: it keeps the buttons' font, not the numerals'. */
 [data-theme="casual"] .undo {
+  border-radius: 999px;
+  font-family: "Nunito Sans", system-ui, sans-serif;
   box-shadow: 0 3px 0 #1c1466;
 }
 
@@ -3924,7 +3934,7 @@ dialog.overlay:focus {
   background: #ff5247;
 }
 
-[data-theme="casual"] .secs {
+[data-theme="casual"] .secs:not(.warn, .danger) {
   color: var(--go);
 }
 
@@ -3936,6 +3946,14 @@ dialog.overlay:focus {
     inset 0 2px 0 rgb(255 255 255 / 0.4),
     0 3px 0 #96103e;
   color: #fff;
+}
+
+/* Open: a white ring, where Classic's border lights up. */
+[data-theme="casual"] .react-btn[aria-expanded="true"] {
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 0.4),
+    0 3px 0 #96103e,
+    0 0 0 3px #fff;
 }
 
 [data-theme="casual"] .react-item,
@@ -4061,8 +4079,9 @@ dialog.overlay:focus {
   color: #ffe27a;
 }
 
+/* Magenta, not the mockup's lighter pink: white on that is 3.1:1 at this size. */
 [data-theme="casual"] .tag.x2 {
-  background: #ff4f8b;
+  background: #dc2060;
   color: #fff;
 }
 

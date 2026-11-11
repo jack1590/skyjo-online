@@ -91,11 +91,14 @@ test("M28: in Modern, 2–8 players fit at the device's width and at 360 px: no 
       };
       await show(page, table);
       const classic = await cardWidth();
+      await expect(page.getByTestId("opponent").first().locator(".av")).toBeHidden();
       await page.evaluate(() => localStorage.setItem("skyjo:theme", "casual"));
       await showModern(page, table);
       const where = `${players} seats at ${size.width} px`;
       expect(await look(page), where).toBe("casual");
       await expect(page.getByTestId("clock")).toBeVisible();
+      // In its last 10 s the clock's seconds are orange, not Modern's mint.
+      await expect(page.locator(".secs")).toHaveCSS("color", "rgb(255, 166, 48)");
       await expectMobileFriendly(page);
       await expect(page.getByTestId("opponent")).toHaveCount(players - 1);
       const smallest = await page.evaluate(() =>
@@ -193,7 +196,7 @@ test("M28: numerals pass WCAG AA in both looks: on every band, the digit against
   }
 });
 
-test("M28: mid-game, the round label opens the looks: the table changes look at once, the game goes on, and a reload keeps it", async ({
+test("M28: mid-game, the round label opens the looks: the table changes look at once, the game goes on, and the choice is saved; closing the sheet gives focus back", async ({
   page,
 }) => {
   await modern(page);
@@ -215,6 +218,7 @@ test("M28: mid-game, the round label opens the looks: the table changes look at 
   expect(await paint(page, "discard")).toBe("art");
   await sheet.getByRole("button", { name: "Close" }).click();
   await expect(sheet).toHaveCount(0);
+  await expect(opener).toBeFocused();
   // The game goes on in the new look: the next view draws as before.
   const next = apply(state, legalActions(state)[0]);
   await page.evaluate(
@@ -255,8 +259,12 @@ test("M28: two phones at one table hold different looks: Ana switches to Classic
   expect([await look(ana), await look(ben)]).toEqual(["classic", "casual"]);
   // Ana's reload keeps her look, and her seat.
   await ana.reload();
-  await expect(ana.getByTestId("table")).toBeVisible();
+  await expect(ana.getByTestId("my-grid")).toBeVisible();
   expect(await look(ana)).toBe("classic");
+  // Before the app's code runs: index.html sets a Classic player's look itself.
+  expect(
+    await ana.evaluate(() => document.querySelector("head script:not([src])")?.textContent),
+  ).toContain("skyjo:theme");
 });
 
 test("M28: the service worker precaches the default look's fonts", async ({ page }, info) => {

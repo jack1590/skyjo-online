@@ -21,7 +21,8 @@ const listeners = new Set<() => void>();
 
 /**
  * styles.css reads the look from `<html data-theme>`: every screen follows at once, no reload.
- * main.tsx calls it before the first render, so a Classic player never sees the default.
+ * main.tsx calls it before the first render. index.html's inline script has already set a Classic
+ * player's look before the first paint; this also sets the browser bar's colour.
  */
 export function applyTheme() {
   document.documentElement.dataset.theme = theme;
@@ -80,12 +81,20 @@ export function LookButton({ label }: { label: string }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDialogElement>(null);
+  const opener = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (open) ref.current?.showModal();
   }, [open]);
+  // Focus goes back to the round label: WebKit doesn't focus a button it taps, so the browser has
+  // nothing to return to.
+  const closed = () => {
+    setOpen(false);
+    opener.current?.focus();
+  };
   return (
     <>
       <button
+        ref={opener}
         type="button"
         className="round"
         aria-label={`${label}. ${t("look")}`}
@@ -103,12 +112,12 @@ export function LookButton({ label }: { label: string }) {
           className="zoom"
           aria-label={t("look")}
           data-testid="look-sheet"
-          onClose={() => setOpen(false)}
-          onClick={(e) => e.target === ref.current && setOpen(false)}
+          onClose={closed}
+          onClick={(e) => e.target === ref.current && ref.current.close()}
         >
           <div className="sheet">
             <LookPicker />
-            <button type="button" className="btn" onClick={() => setOpen(false)}>
+            <button type="button" className="btn" onClick={() => ref.current?.close()}>
               {t("close")}
             </button>
           </div>
