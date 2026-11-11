@@ -314,6 +314,39 @@ describe("play", () => {
     expect(t.room.data.game?.players.map((p) => p.name)).toEqual(["P0", "P1", "Late"]);
   });
 
+  it("BUG-12: with the host away, a second leader's tap on Next round, Play again or Start game, landing after the first, is late: no error, nothing changes", () => {
+    const t = setup();
+    const [host, a, b] = startedGame(t, 3);
+    for (const p of t.room.data.game?.players ?? []) p.total = -200; // round 1 can't end the game
+    while (t.room.data.game?.phase !== "roundOver") stepAny(t, [host, a, b]);
+    t.drop(host);
+    const next: ClientMsg = { t: "act", action: { type: "nextRound" } };
+    const unchanged = (msg: ClientMsg) => {
+      const before = structuredClone(t.room.data);
+      expect(t.errorOf(() => expect(t.send(b, msg)).toBe("none"))).toBeNull();
+      expect({ ...t.room.data, updatedAt: 0 }).toEqual({ ...before, updatedAt: 0 });
+    };
+    // Both saw the summary with the button; a's tap deals round 2, then b's arrives.
+    expect(t.send(a, next)).toBe("data");
+    expect(t.room.data.game?.phase).toBe("flip");
+    unchanged(next);
+
+    (t.room.data.game as GameState).phase = "gameOver";
+    expect(t.send(a, { t: "rematch" })).toBe("data");
+    unchanged({ t: "rematch" });
+    expect(t.send(a, { t: "start" })).toBe("data");
+    unchanged({ t: "start" });
+
+    // Not late: a seat that may not lead is still refused.
+    const back = t.connect("token-0-abcdef");
+    (t.room.data.game as GameState).phase = "roundOver";
+    expect(t.errorOf(() => t.send(b, next))).toBe("not-allowed");
+    (t.room.data.game as GameState).phase = "gameOver";
+    expect(t.errorOf(() => t.send(b, { t: "rematch" }))).toBe("not-allowed");
+    t.send(back, { t: "rematch" });
+    expect(t.errorOf(() => t.send(b, { t: "start" }))).toBe("not-allowed");
+  });
+
   it("nobody can join or leave mid-game", () => {
     const t = setup();
     const [a] = startedGame(t, 2);

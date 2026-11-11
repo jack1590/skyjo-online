@@ -802,6 +802,7 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 20  | ✅ M21                             | Throws: bombs, beers, donkeys and more at other players (user request, 2026-10-27)                                      | 2.5.0         | the user asked for it; ahead of M16, which waits on the owner                                                    |
 | 21  | ✅ M22                             | Throws, part 2: stickers, choreography, marks, real sounds (user feedback)                                              | 2.5.1         | the owner found v2.5.0 throws not fun                                                                            |
 | 22  | ✅ M23                             | Reactions: laugh, love, anger and the migajero, from a button beside your grid (user request)                           | 2.6.0         | the user asked for it; reuses M21/M22's in-memory throw path and sticker pipeline                                |
+| —   | BUG-12                             | With the host away, a second leader's tap on Next round, Play again or Start game got an error                          | 2.6.12        | a QA read; proven in room.test.ts                                                                                |
 | 23  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
 
 Deferred: Turnstile (SEC-4) and SEC-12 (until M16). Quick reactions, deferred until now, are M23 (user request, 2026-10-29). Declined: SEC-7. Versions assume this order; a PR that reorders says so.
@@ -848,6 +849,18 @@ There is a second guard the old rule hid: `autoMove` never flips a seat's last f
 - **The motion test's race → first thing in SEC-9's PR, test only.** `e2e/motion.spec.ts:28` ("an opponent's flip animates") failed 10 of 40 runs on iPhone at 12 local workers and 0 of 20 at 1 worker. It predates BUG-1 and hasn't failed on CI yet, but `failOnFlakyTests` would block a deploy. Ben's reload may not have rendered the dealt table when Ana flips, so his first view already holds the flip and there is nothing to animate; the fixed 400 ms wait is the other half. The fix, which the PO ran 80 of 80 times at 12 workers (both tests in the file): before Ana's tap, wait for Ben's `table` to have `data-phase="flip"`; after it, wait for Ben's `opponent` grid to show one `[data-face="up"]` card instead of waiting 400 ms.
 - **Accepted:** a present player who runs out of time while every other connected seat is on Auto-play goes on Auto-play in the same `tick`, so that very move may turn over their last card and end the round, doubled unless lowest (the PO reproduced it). That is the decision above (at that moment nobody is playing by hand), and the round has to end. Computing `mayEnd` before the due seats switch would spare that one move; revisit if players say so.
 - **M17:** `canStall` only counts seats, so a lone connected spectator keeps nothing running (the PO checked on the injected clock), but no test pins it. M17's out-seat test covers it; see there.
+
+### BUG-12 — A second leader's tap on Next round gets an error (QA read, 2026-11-11) · v2.6.12
+
+**Report.** A QA read of `room.ts` on `main` 0122f4e: with the host away, two stand-ins tap Next round together, and the second gets an "illegal move" toast; `lostToClock` in `Online.tsx` doesn't cover it.
+
+**Evidence (`room.test.ts`, on `main`).** 3 seats at a round summary, the host's socket gone, so both other seats have `lead`. Seat 1's `nextRound` deals round 2. Seat 2's, sent next, throws `illegal-move` ("That move isn't allowed."). The same race on the other two lead actions throws `not-allowed` ("That's not allowed right now."): a second Play again once the room is back in the lobby, and a second Start game once the game is dealt.
+
+**Root cause.** When the host is away, on Auto-play or out, anyone seated may lead (`canLead`), so two phones show the same button. The room handled the later tap as a fresh request: `nextRound` in the flip phase is a `RuleError` in the engine (`room.ts:370-373`), and `rematch` and `start` check the phase with the permission (`room.ts:331`, `room.ts:363`). One phone's own double tap can't do it: `useRoom` sends one message at a time.
+
+**Fix (v2.6.12).** The room answers a lead tap that asks for what already happened with `"none"`, as it does a reaction that arrives late: `start` outside the lobby, `rematch` in the lobby, `nextRound` outside a round summary. Nothing is written and only the sender is answered. A seat that may not lead is still refused where the tap would have done something. Server only, so tabs loaded before 2.6.12 get it too, and no wire change.
+
+**Acceptance:** `room.test.ts`, "BUG-12": fails on `main` (`illegal-move`), passes with the fix: each second tap returns `"none"` and leaves `RoomData` as it was; a seat that may not lead still gets `not-allowed` for all three. `worker.test.ts`'s SEC-3 list of rejected messages loses the lobby `rematch`, now answered with a state, still with no row and nothing sent to anyone else.
 
 ### M17 — Play until one is left (knockout) (user request, 2026-10-24) · v2.2.0 · ✅ shipped (PR #24)
 
