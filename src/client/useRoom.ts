@@ -52,7 +52,7 @@ export function useRoom(code: string) {
   /** The same, as state (a tapped card stays lifted until its ack, UX-3), and whether it's late. */
   const [waiting, setWaiting] = useState<number | null>(null);
   const [late, setLate] = useState(false);
-  /** The wait is over: answered, or the socket that would answer is gone. */
+  /** The wait is over: answered, or the socket that would answer is gone (closed or replaced). */
   const answered = useCallback(() => {
     awaiting.current = null;
     setWaiting(null);
@@ -79,6 +79,8 @@ export function useRoom(code: string) {
 
     const connect = () => {
       clearTimeout(retry);
+      // The socket replaced here never answers, and its close is ignored below (BUG-9).
+      answered();
       socket.current?.close();
       const ws = new WebSocket(url);
       socket.current = ws;
@@ -125,10 +127,14 @@ export function useRoom(code: string) {
     };
 
     // Phones freeze sockets in the background without closing them, so a silent socket is replaced.
+    // Only on a visible page: a hidden one gets its timers about once a minute (Chrome), so every
+    // check came 60 s after the last pong and replaced a working socket, each time with a hello
+    // that kept a forgotten room busy (BUG-11, SEC-9). `wake` replaces a dead one when it shows.
     const check = () => {
       const ws = socket.current;
       if (ws?.readyState === WebSocket.OPEN) {
-        if (Date.now() - lastHeard > SILENT_MS) connect();
+        const silent = Date.now() - lastHeard > SILENT_MS;
+        if (silent && document.visibilityState === "visible") connect();
         else ws.send(PING);
       }
     };
@@ -140,6 +146,14 @@ export function useRoom(code: string) {
         // Back from the background: a hello, unlike a ping, reaches the room, which then shows
         // this phone online and restarts any clock that stopped while it was gone (M8).
         ws.send(JSON.stringify({ t: "hello", token } satisfies ClientMsg));
+        // The room answers every hello. No answer: the socket died while the phone was away and
+        // only looks open, and the table on screen is stale until it's replaced (BUG-10).
+        // Only while still showing: locked again, the answer may be waiting behind this timer.
+        const said = Date.now();
+        setTimeout(() => {
+          const here = !stopped && document.visibilityState === "visible";
+          if (here && socket.current === ws && lastHeard < said) connect();
+        }, ACK_MS);
       } else check();
     };
 
