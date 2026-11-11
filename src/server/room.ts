@@ -9,15 +9,15 @@ import {
   MIN_PLAYERS,
   RuleError,
 } from "../engine/game";
-import type { Rng } from "../engine/rng";
+import { type Seed, seedRng } from "../engine/rng";
 import { toView } from "../engine/view";
 import {
   type ClientMsg,
   CODE_ALPHABET,
   CODE_LENGTH,
+  cutName,
   type ErrorCode,
   lastMover,
-  NAME_MAX,
   type PublicRoom,
   type Reaction,
   type RoomView,
@@ -57,7 +57,7 @@ export interface RoomData {
   stopped?: number[];
   /** "Play until one is left" (R16), set in the lobby and dealt with at every start. Unset before 2.2.0. */
   knockout?: boolean;
-  /** The host listed the room on Home (M24). Unset before 2.7.0. */
+  /** The host listed the room on Home (M24). Unset before 2.8.0. */
   public?: boolean;
   /**
    * What the public list was last told about this room, and when; unset = not on it. Saved, so a
@@ -88,6 +88,8 @@ export interface Conn {
   ack: number;
   windowStart: number;
   windowCount: number;
+  /** Throws and reactions it has sent: its IP pays for the first of every GAGS_PER_UNIT (BUG-4). */
+  gags: number;
   /** The client's `ipKey`, which its messages count against; null = a local run, not limited. */
   ip: string | null;
   /** When the socket opened (ms). A deploy closes every socket, so no attachment predates it. */
@@ -97,7 +99,7 @@ export interface Conn {
 export interface Deps {
   now: () => number;
   /** Fresh CSPRNG entropy for each deal. */
-  seed: () => Rng;
+  seed: () => Seed;
 }
 
 /**
@@ -146,6 +148,15 @@ const WINDOW_MAX = 120;
  */
 export const IP_MESSAGES_PER_MINUTE = 120;
 /**
+ * Throws and reactions (gags) a socket sends per unit of its IP's budget (BUG-4). A gag writes no
+ * row, and Cloudflare bills 20 incoming WebSocket messages as one Durable Object request, so 8 of
+ * them cost 0.4 of a request, under the half a unit buys elsewhere (an alarm run is 2 units): one
+ * IP throwing from every seat it holds still needs 19.2 h to use up the requests (worker.test.ts;
+ * 17.8 h at 10 a unit). At a unit each, 6 phones on one Wi-Fi gagging every 3 s spent the whole
+ * budget and were all closed.
+ */
+export const GAGS_PER_UNIT = 8;
+/**
  * Sockets per room that said hello (SEC-2): 8 players and a dozen spectators. Each one gets every
  * broadcast and can send its own writes, so a room can't take as many as a script opens.
  */
@@ -167,7 +178,7 @@ export const dead = (conn: Conn, now: number) => now - conn.seenAt >= 2 * STALE_
 /** Real clock and CSPRNG; both runtimes (Workers, Node 22) have a global `crypto`. */
 export const systemDeps: Deps = {
   now: () => Date.now(),
-  seed: () => Array.from(crypto.getRandomValues(new Int32Array(4))) as Rng,
+  seed: () => Array.from(crypto.getRandomValues(new Int32Array(8))),
 };
 
 /** 32-letter alphabet, so `byte % 32` is unbiased. */
@@ -193,6 +204,7 @@ export const newConn = (now: number, ip: string | null): Conn => ({
   ack: 0,
   windowStart: now,
   windowCount: 0,
+  gags: 0,
   ip,
   openedAt: now,
 });
@@ -213,6 +225,15 @@ function count(w: Window, now: number, ms: number, max: number): boolean {
 
 /** The per-socket flood limit. */
 export const allowMessage = (conn: Conn, now: number) => count(conn, now, WINDOW_MS, WINDOW_MAX);
+
+/**
+ * Whether this message costs its IP a unit: any message does, but of a socket's gags only the
+ * first of every GAGS_PER_UNIT, landed, too soon or refused. Paid ahead, so a new socket gets none free.
+ */
+export function costs(conn: Conn, msg: ClientMsg | null): boolean {
+  if (msg?.t !== "toss" && msg?.t !== "react") return true;
+  return conn.gags++ % GAGS_PER_UNIT === 0;
+}
 
 /** The per-IP budget, for a server without the Worker's MESSAGES binding (node.ts). */
 export function allowIp(windows: Map<string, Window>, key: string, now: number): boolean {
@@ -255,9 +276,29 @@ export function ipKey(ip: string): string {
   return `${[...left, ...zeros, ...right].slice(0, 4).join(":")}::/64`;
 }
 
-/** Strips control/format characters (zero-width, bidi overrides), trims, caps length in code points (never splits an emoji). */
+/** Throws and reactions are for a round being played: a summary shows neither. */
+const playing = (game: GameState) =>
+  game.phase === "flip" || game.phase === "draw" || game.phase === "place";
+
+/**
+ * A name keeps a `\p{C}` character (control, zero-width, bidi, tag, private use) only inside an
+ * emoji on Unicode's list (RGI): the joiner of a family or a rainbow flag, the tags of the England,
+ * Scotland and Wales flags (BUG-8). Anywhere else it could hide text or pass one name off as
+ * another.
+ */
+// biome-ignore lint/complexity/useRegexLiterals: a literal with the "v" flag needs target ES2024
+const RGI_EMOJI = new RegExp("^\\p{RGI_Emoji}$", "v");
+const clusters = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+/** Strips those characters cluster by cluster, trims, and cuts (`cutName`). */
 const cleanName = (name: string) =>
-  [...name.replace(/\p{C}/gu, "").trim()].slice(0, NAME_MAX).join("").trim();
+  cutName(
+    Array.from(clusters.segment(name), ({ segment }) =>
+      RGI_EMOJI.test(segment) ? segment : segment.replace(/\p{C}/gu, ""),
+    )
+      .join("")
+      .trim(),
+  ).trim();
 
 export class Room {
   /**
@@ -337,8 +378,11 @@ export class Room {
         this.removeSeat(seat);
         return "data";
       case "kick": {
-        const at =
-          msg.name === undefined ? (msg.seat ?? -1) : seats.findIndex((s) => s.name === msg.name);
+        // By name when the client sent one: the index it saw may be another seat's by now (BUG-13).
+        const { name } = msg;
+        const at = name === undefined ? msg.seat : seats.findIndex((s) => s.name === name);
+        // Already gone, by its own leave or another leader's tap: late, not an error.
+        if (at === -1) return "none";
         const target = seats[at];
         if (!lobby || !target || at === seat || !this.canLead(seat, live)) {
           throw new RoomError("not-allowed");
@@ -358,8 +402,25 @@ export class Room {
         this.removeSeat(at);
         return "data";
       }
+      case "move": {
+        // Seat order is turn order (R5), e.g. so couples don't play right after each other (M26).
+        const from = seats.findIndex((s) => s.name === msg.name);
+        if (!lobby || !this.canLead(seat, live) || from === -1 || !seats[msg.to]) {
+          throw new RoomError("not-allowed");
+        }
+        if (from === msg.to) return "none";
+        // The host is a person, not a place.
+        const host = seats[this.data.host];
+        seats.splice(msg.to, 0, ...seats.splice(from, 1));
+        this.data.host = seats.indexOf(host);
+        return "data";
+      }
       case "start":
-        if (!lobby || seats.length < MIN_PLAYERS || !this.canLead(seat, live)) {
+        // A lead tap that lands after another leader's (the host is away, so anyone seated may
+        // lead) asks for what already happened: late, not an error (BUG-12). So with Play again
+        // and Next round below.
+        if (!lobby) return "none";
+        if (seats.length < MIN_PLAYERS || !this.canLead(seat, live)) {
           throw new RoomError("not-allowed");
         }
         this.data.game = createGame(
@@ -369,7 +430,7 @@ export class Room {
         );
         this.data.waitSince = now;
         this.data.turnSince = now;
-        // Auto-play lasts a game: in the lobby it only let others lead while you were away.
+        // A lobby saved before 2.6.4 may still hold a seat on Auto-play (BUG-6).
         for (const s of seats) s.auto = false;
         return "data";
       case "knockout":
@@ -398,17 +459,23 @@ export class Room {
       }
       case "rematch":
         // Back to the lobby with the same seats, where people can join, leave, or be removed.
-        if (game?.phase !== "gameOver" || !this.canLead(seat, live)) {
+        if (lobby) return "none";
+        if (game.phase !== "gameOver" || !this.canLead(seat, live)) {
           throw new RoomError("not-allowed");
         }
         this.data.game = null;
+        // Auto-play lasts a game. The lobby has no switch for it, so a host left on it could never
+        // lead again (BUG-6). A host whose page is closed or asleep is offline, so others lead; one
+        // away from an open page holds the lobby, as in any lobby.
+        for (const s of seats) s.auto = false;
         return "data";
       case "act":
         if (game === null || seat === null) throw new RoomError("not-allowed");
         if (msg.action.type === "nextRound") {
+          if (game.phase !== "roundOver") return "none";
           if (!this.canLead(seat, live)) throw new RoomError("not-allowed");
           // Fresh entropy per round, so reconstructing one round's RNG can't predict the next deal.
-          this.play({ ...game, rng: this.deps.seed() }, msg.action);
+          this.play({ ...game, rng: seedRng(this.deps.seed()) }, msg.action);
         } else {
           this.play(game, { ...msg.action, seat });
         }
@@ -417,8 +484,9 @@ export class Room {
         if (game === null || seat === null || msg.to === seat || !seats[msg.to]) {
           throw new RoomError("not-allowed");
         }
-        // Too soon: the client greys the items out meanwhile, so only a script gets here.
-        if (now - (this.tossed.get(seat) ?? -TOSS_MS) < TOSS_MS) return "none";
+        // At a summary no phone draws a throw (BUG-7): dropped, like a reaction. Too soon: the
+        // client greys the items out meanwhile, so only a script gets here.
+        if (!playing(game) || now - (this.tossed.get(seat) ?? -TOSS_MS) < TOSS_MS) return "none";
         this.tossed.set(seat, now);
         this.toss = { id: now, from: seat, to: msg.to, item: msg.item };
         return "view";
@@ -429,8 +497,8 @@ export class Room {
           throw new RoomError("not-allowed");
         }
         // A tap that arrives as the round ends, or as the turn passes: too late, not an error.
-        const playing = game.phase === "flip" || game.phase === "draw" || game.phase === "place";
-        if (!playing || (msg.kind === "migajero" && at !== lastMover(game, seat))) return "none";
+        if (!playing(game) || (msg.kind === "migajero" && at !== lastMover(game, seat)))
+          return "none";
         // One gag per seat per TOSS_MS, a throw or a reaction.
         if (now - (this.tossed.get(seat) ?? -TOSS_MS) < TOSS_MS) return "none";
         this.tossed.set(seat, now);

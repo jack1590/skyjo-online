@@ -4,7 +4,7 @@ import { expect, type Page } from "@playwright/test";
 import { apply, createGame } from "../src/engine/game";
 import { toView } from "../src/engine/view";
 import type { Reaction } from "../src/protocol";
-import { atTurnStart, firstTurn, lastTurnGame, roundOver, show } from "./harness";
+import { atTurnStart, firstTurn, knockoutGame, lastTurnGame, roundOver, show } from "./harness";
 import { botStep, expectMobileFriendly, playUntil, seatedRoom, startGame, test } from "./helpers";
 
 const react = (page: Page, reaction: Omit<Reaction, "id">) =>
@@ -87,7 +87,7 @@ test("M23: the button sits by your grid's third row, or in your name bar on a ph
   // Spectators get none, nor does anyone at the summary.
   await show(page, { ...atTurnStart(4), seat: null });
   await expect(page.getByTestId("react-button")).toHaveCount(0);
-  const over = roundOver(2, 11);
+  const over = roundOver(2, 344);
   await show(page, { view: toView(over), seat: 0 });
   await expect(page.getByTestId("round-summary")).toBeVisible();
   await expect(page.getByTestId("react-button")).toHaveCount(0);
@@ -215,6 +215,46 @@ test("M23: each reaction shows on its seat: laugh on the reactor's panel or your
       ),
   );
   expect(moving).toEqual([]);
+});
+
+test("BUG-2: out of a knockout game, your own reaction pops over the corner button, not on your row in the strip", async ({
+  page,
+}, info) => {
+  const state = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 61).find(
+    (s) => s.phase === "draw" && s.players.some((p) => p.out !== null),
+  );
+  if (!state) throw new Error("nobody went out");
+  const me = state.players.findIndex((p) => p.out !== null);
+  const them = state.players.findIndex((p) => p.out === null);
+  await show(page, { view: toView(state), seat: me });
+  const sticker = page.getByTestId("reaction");
+  const centre = async () => {
+    const b = await box(page, "[data-testid=reaction] .react-face");
+    return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+  };
+  const button = await box(page, "[data-testid=react-button]");
+
+  await react(page, { from: me, kind: "laugh" });
+  const c = await centre();
+  expect(Math.abs(c.x - (button.x + button.width / 2))).toBeLessThanOrEqual(2);
+  expect(c.y).toBeLessThan(button.y);
+  expect(c.y).toBeGreaterThan(button.y - 60);
+  // Just "Hahaha!": no name, it's yours.
+  await expect(sticker.locator(".react-gag")).toHaveText("Hahaha!");
+  const gag = await box(page, "[data-testid=reaction] .react-gag");
+  if (process.env.SHOTS && info.project.name === "iphone") {
+    await page.screenshot({ path: "docs/screenshots/bug2/out-own-laugh.jpg", scale: "css" });
+  }
+  expect(gag.x + gag.width).toBeLessThanOrEqual(page.viewportSize()?.width ?? 0);
+
+  // Someone else's still pops on their panel.
+  await react(page, { from: them, kind: "love" });
+  const panel = await box(page, `[data-testid=opponent]:has-text("${state.players[them].name}")`);
+  const face = await box(page, "[data-testid=reaction][data-kind=love] .react-face");
+  const o = { x: face.x + face.width / 2, y: face.y + face.height / 2 };
+  expect(o.x).toBeGreaterThanOrEqual(panel.x);
+  expect(o.x).toBeLessThanOrEqual(panel.x + panel.width);
+  expect(o.y).toBeLessThan(button.y - 60);
 });
 
 test("M23: a throw or reaction at a panel scrolled out of the strip brings it into view and lands on it", async ({

@@ -396,7 +396,7 @@ test("M8: a seat on Auto-play shows 🤖, the pill reads 'Name · auto', and the
   await expect(
     page.locator('[data-testid="opponent"].active').getByRole("img", { name: "Auto-play" }),
   ).toBeVisible();
-  await show(page, { view: toView(roundOver(2, 11)), seat: 0, lead: true, auto: [false, true] });
+  await show(page, { view: toView(roundOver(2, 344)), seat: 0, lead: true, auto: [false, true] });
   await expect(
     page.getByTestId("round-summary").getByRole("img", { name: "Auto-play" }),
   ).toHaveCount(1);
@@ -588,8 +588,8 @@ test.describe("M12: spectators keep the piles", () => {
 test("round summary: rows, who ended, doubling shown as base ×2 = total; View table hides it", async ({
   page,
 }) => {
-  // Seed 11: round 1 ends below 100 and the ender is doubled.
-  const state = roundOver(2, 11);
+  // Seed 344: round 1 ends below 100 and the ender is doubled.
+  const state = roundOver(2, 344);
   await show(page, { view: toView(state), seat: 0, lead: true });
   const summary = page.getByTestId("round-summary");
   await expect(summary.getByRole("row")).toHaveCount(3);
@@ -602,14 +602,14 @@ test("round summary: rows, who ended, doubling shown as base ×2 = total; View t
 });
 
 /**
- * Seed 1 of a 4-player knockout game (R16): Dani goes out after round 1, Ana and Ben after round 2,
+ * Seed 61 of a 4-player knockout game (R16): Dani goes out after round 1, Ana and Ben after round 2,
  * and Cris, the one left, wins.
  */
 const knockout = () => {
-  const states = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 1);
+  const states = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 61);
   const pick = (test: (s: (typeof states)[number]) => boolean) => {
     const state = states.find(test);
-    if (!state) throw new Error("seed 1 no longer plays out this way");
+    if (!state) throw new Error("seed 61 no longer plays out this way");
     return toView(state);
   };
   return {
@@ -674,9 +674,9 @@ test("M17: a player who is out watches: 'Out · watching' on their seat, the spe
 test("M17: when everyone still in reaches 100 in the same round, the winner went out too but isn't tagged out", async ({
   page,
 }) => {
-  // Seed 2: Dani goes out after round 1; Ana, Ben and Cris all reach 100 in round 2, and Cris,
+  // Seed 53: Dani goes out after round 1; Ana, Ben and Cris all reach 100 in round 2, and Cris,
   // on the lowest total, wins.
-  const over = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 2).at(-1);
+  const over = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 53).at(-1);
   if (!over) throw new Error("no game");
   expect([over.players.map((p) => p.out), over.winners]).toEqual([[2, 2, 2, 1], [2]]);
   await show(page, { view: toView(over), seat: 0 });
@@ -697,12 +697,12 @@ test("M17: the final ranking: the winner first, then by the round they went out,
   ]) {
     await page.addInitScript((l) => localStorage.setItem("skyjo:locale", l), locale);
     await show(page, { view: over, seat: DANI });
-    // Ben (121) and Ana (123) went out in round 2, Dani in round 1.
+    // Ben (111) and Ana (210) went out in round 2, Dani in round 1.
     await expect(page.getByTestId("game-over").locator("tbody tr")).toHaveText([
       /^Cris/,
       new RegExp(`^Ben.*${out} 2`),
       new RegExp(`^Ana.*${out} 2`),
-      new RegExp(`^Dani.*${out} 1–172$`),
+      new RegExp(`^Dani.*${out} 1–152$`),
     ]);
     await expect(page.getByTestId("game-over").getByTestId("out-tag")).toHaveCount(3);
     await expectMobileFriendly(page);
@@ -716,7 +716,7 @@ const retable = (page: Page, detail: Partial<Shown>) =>
 test("UX-11: the summary is a modal: the first Tab lands inside it and 10 Tabs never leave it; Escape is View table", async ({
   page,
 }) => {
-  await show(page, { view: toView(roundOver(3, 11)), seat: 0, lead: true });
+  await show(page, { view: toView(roundOver(3, 344)), seat: 0, lead: true });
   const summary = page.getByTestId("round-summary");
   await expect(summary).toBeVisible();
   // Which button has focus, or "outside".
@@ -736,7 +736,21 @@ test("UX-11: the summary is a modal: the first Tab lands inside it and 10 Tabs n
   await page.keyboard.press("Escape");
   await expect(summary).toHaveCount(0);
   const showScores = page.getByRole("button", { name: "Show scores" });
-  await expect(showScores).toBeFocused();
+  // What has the focus, and whether a dialog is still open, so a failure says why. 20 s: WebKit's
+  // frames are slow at 4 workers on CI, where 5 s wasn't enough twice (main, run 43117120506).
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const el = document.activeElement;
+          return {
+            focus: el === document.body ? "body" : (el?.textContent ?? null),
+            open: document.querySelectorAll("dialog[open]").length,
+          };
+        }),
+      { timeout: 20_000 },
+    )
+    .toEqual({ focus: "Show scores", open: 0 });
   await showScores.click();
   await expect(summary).toBeVisible();
 });
@@ -744,8 +758,8 @@ test("UX-11: the summary is a modal: the first Tab lands inside it and 10 Tabs n
 test("UX-14: every summary ranks the players as the engine does, lowest total first, and tags your row 'you'", async ({
   page,
 }) => {
-  // Seed 4, 4 players: round 1's totals aren't in seat order.
-  const view = toView(roundOver(4, 4));
+  // Seed 344, 4 players: round 1's totals aren't in seat order.
+  const view = toView(roundOver(4, 344));
   const rank = places(view);
   const expected = view.players
     .map((p, seat) => ({ ...p, seat }))
@@ -855,7 +869,7 @@ test.describe("small phone (375×548)", () => {
   test("M13: an 8-player summary leaves the top 56 px to the toasts (M10's Reconnecting…)", async ({
     page,
   }) => {
-    await show(page, { view: toView(roundOver(8, 3)), seat: 0, lead: true });
+    await show(page, { view: toView(roundOver(8, 344)), seat: 0, lead: true });
     const sheet = await page.locator("dialog .sheet").boundingBox();
     expect(sheet?.y).toBeGreaterThanOrEqual(56);
   });
@@ -920,7 +934,7 @@ test("UX-15: at 2, 5 and 8 seats, everyone's round score so far is by their tota
   }
   // The summary has the round's scores; behind it, the totals hold while the cards are revealed
   // (M9), so no running score either.
-  await show(page, { view: toView(roundOver(4, 3)), seat: 0 });
+  await show(page, { view: toView(roundOver(4, 344)), seat: 0 });
   await page.getByRole("button", { name: "View table" }).click();
   await expect(page.getByTestId("table")).toBeVisible();
   await expect(page.getByTestId("sum")).toHaveCount(0);
@@ -947,6 +961,74 @@ test("UX-15: with a 16-character name in Portuguese, your row stays one line: yo
     expect(Math.abs(sum.middle - pts.middle)).toBeLessThan(3);
     expect(sum.top).toBeGreaterThanOrEqual(row.top);
     expect(sum.bottom).toBeLessThanOrEqual(row.bottom);
+  }
+});
+
+/**
+ * Everyone has a 16-character name, a 3-digit total and Auto-play on, and the next player's clock
+ * shows its last seconds: the most an opponent's panel head ever holds (BUG-3).
+ */
+const longNames = (players: number): Shown => {
+  const state = lastTurnGame(players, 3);
+  state.players.forEach((p, i) => {
+    p.name = "Valentina Rodrig";
+    p.total = 104 + i;
+  });
+  return {
+    view: toView(state),
+    seat: state.current,
+    auto: state.players.map(() => true),
+    wait: [{ seat: (state.current + 1) % players, inMs: 8_950, reason: "timer" }],
+  };
+};
+
+test("BUG-3: a 16-character name never covers an opponent's total: at 2, 4 and 8 seats it gives way to the total and the clock's seconds, on Auto-play too", async ({
+  page,
+}) => {
+  const device = page.viewportSize() ?? { width: 390, height: 664 };
+  for (const players of [2, 4, 8]) {
+    const table = longNames(players);
+    const seat = table.seat ?? 0;
+    for (const size of [device, { width: 360, height: 740 }]) {
+      await page.setViewportSize(size);
+      await show(page, table);
+      await expect(page.locator(".opp-left")).toBeVisible();
+      const heads = await page.getByTestId("opponent").evaluateAll((panels) =>
+        panels.map((panel) => {
+          const box = (selector: string) => panel.querySelector(selector)?.getBoundingClientRect();
+          const [name, total, left] = [box(".opp-name"), box(".opp-total"), box(".opp-left")];
+          return {
+            total: panel.querySelector(".opp-total")?.textContent,
+            // How far the name reaches into the total, or into the seconds before it (px).
+            over: (name?.right ?? 0) - (left?.left ?? total?.left ?? 0),
+            inside: (total?.right ?? 0) <= panel.getBoundingClientRect().right,
+          };
+        }),
+      );
+      expect(heads).toEqual(
+        Array.from({ length: players - 1 }, (_, i) => ({
+          total: String(104 + ((seat + 1 + i) % players)),
+          over: expect.any(Number),
+          inside: true,
+        })),
+      );
+      expect(Math.max(...heads.map((h) => h.over))).toBeLessThanOrEqual(0.5);
+    }
+  }
+});
+
+test("screenshots: BUG-3 long names", async ({ page }, info) => {
+  test.skip(!process.env.SHOTS || info.project.name !== "iphone", "run with SHOTS=1");
+  for (const players of [4, 8]) {
+    await show(page, longNames(players));
+    await expect(page.locator(".opp-left")).toBeVisible();
+    await page.screenshot({
+      path: `docs/screenshots/bug3/after-${players}.jpg`,
+      type: "jpeg",
+      quality: 80,
+      scale: "css",
+      animations: "disabled",
+    });
   }
 });
 
@@ -989,10 +1071,10 @@ test("PO, PR #33: in the opening flip only a player with cards to flip is asked 
   const done = [0, 1].reduce((s, pos) => apply(s, { type: "flip", seat: 0, pos }), deal);
   await retable(page, { view: toView(done) });
   await expect(pill).toHaveText("Everyone flips 2");
-  const round2 = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 1).find(
+  const round2 = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 61).find(
     (s) => s.round === 2 && s.phase === "flip",
   );
-  if (!round2) throw new Error("seed 1 no longer plays out this way");
+  if (!round2) throw new Error("seed 61 no longer plays out this way");
   await retable(page, { view: toView(round2), seat: DANI });
   await expect(pill).toHaveText("Everyone flips 2");
   expect(await gold()).toBe(false);
@@ -1061,10 +1143,10 @@ test("screenshots: M14 round awareness", async ({ page }, info) => {
     seat: null,
   });
   await shot("07-spectator-everyone-flips");
-  const out = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 1).find(
+  const out = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 61).find(
     (s) => s.round === 2 && s.phase === "flip",
   );
-  if (!out) throw new Error("seed 1 no longer plays out this way");
+  if (!out) throw new Error("seed 61 no longer plays out this way");
   await show(page, { view: toView(out), seat: DANI });
   await shot("08-out-player-everyone-flips");
 });
@@ -1154,7 +1236,7 @@ test.describe("M13 with motion allowed", () => {
       });
     };
     const { firstOut, round2, over } = knockout();
-    await show(page, { view: toView(roundOver(4, 4)), seat: 2, lead: true });
+    await show(page, { view: toView(roundOver(4, 344)), seat: 2, lead: true });
     await shot("01-summary-ranked-with-you");
     await show(page, { view: firstOut, seat: DANI });
     await shot("02-you-are-out");
@@ -1228,11 +1310,32 @@ test.describe("with motion allowed", () => {
     });
     await shot("08-offline");
     await show(page, {
-      view: toView(roundOver(4, 11)),
+      view: toView(roundOver(4, 344)),
       seat: 0,
       lead: true,
       auto: [false, true, false, false],
     });
     await shot("09-summary-bot");
   });
+});
+
+test("UX-19: a tap on the pile as your turn appears, before the page has settled, still throws the card away", async ({
+  page,
+}) => {
+  const state = firstTurn(2, 5);
+  const me = state.current;
+  // The tap lands right as the pile is added to the page: before React runs the table's effects.
+  await page.addInitScript(() => {
+    const watch = new MutationObserver(() => {
+      const pile = document.querySelector<HTMLElement>('[data-testid="discard"]');
+      if (!pile) return;
+      watch.disconnect();
+      pile.click();
+    });
+    watch.observe(document, { childList: true, subtree: true });
+  });
+  const view = toView(apply(state, { type: "draw", seat: me, source: "deck" }));
+  await show(page, { view, seat: me });
+  await expect(page.locator(".undo")).toBeVisible();
+  await expect(page.getByTestId("discard")).toHaveAttribute("data-tilt", "4");
 });

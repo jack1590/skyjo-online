@@ -11,10 +11,10 @@ import {
   places,
   RuleError,
 } from "./game";
-import type { Rng } from "./rng";
+import type { Seed } from "./rng";
 
 const names = (n: number) => Array.from({ length: n }, (_, i) => `P${i}`);
-const seed = (n: number): Rng => [n, 0, 0, 0];
+const seed = (n: number): Seed => [n, 0, 0, 0];
 const ZEROS = Array<Card>(12).fill(0);
 
 /** 12 cards in reading order; positions in `up` start face up ("all" = every card); null = removed. */
@@ -65,6 +65,23 @@ describe("setup", () => {
   it("createGame is deterministic for a seed and differs across seeds", () => {
     expect(createGame(names(4), seed(42))).toEqual(createGame(names(4), seed(42)));
     expect(createGame(names(4), seed(42)).deck).not.toEqual(createGame(names(4), seed(43)).deck);
+  });
+
+  it("BUG-5: a game saved before 2.7.8, with the old generator's four ints, plays on (R13, R15)", () => {
+    const saved = (s: GameState) => ({ ...s, rng: [1, 2, 3, 4] }) as unknown as GameState;
+    const flipped = apply(saved(createGame(names(2), seed(1))), { type: "flip", seat: 0, pos: 0 });
+    expect(flipped.rng).toEqual({ key: [1, 2, 3, 4, 0, 0, 0, 0], used: 0 });
+
+    const empty = saved({ ...inPlay(2), deck: [], discard: [3, 4, 5, 9] });
+    const drew = apply(empty, { type: "draw", seat: 0, source: "deck" });
+    expect(drew.deck).toHaveLength(2);
+    expect(drew.rng.used).toBeGreaterThan(0);
+
+    const over = saved({ ...createGame(names(2), seed(1)), phase: "roundOver" });
+    const next = apply(over, { type: "nextRound" });
+    expect(next.round).toBe(2);
+    expect(next.deck).toHaveLength(150 - 2 * 12 - 1);
+    expect(apply(over, { type: "nextRound" })).toEqual(next);
   });
 });
 

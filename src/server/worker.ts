@@ -16,6 +16,7 @@ import {
   allowMessage,
   type Change,
   type Conn,
+  costs,
   dead,
   systemDeps as deps,
   ipKey,
@@ -50,7 +51,8 @@ const clientKey = (request: Request) => {
 
 /**
  * Spends `units` of an IP's MESSAGES budget, the one budget for every row it makes us write (SEC-11):
- * - a message, 1, and 1 more if it moves the room's alarm earlier (a row), as does a close;
+ * - a message, 1, and 1 more if it moves the room's alarm earlier (a row), as does a close; a
+ *   throw or reaction writes no row, so a socket pays 1 for every 8 (`costs`, BUG-4);
  * - each alarm run, 2 (a row and a Durable Object request) to every IP with a live socket in the
  *   room: a lobby whose sockets only ping re-checks presence every ≤ 45 s, and each auto-play step
  *   (M8) is an alarm run that also saves the room (2 rows, a request);
@@ -74,6 +76,8 @@ type Attachment = Conn & { shut?: true };
  * it stops counting as live (or holding the room open) even if its client never answers the close.
  */
 function shut(ws: WebSocket, conn: Conn, code = CLOSE_TOO_MANY, reason = "Too many messages") {
+  // In Workers Logs: a phone dropped for its address's budget (BUG-4). No address or token.
+  if (code === CLOSE_TOO_MANY) console.warn(`socket shut: ${code} ${reason}`);
   ws.serializeAttachment({ ...conn, shut: true } satisfies Attachment);
   try {
     ws.close(code, reason);
@@ -192,7 +196,9 @@ export class RoomDO extends DurableObject<Env> {
   private async handle(ws: WebSocket, raw: string | ArrayBuffer) {
     // Per IP across every socket and room (SEC-10). Pings are answered by the runtime, never here.
     const attached = ws.deserializeAttachment() as Conn | null;
-    if (attached?.ip && !(await spend(this.env, attached.ip, 1))) {
+    const msg = parseClientMsg(raw);
+    // A throw or reaction writes no row: a socket pays for GAGS_PER_UNIT of them at once (BUG-4).
+    if (attached?.ip && costs(attached, msg) && !(await spend(this.env, attached.ip, 1))) {
       shut(ws, attached);
       return;
     }
@@ -200,11 +206,11 @@ export class RoomDO extends DurableObject<Env> {
     const live = this.live();
     const conn = live.get(ws);
     if (!room || !conn) return;
+    conn.gags = attached?.gags ?? conn.gags;
     if (!allowMessage(conn, Date.now())) {
       shut(ws, conn);
       return;
     }
-    const msg = parseClientMsg(raw);
     if (msg?.t === "hello" && conn.token === null) {
       // SEC-2: turned away, or another socket makes room: a dead one just reconnects if it wakes;
       // the others are told in-band, as close codes can get lost.
