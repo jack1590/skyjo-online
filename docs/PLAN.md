@@ -802,7 +802,8 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 20  | ✅ M21                             | Throws: bombs, beers, donkeys and more at other players (user request, 2026-10-27)                                      | 2.5.0         | the user asked for it; ahead of M16, which waits on the owner                                                    |
 | 21  | ✅ M22                             | Throws, part 2: stickers, choreography, marks, real sounds (user feedback)                                              | 2.5.1         | the owner found v2.5.0 throws not fun                                                                            |
 | 22  | ✅ M23                             | Reactions: laugh, love, anger and the migajero, from a button beside your grid (user request)                           | 2.6.0         | the user asked for it; reuses M21/M22's in-memory throw path and sticker pipeline                                |
-| 23  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
+| 23  | M24                                | Public rooms: a lobby switch and a list on Home (owner request, 2026-11-11)                                             | 2.7.0         | the owner asked for it; ahead of M16, which waits on the owner                                                   |
+| 24  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
 
 Deferred: Turnstile (SEC-4) and SEC-12 (until M16). Quick reactions, deferred until now, are M23 (user request, 2026-10-29). Declined: SEC-7. Versions assume this order; a PR that reorders says so.
 
@@ -1281,6 +1282,50 @@ The sticker sits centred over the opponent's panel head, or 24 px above your nam
 - **Delivery: take back the Pixel job's headroom.** `react.spec.ts` adds 43 s of tests to `e2e (pixel)` (2 workers): the job went from 2:33 (PR #39) to 2:56, and PR CI wall time to 3:00, right at the rubric's ceiling and past this milestone's +15 s budget. iPhone (2:18, 4 workers) and desktop (2:09) have room. Run the two heaviest harness cases, "a throw or reaction at a panel scrolled out of the strip…" (7.2 s on Pixel) and "each reaction shows on its seat…" (6.5 s), on iPhone and desktop only (their motion-on Pixel cases stay), and check the Pixel job is back under 2:45.
 - **Delivery: fix the UX-19 flake on iPhone.** "UX-19: thrown away, the drawn card lies on the discard pile…" (`e2e/motion.spec.ts:371`) failed its first try on `e2e (iphone)` in this PR's run 40961612856 (`moving` was below 2: the tap's flight hadn't started), and in runs 40580400974 and 40578482285 before it. `failOnFlakyTests` turns that into a red check, and on `main` a blocked deploy. The test waits one `setTimeout` for React to render the tap; under WebKit's 4-worker CPU contention that isn't enough. Wait for the animations instead (`await expect.poll(() => discard.getAnimations().length)`), then seek them to 300 ms.
 - **Nit:** `AGENTS.md`'s `src/client/Reactions.tsx` row lists `lastMover`, which lives in `src/protocol.ts`.
+
+### M24 — Public rooms (owner request, 2026-11-11) · v2.7.0
+
+**Request.** Today you join only by room code or link. The owner wants public rooms: strangers can find an open room and join.
+
+**Defaults chosen for the owner** (each is a small change later):
+- In the lobby the host, and only the host, can switch the room to **Public room** (off by default). Everyone in the lobby sees the switch's state, so guests know strangers may join. A private room works exactly as before.
+- Home shows **Public rooms**: each row has the host's display name, seats taken out of 8, and a "Knockout" tag when "Play until one is left" is on. A tap opens the room's lobby, where the player enters a name as today.
+- A room is listed while it is public, in the lobby, has 1–7 seats, and at least one seated player is connected. It leaves the list when its game starts, it fills, the host makes it private, everyone seated leaves or goes offline, or it expires. After "Play again" it is back in the lobby and listed again. Games in progress are never listed.
+- No chat, search, accounts or matchmaking. The list shows the 20 rooms that changed most recently.
+
+**Design.**
+- **Protocol.** `{ t: "public", on }`, parsed like `knockout`. `RoomView.public` tells every phone the switch's state; tabs loaded before 2.7.0 ignore it. `PublicRoom` is `{ code, host, players, knockout }`: nothing else leaves the server, never a token or an address.
+- **Room** (`room.ts`). `RoomData.public` is the switch. `listing(live)` is the room's `PublicRoom`, or null when it must not be listed: the server alone decides membership. `RoomData.listed` is what the directory was last told and when. `relist(live)` returns what to tell it now, or undefined when nothing changed. A listed room also checks presence when its last connected seat would turn stale (SEC-9's cadence), so a host alone in a public lobby whose phone dies leaves the list in about 45 s, or 10 min once the room is quiet.
+- **Directory** (`directory.ts`). A map from code to `PublicRoom` plus the time it was told. `set(code, room | null)`, `list()`. It holds at most 200 rooms (the oldest goes), forgets an entry 24 h after it was last told (a room whose "unlist" was lost), and a listed room tells it again after 12 h.
+- **Cloudflare.** One more Durable Object class, `DirectoryDO`, a single instance, SQLite-backed (migration `v2`; no dashboard step, no paid feature). It keeps the map in memory and one storage row per listed room, read once when it wakes. `RoomDO.commit` calls it when `relist` says so, then saves the room with the new `listed`. `GET /api/public` returns the list. Each Worker isolate reuses its last answer for 10 s. The Cache API would be the real edge cache, but it does nothing on `workers.dev`, where the game lives.
+- **Node.** The same `Directory` in memory, the same route.
+- **Client.** Home fetches `/api/public` when it opens and every 15 s while the page is visible, 20 times (5 min), then stops; coming back to the tab or tapping Refresh starts again. The lobby gets the switch under the knockout option.
+
+**Cost on the free plan** (100,000 Worker requests, 100,000 Durable Object requests and 100,000 rows written a day; SEC-11's rule: whoever causes a row pays for it from their `MESSAGES` budget).
+
+| Event                                                                                    | Rows written                                         | DO requests              | Charged                                                             |
+| ---------------------------------------------------------------------------------------- | ---------------------------------------------------- | ------------------------ | ------------------------------------------------------------------- |
+| Telling the directory (list, update, unlist): the switch, a join, leave, kick, the knockout option, start, play again | 1 in the directory (the room's own row is already paid by the message) | 1                        | 2 units, to the sender, on top of the message's 1                    |
+| The same when the last seated player's socket closes, or comes back with a hello         | 2: the directory's and the room's (`listed`)         | 1                        | 2 units, to that socket's address                                   |
+| The same at a presence check (the last connected seat went stale), or at the room's expiry | 2                                                    | 1, plus the alarm's own  | 2 units to every address with a socket in the room, on top of the alarm's 2 |
+| Evicting the oldest of 200, or dropping a 24 h-old entry                                 | 1 (its second and last: each entry's first told paid 2 units for 1 row) | 0                        | prepaid                                                             |
+| `GET /api/public`                                                                        | 0                                                    | ≤ 1 (0 within 10 s in the same isolate) | `API_REQUESTS`: 30 a minute per address, as a socket upgrade already is |
+
+So every unit still buys at most one row and half a Durable Object request, and SEC-11's bound holds: one address at every limit needs at least 14 h to use up the rows and 18 h for the requests, now also when it flips the switch in a loop or lists rooms and leaves (`holdRooms` in `worker.test.ts`).
+
+Per public room, a typical life (host switches it on, 3 friends or strangers join, the game starts): 5 directory updates = 5 rows and 5 DO requests more than a private room, 10 units spread over 4 phones. A host who backgrounds the phone to share the link and returns: 2 updates more. A public lobby left open with a tab that only pings costs what a 2-seat lobby already does (about 160 rows and requests a day, SEC-9), since its presence checks are the same ones.
+
+Per Home viewer: 1 Worker request when Home opens and 4 a minute while it stays visible, at most 21 per visit until they tap or return (a forgotten visible tab stops after 5 min). Durable Object requests for reads are at most 6 a minute per busy isolate, however many people look. 500 Home visits of a minute each a day: 2,500 Worker requests and at most 2,500 DO requests, 2.5% of each quota. The directory object is awake only while it answers; rows read are at most 200 per cold start, under 1.8 million a day at the worst (the quota is 5 million).
+
+**Not bounded by this milestone (open for the owner).** One address can keep about 45 public rooms listed (each open socket's presence checks cost it 2 units every 45 s), which can fill the 20-row list with names of its choosing. Names are already cleaned (no control characters, 16 code points) but not moderated. If that happens: cap listed rooms per address, or add Turnstile (SEC-4, deferred).
+
+**Acceptance.**
+- `room.test.ts`: only the host can switch Public; `listing` is null in a private room, in a game, at 0 or 8 seats, and with nobody seated connected; `relist` reports a change once, and again after 12 h; a listed room schedules a presence check for its last connected seat. `parseClientMsg` takes `public` only with a boolean.
+- `directory.test.ts`: set, update, unlist, newest first, 20 at most, the 200 cap, the 24 h expiry.
+- `worker.test.ts`: each row of the table above (rows, requests and units counted on the fake runtime); a listing survives hibernation without a second write; a failed directory call is retried at the next event; `holdRooms` with public rooms keeps 14 h and 18 h.
+- `fetch.test.ts`: `GET /api/public` returns only the four fields, is limited by `API_REQUESTS`, and reuses its answer for 10 s.
+- E2E (`e2e/public.spec.ts`, Worker and `SERVER=node`): phone A creates a room and makes it public; phone B sees it on Home with "1/8" and joins by tapping it; it leaves B's list when the host makes it private, and when the game starts. Home and the lobby pass `expectMobileFriendly` at 360 px in en, es and pt. Screenshots in `docs/screenshots/m24/`.
+- CI wall time stays ≤ 3 min: the new spec is 2 short tests.
 
 ### M16 — Launch in the App Store and Google Play (user decision, 2026-10-24) · last
 
