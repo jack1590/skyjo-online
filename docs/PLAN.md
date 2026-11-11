@@ -805,7 +805,8 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 23  | ✅ BUG-2                           | Out of a knockout game, your own reaction popped on your row in the strip, far from the button you tapped               | 2.6.2         | a user report from real phones; effort S. The report's "top of the screen" is still open (see § BUG-2)           |
 | 24  | M26                                | Seat order: the host arranges who plays after whom (owner request, 2026-11-11)                                          | 2.7.0         | the owner asked for it; ahead of M16, which waits on the owner                                                   |
 | 25  | ✅ BUG-3                           | No browser translation of the page (it freezes your own points; cause unconfirmed); long names over totals              | 2.7.1         | the owner's report from real phones ("the count of points in some moments doesn't work"); client only, S         |
-| 26  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
+| 26  | BUG-4                              | Phones on one Wi-Fi dropped together: throws and reactions spent their shared message budget                            | 2.7.2         | a live report from the owner; hotfix                                                                             |
+| 27  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
 
 Deferred: Turnstile (SEC-4) and SEC-12 (until M16). Quick reactions, deferred until now, are M23 (user request, 2026-10-29). Declined: SEC-7. Versions assume this order; a PR that reorders says so.
 
@@ -1396,6 +1397,57 @@ Two bugs were found. The first matches the screenshot; the second was found on t
 - **The live sum (UX-15), the held totals (M9) and the summary**, with motion on, for your own seat and the opponents'. Through the table harness, 4 seeded games of 2 rounds each (2–4 players, knockout on and off, as a player and as a spectator, views 0–1.2 s apart, Chromium): every sum and total on screen was read at 0, 60 and 200 ms after each view and again before the next one, and the summary's rows after each round. Online, 5 games of 3 phones (1 on Chromium, 4 on WebKit; 4 ended after one round, one after two) with draws from both piles, throw-aways and swaps: all 3 phones were read before and after every move. No number was wrong. Pending taps (M10) change no number: nothing is applied before the server's view.
 
 **Not changed (PO's call).** While your own Auto-play is on, its bar replaces your name, so your total and round score aren't on your screen at all (M8's design, from before UX-15). If players miss them there, keeping the points in the bar needs a layout pass at 360 px in es and pt.
+
+### BUG-4 — Devices disconnect at random, or when another player disconnects (user report, 2026-11-11) · v2.7.2
+
+**Report.** The owner, playing with friends on real phones: "Some devices get disconnected randomly, or when another player disconnects."
+
+**Evidence.**
+- **The model (`worker.test.ts`, the real `RoomDO` on the fake runtime, on `main` 0122f4e).** Phones on one address, a tap every 2 s, every seat throwing or reacting once per 3 s, which is what the app allowed. The busiest minute of the address's `MESSAGES` budget (120 units):
+
+  | Phones on one address | No gags | A gag per seat every 6 s | Every 3 s (the app's limit)  | Every 3 s, one phone dropped (its seat on Auto-play) |
+  | --------------------- | ------- | ------------------------ | ---------------------------- | ---------------------------------------------------- |
+  | 3                     | 41      | 68                       | 98                           | 94                                                   |
+  | 4                     | 44      | 80                       | 120                          | 110                                                  |
+  | 6                     | 50      | 104                      | over: all 6 closed 37.5 s in | over (145): the 5 left closed 98.5 s in              |
+  | 8                     | 56      | 117, 2 closed 45.5 s in  | over: all 8 closed 27.5 s in | over: the 7 left closed 35 s in                      |
+
+  A dropped phone costs a small table more with no gags at all: 41 → 56 at 3 phones (its Auto-play turns are 4 units each, plus the unit a move pays when it brings the alarm forward).
+- **Two real browsers, no per-IP limit (local workerd, Pixel and iPhone projects).** 3 phones mid-game; one goes offline for 100 s, comes back, then its tab closes. Over 170 s the other two phones' sockets never closed, on either device (on Pixel the offline phone's own socket closed and retried, as it should). So nothing but the per-IP budget drops a phone because another one left.
+
+**Root cause.** M21 and M23 added throws and reactions at one `MESSAGES` unit each and one per seat per `TOSS_MS` (3 s), so 20 a minute per seat, whoever shares the seat's address. SEC-11's budget was sized before them: 8 friends on one router without gags peak at 56 (a tap every 2 s) to 87 (a tap a second). With gags, 6 phones on one Wi-Fi spend all 120 units. Then the next message from any of them closes its socket with 1008 (`handle` in `worker.ts`), and the next alarm closes every socket that address has in the room (`alarm` in `worker.ts`). `useRoom` retries a 1008 only every 20 s, and the limiter's minute must roll over first, so the whole Wi-Fi sits on "Reconnecting…" for 20–60 s while a phone on mobile data plays on. That is "some devices, at random". "When another player disconnects": the dropped seat's Auto-play turns are charged to the same address, so the budget runs out sooner.
+
+**Not the cause** (checked): `Room.admit` only displaces a socket at 20 sockets in the room; `dead` is only read there; a hello with another token only answers that socket; and an exception in an alarm or a broadcast closes no socket (read in the code, not reproduced).
+
+**First fix, rejected (owner, 2026-11-11).** A seat waited `TOSS_MS` for each seated phone on its address (`RoomView.rest`): 6 s with 2 phones, 24 s with 8. It held the budget (72 units at 8 phones), but the owner found the wait too slow: gags must never disconnect anyone, and the wait stays 3 s per seat whatever the network. A QA agent confirmed the cause on its own (8 phones on one address gagging every 3 s: all 8 closed within about 45 s).
+
+**What a gag costs Cloudflare.** A gag returns `"view"`: no `put`, so no row, unless it brings the alarm forward (a row, charged 1 as before). Incoming WebSocket messages are billed as Durable Object requests at 20:1 ("a 20:1 ratio is applied to incoming WebSocket messages", "100 WebSocket incoming messages would be charged as 5 requests"; outgoing messages are free: https://developers.cloudflare.com/durable-objects/platform/pricing/). So a gag is 1/20 of a request, and a unit of `MESSAGES` paid for 20 times that. Elsewhere a unit buys at most half a request (an alarm run is 2 units: a row and a request).
+
+**Fix (v2.7.2): a socket pays 1 unit for every 8 gags** (`GAGS_PER_UNIT`, `costs` in `room.ts`; `handle` in `worker.ts`, and `node.ts`). The first of each 8 pays, so a new socket gets none free. The count is in the socket's attachment and survives hibernation. Gags too soon count like the rest. The wait stays `TOSS_MS` per seat, and `RoomView.rest` is gone.
+- **Why 8.** 8 gags are 0.4 of a request for a unit, under the alarm's 0.5. `holdRooms` has two new modes, where one address deals a game in every room it holds and throws from every seat until its budget closes a socket, after or before the rest of its minute. Holding first, it needs 19.4 h for the rows and 19.2 h for the requests (24 h simulated; 551,000 throws); gagging first, 163.7 h and 30.1 h; throwing in lobbies, where a throw is refused and costs the same, 28.7 h and 19.2 h. CI simulates 1 or 2 h of each, which reads about 2% high. At 10 a unit, holding first took 17.8 h for the requests, under the 18 h bound, so 10 was rejected. The other modes are unchanged: 14.0 h and 18.2 h at the least.
+- **Not free, and not dropped without a charge.** Free gags, or gags dropped silently once the budget is spent, would let one address throw from every seat it holds for nothing: rooms left at a round summary with the host gone run no alarm, so nothing would ever close those sockets, and 700 held seats at 20 gags a minute are 700 requests a minute. So a gag an address can't pay for closes its socket like any message. That needs the address's whole budget spent: a house of 8 gagging every 3 s now spends 20 units a minute on gags, where it spent 160.
+- **PO decision (PR #42 review): accepted.** The owner's "gags must never disconnect anyone" was about shared-Wi-Fi tables being dropped, and the measurements below show that no longer happens (8 phones: 72 of 120 units, none closed). The close stays as the last resort for a script, since a silent drop would be a free message path.
+- **After** (the same model, a tap every 2 s, every seat gagging every 3.25 s, the app's limit with its margin; one run each, the deal is random). Busiest minute of the address's 120 units, and sockets closed:
+
+  | Phones on one address | All there | One phone dropped (its seat on Auto-play) |
+  | --------------------- | --------- | ----------------------------------------- |
+  | 3                     | 47, none  | 62, none                                  |
+  | 4                     | 52, none  | 68, none                                  |
+  | 6                     | 62, none  | 57, none                                  |
+  | 8                     | 72, none  | 59, none                                  |
+
+  8 phones at a tap a second, faster than anyone plays: 102, none closed.
+- `shut` in `worker.ts` now logs `socket shut: 1008 Too many messages` for each socket closed over the budget, so the next report can be checked in Workers Logs.
+
+**Suspected, not proven** (for the owner to check on real phones):
+- **A deploy closes every socket.** Each merge to `main` deploys, and players in a game see "Reconnecting…" for about a second. Compare the time of a drop with the time of a deploy.
+- **A phone back from a locked screen with a dead socket that still looks open** sends its hello into it and only replaces it at the next 20 s check, or 5 s after a tap. It shows a stale table until then.
+- **`API_REQUESTS` (30 a minute per address).** 8 phones on a Wi-Fi that stutters each retry up to every 8 s; `flaky.spec.ts` measured 22 in the busiest minute, not far under.
+
+**Acceptance:**
+- `worker.test.ts`, "RoomDO gags (BUG-4)": 3, 4, 6 and 8 phones on one address gagging every 3 s, with and without a dropped phone, close no socket and stay under 0.75 of the budget; 8 at a tap a second stay under it. Both fail without the fix.
+- A socket's gags cost 1 unit per 8, the first paying, landed, too soon or refused, across hibernation; a gag its address can't pay for closes it, and the ones already paid for don't.
+- `holdRooms`: every mode, the two gag modes included, needs at least 14 h for the rows and 18 h for the requests.
 
 ### M16 — Launch in the App Store and Google Play (user decision, 2026-10-24) · last
 

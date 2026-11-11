@@ -10,8 +10,10 @@ import {
   allowMessage,
   autoMove,
   type Conn,
+  costs,
   dead,
   EMPTY_IDLE_MS,
+  GAGS_PER_UNIT,
   HELLO_MS,
   IDLE_MS,
   IP_MESSAGES_PER_MINUTE,
@@ -1421,6 +1423,20 @@ describe("reactions (M23)", () => {
     // And a reaction holds back the same seat's throw.
     t.advance(TOSS_MS - 1);
     expect(t.send(a, { t: "toss", to: 2, item: "bomb" })).toBe("none");
+  });
+});
+
+describe("what a message costs (BUG-4)", () => {
+  it("BUG-4: every message costs a unit, but a socket's throws and reactions only the first of every GAGS_PER_UNIT", () => {
+    const conn = newConn(0, "203.0.113.7");
+    const toss = { t: "toss", to: 1, item: "bomb" } as const;
+    expect(costs(conn, { t: "hello", token: "token-0-abcdef" })).toBe(true);
+    expect(costs(conn, null)).toBe(true); // a malformed one
+    const paid = Array.from({ length: 2 * GAGS_PER_UNIT + 1 }, (_, i) =>
+      costs(conn, i % 2 ? toss : { t: "react", kind: "laugh" }),
+    );
+    expect(paid.flatMap((p, i) => (p ? [i] : []))).toEqual([0, GAGS_PER_UNIT, 2 * GAGS_PER_UNIT]);
+    expect(costs(conn, { t: "auto", on: true })).toBe(true);
   });
 });
 

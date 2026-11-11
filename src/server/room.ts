@@ -73,6 +73,8 @@ export interface Conn {
   ack: number;
   windowStart: number;
   windowCount: number;
+  /** Throws and reactions it has sent: its IP pays for the first of every GAGS_PER_UNIT (BUG-4). */
+  gags: number;
   /** The client's `ipKey`, which its messages count against; null = a local run, not limited. */
   ip: string | null;
   /** When the socket opened (ms). A deploy closes every socket, so no attachment predates it. */
@@ -131,6 +133,15 @@ const WINDOW_MAX = 120;
  */
 export const IP_MESSAGES_PER_MINUTE = 120;
 /**
+ * Throws and reactions (gags) a socket sends per unit of its IP's budget (BUG-4). A gag writes no
+ * row, and Cloudflare bills 20 incoming WebSocket messages as one Durable Object request, so 8 of
+ * them cost 0.4 of a request, under the half a unit buys elsewhere (an alarm run is 2 units): one
+ * IP throwing from every seat it holds still needs 19.2 h to use up the requests (worker.test.ts;
+ * 17.8 h at 10 a unit). At a unit each, 6 phones on one Wi-Fi gagging every 3 s spent the whole
+ * budget and were all closed.
+ */
+export const GAGS_PER_UNIT = 8;
+/**
  * Sockets per room that said hello (SEC-2): 8 players and a dozen spectators. Each one gets every
  * broadcast and can send its own writes, so a room can't take as many as a script opens.
  */
@@ -176,6 +187,7 @@ export const newConn = (now: number, ip: string | null): Conn => ({
   ack: 0,
   windowStart: now,
   windowCount: 0,
+  gags: 0,
   ip,
   openedAt: now,
 });
@@ -196,6 +208,15 @@ function count(w: Window, now: number, ms: number, max: number): boolean {
 
 /** The per-socket flood limit. */
 export const allowMessage = (conn: Conn, now: number) => count(conn, now, WINDOW_MS, WINDOW_MAX);
+
+/**
+ * Whether this message costs its IP a unit: any message does, but of a socket's gags only the
+ * first of every GAGS_PER_UNIT, landed, too soon or refused. Paid ahead, so a new socket gets none free.
+ */
+export function costs(conn: Conn, msg: ClientMsg | null): boolean {
+  if (msg?.t !== "toss" && msg?.t !== "react") return true;
+  return conn.gags++ % GAGS_PER_UNIT === 0;
+}
 
 /** The per-IP budget, for a server without the Worker's MESSAGES binding (node.ts). */
 export function allowIp(windows: Map<string, Window>, key: string, now: number): boolean {

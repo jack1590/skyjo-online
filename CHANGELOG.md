@@ -4,6 +4,12 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.7.2] - 2026-11-11
+
+### Fixed
+
+- **Friends on the same Wi-Fi no longer get disconnected for throwing and reacting a lot.** Phones on one Wi-Fi share one allowance of messages a minute, and every throw and reaction used up as much of it as a move. With 6 or more of you on one Wi-Fi all throwing at once, it ran out in about half a minute, and every phone on that Wi-Fi dropped to "Reconnecting…" together for up to a minute. It ran out sooner when someone had left and Auto-play was playing for them. Throws and reactions now use an eighth of what they did, so a full table of 8 on one Wi-Fi can throw as often as the game allows, still one every 3 seconds each.
+
 ## [2.7.1] - 2026-11-11
 
 ### Fixed
