@@ -177,8 +177,43 @@ button {
   align-items: center;
   gap: 8px;
   min-height: 40px;
+  padding: 3px 0;
   border-bottom: 1px solid var(--line);
   overflow-wrap: anywhere;
+}
+
+/* M26: the host drags a row by its handle; the page must not scroll under the finger. */
+.grip {
+  touch-action: none;
+  cursor: grab;
+}
+
+.sorting {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Rows the dragged one passes slide aside; let go, it slides into its place. */
+.sorting li {
+  transition: transform 0.15s;
+}
+
+li.dragging,
+li.dropped {
+  position: relative;
+  z-index: 1;
+  background: var(--panel);
+  box-shadow: 0 6px 16px rgb(0 0 0 / 0.4);
+}
+
+li.dragging {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sorting li {
+    transition: none;
+  }
 }
 
 .seats li.away,

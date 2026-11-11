@@ -802,8 +802,9 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 20  | ✅ M21                             | Throws: bombs, beers, donkeys and more at other players (user request, 2026-10-27)                                      | 2.5.0         | the user asked for it; ahead of M16, which waits on the owner                                                    |
 | 21  | ✅ M22                             | Throws, part 2: stickers, choreography, marks, real sounds (user feedback)                                              | 2.5.1         | the owner found v2.5.0 throws not fun                                                                            |
 | 22  | ✅ M23                             | Reactions: laugh, love, anger and the migajero, from a button beside your grid (user request)                           | 2.6.0         | the user asked for it; reuses M21/M22's in-memory throw path and sticker pipeline                                |
-| 23  | ✅ BUG-2                           | Out of a knockout game, your own reaction popped on your row in the strip, far from the button you tapped               | 2.6.1         | a user report from real phones; effort S. The report's "top of the screen" is still open (see § BUG-2)           |
-| 24  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
+| 23  | ✅ BUG-2                           | Out of a knockout game, your own reaction popped on your row in the strip, far from the button you tapped               | 2.6.2         | a user report from real phones; effort S. The report's "top of the screen" is still open (see § BUG-2)           |
+| 24  | M26                                | Seat order: the host arranges who plays after whom (owner request, 2026-11-11)                                          | 2.7.0         | the owner asked for it; ahead of M16, which waits on the owner                                                   |
+| 25  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
 
 Deferred: Turnstile (SEC-4) and SEC-12 (until M16). Quick reactions, deferred until now, are M23 (user request, 2026-10-29). Declined: SEC-7. Versions assume this order; a PR that reorders says so.
 
@@ -1342,6 +1343,25 @@ The sticker sits centred over the opponent's panel head, or 24 px above your nam
 **Fix.** `seatOf` in `Reactions.tsx`: your own laugh, love or anger, when the corner button is on screen (only when you are out), pops just over that button, and follows it. Every other reaction goes to `spot(to ?? from)` as before: other phones still show an out player's reaction on their row, throws at an out player still land on their row, and a migajero from an out player still flies from their row.
 
 **Tests.** `e2e/react.spec.ts`, "BUG-2: out of a knockout game, your own reaction pops over the corner button…" (all three devices; it failed by 297 px on iPhone and 319 px on Pixel before the fix). Screenshot: `docs/screenshots/bug2/out-own-laugh.jpg`.
+
+### M26 — Seat order (owner request, 2026-11-11) · v2.7.0
+
+**Request.** "We play with the family, and to avoid couples sitting together (playing right after each other) we want the host to arrange the participants so couples aren't next to each other."
+
+**Design** (kept small on the owner's word, 2026-11-11: no race-proofing beyond the basics).
+- Seats are turn order (R5), and they only change in the lobby. So in the lobby, whoever may lead (the host, or a stand-in while the host is away, as for Start) gets a drag handle (≡, 44 px) at the right of every seat row. Press it and drag the row up or down: it follows the finger, the rows it passes slide aside (0.15 s; at once with reduced motion), and letting go sends the move. Held within 60 px of the screen's top or bottom, the page scrolls, since 8 seats are taller than a phone. The phone ticks (10 ms vibration, where supported) on pickup and on drop. Everyone else sees the order change live, without handles.
+- The first build had up and down arrow buttons; the owner rejected them the same day ("it's mobile focused, so drag and drop should be fine"). No visible arrows remain. The handle is a focusable button labelled "Drag to reorder Ana" through `t()`, and Arrow Up / Arrow Down on it move the seat one place: the path for keyboards and screen readers.
+- Plain Pointer Events, no dependency: the handle has `touch-action: none` and captures the pointer, so the page doesn't scroll under the finger on iOS Safari or Android Chrome. The dropped row rests where it landed until the server's view arrives, and goes back after 1 s if none does.
+- **Protocol.** `{ t: "move", name, to }`: the player, by name (unique in a room), and the seat index to move to. `parseClientMsg` checks the shape.
+- **Room.** Lobby only and `canLead` only, else `not-allowed`; a move to where the player already sits is `"none"`. It takes the `Seat` object out and puts it in at `to`, so the token, last sign of life and Auto-play go with the person, and `host` is set to wherever the host's `Seat` now is. It returns `"data"`: one row, one `MESSAGES` unit, like any lobby change. Nothing else keyed by seat index lives in the lobby (`stopped`, the game, throws and reactions are mid-game).
+- After Play again the lobby has the last order and can be rearranged again. R4 is unchanged: the highest opening pair starts, ties to the lowest seat.
+- A tab loaded before 2.7.0 gets the same `RoomView` with the seats in another order, which it already handles (a leave reorders them too). It has no handles until it reloads.
+
+**Acceptance.**
+- `room.test.ts`: the host moves a player to the top, past its own seat; the host's own seat moves down and up; a seat moves from below the host to above it; the host is the same person each time; a guest, a spectator and a mid-game move are refused, and so is a move to no seat or of an unknown name; a stand-in leader may; a token finds its person after a reconnect; the next game's players are in the new order (R5); after a rematch the order is kept and can change again. `parseClientMsg` takes `move` only with a name and an integer `to`.
+- E2E (`e2e/online.spec.ts`, also against the Node server): 3 phones, the host drags the last player to the top (with a real touch on Pixel, through CDP; with the mouse on iPhone and desktop, the same pointer events), the passed rows step aside mid-drag, every phone shows the new order and only the host has handles; Arrow Up on a handle moves a seat; the game starts and the turn passes to the lobby's next row. 8 seats with 16-character names at 360 px pass `expectMobileFriendly` in en, es and pt, online and offline (with the ✕), and the last row dragged to the top edge scrolls the lobby and lands first. Screenshots in `docs/screenshots/m26/`.
+- Not covered by a test: a finger on real iOS Safari (WebKit in Playwright has no touch drag). The owner checks it on a phone.
+- CI wall time stays ≤ 3 min: it adds 2 short tests.
 
 ### M16 — Launch in the App Store and Google Play (user decision, 2026-10-24) · last
 

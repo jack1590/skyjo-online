@@ -347,6 +347,19 @@ export class Room {
         if (!seats[msg.seat] || this.connected(msg.seat, live)) throw new RoomError("not-allowed");
         this.removeSeat(msg.seat);
         return "data";
+      case "move": {
+        // Seat order is turn order (R5), e.g. so couples don't play right after each other (M26).
+        const from = seats.findIndex((s) => s.name === msg.name);
+        if (!lobby || !this.canLead(seat, live) || from === -1 || !seats[msg.to]) {
+          throw new RoomError("not-allowed");
+        }
+        if (from === msg.to) return "none";
+        // The host is a person, not a place.
+        const host = seats[this.data.host];
+        seats.splice(msg.to, 0, ...seats.splice(from, 1));
+        this.data.host = seats.indexOf(host);
+        return "data";
+      }
       case "start":
         if (!lobby || seats.length < MIN_PLAYERS || !this.canLead(seat, live)) {
           throw new RoomError("not-allowed");

@@ -4,6 +4,12 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.7.0] - 2026-11-11
+
+### Added
+
+- **Seat order.** In the lobby, the host drags a player up or down by the ≡ handle beside their name, to arrange who plays after whom: for example, so couples don't play right after each other. The other players slide aside as you drag, and everyone sees the new order when you let go. Turns go down the list and back to the top, and the order stays for the next game, where it can be changed again. With a keyboard, the arrow keys on a handle do the same.
+
 ## [2.6.5] - 2026-11-11
 
 ### Fixed
