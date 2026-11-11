@@ -98,9 +98,12 @@ export function Table(props: TableProps) {
   // The card you last tapped to turn over, so a final reveal turns it first (UX-27).
   const tapped = useRef<string | null>(null);
   // Local modes never outlive the turn or summary they started in (the server may move for us).
+  // A layout effect: a passive one can run after a tap that landed first, and undid it (UX-19).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the deps are triggers, not inputs
+  useLayoutEffect(() => setDiscarding(false), [view.round, view.current, phase]);
+  // Passive: the final reveal's flights (a layout effect) read the tapped card first (UX-27).
   // biome-ignore lint/correctness/useExhaustiveDependencies: the deps are triggers, not inputs
   useEffect(() => {
-    setDiscarding(false);
     tapped.current = null;
   }, [view.round, view.current, phase]);
   useEffect(() => {
