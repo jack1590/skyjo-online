@@ -4,6 +4,12 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.7.3] - 2026-11-11
+
+### Fixed
+
+- **A dropped connection no longer drops twice.** When your phone lost its connection just after you tapped, it reconnected, and then 5 seconds later it threw that good connection away and reconnected again. In between, "Reconnecting…" stayed up and your taps did nothing. Now it reconnects once, and your next tap plays. Reload the game once on every phone to get the fix.
+
 ## [2.7.2] - 2026-11-11
 
 ### Fixed

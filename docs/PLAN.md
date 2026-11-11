@@ -806,7 +806,8 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 24  | M26                                | Seat order: the host arranges who plays after whom (owner request, 2026-11-11)                                          | 2.7.0         | the owner asked for it; ahead of M16, which waits on the owner                                                   |
 | 25  | ✅ BUG-3                           | No browser translation of the page (it freezes your own points; cause unconfirmed); long names over totals              | 2.7.1         | the owner's report from real phones ("the count of points in some moments doesn't work"); client only, S         |
 | 26  | BUG-4                              | Phones on one Wi-Fi dropped together: throws and reactions spent their shared message budget                            | 2.7.2         | a live report from the owner; hotfix                                                                             |
-| 27  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
+| 27  | BUG-9                              | A socket replaced while a tap waited was replaced again 5 s later, taps dropped meanwhile                               | 2.7.3         | a QA read after the owner's disconnect report; proven in a browser                                               |
+| 28  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
 
 Deferred: Turnstile (SEC-4) and SEC-12 (until M16). Quick reactions, deferred until now, are M23 (user request, 2026-10-29). Declined: SEC-7. Versions assume this order; a PR that reorders says so.
 
@@ -896,6 +897,21 @@ The limit stays 16 code points, so a stored name is no bigger than before. `cutN
 **PO to decide:** 16 code points, not 16 clusters. Three families (21 code points) are cut to two. Counting clusters would allow 16 of any emoji, but then one cluster needs its own cap (stacked accents have no limit), and a seat's name could grow from 64 bytes to several hundred in every saved row and every broadcast.
 
 **Tests.** `room.test.ts`, "BUG-8": the family, the rainbow flag, a skin-toned kiss, the flags; a lone joiner, one between letters, one beside a single emoji, one between two emoji that don't join, one smuggled in by unassigned code points; tags outside a flag, a split flag, an unknown region; bidi overrides and isolates; the cut before, inside and after a family; 16 accents. `e2e/online.spec.ts`, "BUG-8", on all three devices: the box cuts three families to two, and the reported name is seated whole.
+
+### BUG-9 — A reconnect while a tap waits reconnects again 5 s later (QA read, 2026-11-11) · v2.7.3
+
+**Report.** The owner: "devices disconnect randomly or when another player disconnects" (BUG-4 has the per-IP cause). A QA read of `useRoom.ts` on `main` 0122f4e suspected a second cause on the phone itself.
+
+**Evidence (Pixel project, local workerd, the page's clock stepped by hand).** One phone in a lobby. Its socket goes dead without closing (`routeWebSocket` drops every frame). 57 s later the player taps "Play until one is left"; 3 s after that the 20 s check finds the socket silent for over 45 s and opens a second, working one. On `main`:
+- "Reconnecting…" stays up on the working socket;
+- a second tap sends nothing (the new socket carried only its `hello`);
+- 5 s after the first tap, the page closes the working socket and opens a third.
+
+**Root cause.** `send` remembers the one message waiting for its ack (`awaiting`) and reconnects if none comes in `ACK_MS` (5 s). Only a socket's `onclose` cleared it, and `onclose` ignores a socket that `connect()` has already replaced (`useRoom.ts:113`). So a socket replaced by `check()` or `wake()` left `awaiting` set: `send` dropped every tap, `late` showed "Reconnecting…", and the ack timer replaced the new socket (`useRoom.ts:177-181`). It takes a tap in the 5 s before a silent socket is replaced.
+
+**Fix (v2.7.3).** `connect()` ends the wait itself, since the socket it replaces will never answer. The tap that went into the dead socket is lost, as before: its card drops back and the player taps again.
+
+**Acceptance:** `e2e/online.spec.ts`, "BUG-9": fails on `main` at its first check ("Reconnecting…" still shown) and passes with the fix: 2 sockets, the second tap sent on the second one, still 2 sockets 5 s later.
 
 ### M17 — Play until one is left (knockout) (user request, 2026-10-24) · v2.2.0 · ✅ shipped (PR #24)
 
