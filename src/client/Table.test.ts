@@ -223,13 +223,13 @@ describe("endedNote (M27, R12)", () => {
 
   it("doubled: names the lowest scorer and the score before it doubled", () => {
     expect(endedNote(en, ended([36, 14, 21], 0, true))).toBe(
-      "Ana ended the round, but Ben scored lower, so their 18 counts double.",
+      "Ana ended the round, but Ben scored lower, so Ana's 18 counts double.",
     );
   });
 
   it("doubled on a tie: ties double too", () => {
     expect(endedNote(en, ended([20, 10, 31], 0, true))).toBe(
-      "Ana ended the round, but Ben scored the same, so their 10 counts double.",
+      "Ana ended the round, but Ben scored the same, so Ana's 10 counts double.",
     );
   });
 
@@ -254,10 +254,10 @@ describe("endedNote (M27, R12)", () => {
   it("in Spanish and Portuguese", () => {
     const view = ended([36, 14, 21], 0, true);
     expect(endedNote(translator("es"), view)).toBe(
-      "Ana cerró la ronda, pero Ben sumó menos: su 18 cuenta doble.",
+      "Ana cerró la ronda, pero Ben sumó menos: los 18 de Ana cuentan doble.",
     );
     expect(endedNote(translator("pt"), view)).toBe(
-      "Ana encerrou a rodada, mas Ben somou menos: seu 18 conta em dobro.",
+      "Ana encerrou a rodada, mas Ben somou menos: os 18 de Ana contam em dobro.",
     );
   });
 });

@@ -12,7 +12,7 @@ Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When
 - **Numbers you can read on every card.** Each numeral is white with a dark outline in its card's colour, so a 2 on pale green or a 0 on aqua is as clear as a 12 on red.
 - **Every score has a caption.** Under each opponent's name: **Game** and **Round**. On your own row: **Game** and **This round**. The round's score so far is the gold one. The "+14" with no label is gone.
 - **Your turn has a frame.** A gold frame lights up around your name, your clock and your cards when it's your turn. Your clock's bar sits inside it, beside a reminder: **Low score wins**.
-- **The round summary explains itself.** Each player has a card with their place, this round's score, the game's total and a bar that fills toward 100. One sentence says what happened to whoever ended the round: "Mamá ended the round, but Leo scored lower, so their 18 counts double." Under it: "Lowest total wins · Game ends at 100" (or, playing until one is left, "Last one under 100 wins · Out at 100").
+- **The round summary explains itself.** Each player has a card with their place, this round's score, the game's total and a bar that fills toward 100. One sentence says what happened to whoever ended the round: "Mamá ended the round, but Leo scored lower, so Mamá's 18 counts double." Under it: "Lowest total wins · Game ends at 100" (or, playing until one is left, "Last one under 100 wins · Out at 100").
 - The Auto-play switch's caption is now just **Auto**, in every language.
 
 ### Added

@@ -694,7 +694,7 @@ export function Table(props: TableProps) {
                 {/* Its seconds, in its last 10 (the pill has them too). */}
                 {myClock.left !== null && (
                   <span className={`secs${hurry(myClock.left)}`} aria-hidden="true">
-                    {myClock.left} s
+                    {t("secondsShort", { s: myClock.left })}
                   </span>
                 )}
               </>

@@ -1443,7 +1443,7 @@ test("M27: the summary has 'This round' and 'Game' columns, a bar toward 100 a p
   const summary = page.getByTestId("round-summary");
   await expect(summary.getByRole("columnheader")).toHaveText(["Player", "this round", "Game"]);
   await expect(summary.getByTestId("summary-why")).toHaveText(
-    "Mamá ended the round, but Leo scored lower, so their 18 counts double.",
+    "Mamá ended the round, but Leo scored lower, so Mamá's 18 counts double.",
   );
   await expect(summary.locator("tbody tr:first-child")).toHaveText([
     /^Leo1442$/,

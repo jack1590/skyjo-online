@@ -475,7 +475,6 @@ dialog.zoom::backdrop {
 
 .zoom-grid {
   display: grid;
-  gap: 6px;
   grid-template-columns: repeat(4, auto);
   justify-content: center;
   gap: 8px;
@@ -2531,8 +2530,19 @@ dialog.zoom::backdrop {
 .card.sm .num {
   /* Readable on 360px phones with 8 players, where 15cqw alone gave 11.5px. */
   font-size: max(12px, 15cqw);
-  -webkit-text-stroke-width: 0.2em;
-  text-shadow: none;
+  /* Outlined with shadows, not a stroke: where a browser paints the stroke over the fill (Chrome
+     before 123), it would thin a 12 px digit away. */
+  -webkit-text-stroke-width: 0;
+  text-shadow:
+    1px 0 0 var(--ink),
+    -1px 0 0 var(--ink),
+    0 1px 0 var(--ink),
+    0 -1px 0 var(--ink),
+    1px 1px 0 var(--ink),
+    -1px -1px 0 var(--ink),
+    1px -1px 0 var(--ink),
+    -1px 1px 0 var(--ink),
+    0 0 2px var(--ink);
 }
 
 .card.hl {
@@ -2633,6 +2643,8 @@ dialog.zoom::backdrop {
   background: #23384f url("./art/back.webp") center / 112%;
   transform: scaleX(-1);
   opacity: 0;
+  /* Over the number and the diamond, which their own translate and rotate would paint above it. */
+  z-index: 1;
 }
 
 /* Discard mode (UX-18): your face-down cards glow past the gold rim of the card back; the others
