@@ -736,7 +736,21 @@ test("UX-11: the summary is a modal: the first Tab lands inside it and 10 Tabs n
   await page.keyboard.press("Escape");
   await expect(summary).toHaveCount(0);
   const showScores = page.getByRole("button", { name: "Show scores" });
-  await expect(showScores).toBeFocused();
+  // What has the focus, and whether a dialog is still open, so a failure says why. 20 s: WebKit's
+  // frames are slow at 4 workers on CI, where 5 s wasn't enough twice (main, run 43117120506).
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const el = document.activeElement;
+          return {
+            focus: el === document.body ? "body" : (el?.textContent ?? null),
+            open: document.querySelectorAll("dialog[open]").length,
+          };
+        }),
+      { timeout: 20_000 },
+    )
+    .toEqual({ focus: "Show scores", open: 0 });
   await showScores.click();
   await expect(summary).toBeVisible();
 });

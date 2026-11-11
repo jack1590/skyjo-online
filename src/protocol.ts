@@ -96,7 +96,11 @@ export type ClientMsg = (
   | { t: "hello"; token: string }
   | { t: "join"; name: string }
   | { t: "leave" }
-  | { t: "kick"; seat: number }
+  /**
+   * `name`: the seat as the sender saw it. Its index shifts when an earlier seat leaves, and names
+   * are unique in a room (BUG-13). Tabs loaded before 2.7.7 send only `seat`.
+   */
+  | { t: "kick"; seat: number; name?: string }
   /**
    * In the lobby, whoever may lead moves a player to seat `to`: seat order is turn order (M26).
    * By name, unique in a room: an index is someone else once a seat above it leaves.
@@ -207,7 +211,12 @@ function parseBody(msg: Record<string, unknown>): ClientMsg | null {
     case "rematch":
       return { t: msg.t };
     case "kick":
-      return Number.isInteger(msg.seat) ? { t: "kick", seat: msg.seat as number } : null;
+      if (!Number.isInteger(msg.seat)) return null;
+      return {
+        t: "kick",
+        seat: msg.seat as number,
+        ...(typeof msg.name === "string" && { name: msg.name }),
+      };
     case "move":
       return typeof msg.name === "string" && Number.isInteger(msg.to)
         ? { t: "move", name: msg.name, to: msg.to as number }

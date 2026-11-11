@@ -4,6 +4,12 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.7.7] - 2026-11-11
+
+### Fixed
+
+- **Removing an offline player from the lobby can't remove the wrong one.** If someone higher up the list left their seat in the same instant you tapped ✕ on an offline player, everyone below moved up one place and the ✕ could remove the next offline player instead. Now the ✕ removes the player it was on, whatever else changes. Reload the game once on every phone to get the fix.
+
 ## [2.7.6] - 2026-11-11
 
 ### Fixed

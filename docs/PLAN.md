@@ -810,7 +810,8 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 28  | BUG-10                             | Back from a locked screen, a dead socket that looked open showed a stale table for up to a minute                       | 2.7.4         | BUG-4's open suspicion; the page's side proven in a browser                                                      |
 | 29  | BUG-11                             | A hidden tab, its timers slowed to one a minute, replaced its socket every minute                                       | 2.7.5         | a QA read after the owner's disconnect report; breaks SEC-9's bound                                              |
 | 30  | BUG-12                             | With the host away, a second leader's tap on Next round, Play again or Start game got an error                          | 2.7.6         | a QA read; proven in room.test.ts                                                                                |
-| 31  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
+| 31  | BUG-13                             | The lobby's ✕ removed a seat by index, so a seat leaving just before it made it remove someone else                     | 2.7.7         | a QA read; proven in room.test.ts                                                                                |
+| 32  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
 
 Deferred: Turnstile (SEC-4) and SEC-12 (until M16). Quick reactions, deferred until now, are M23 (user request, 2026-10-29). Declined: SEC-7. Versions assume this order; a PR that reorders says so.
 
@@ -960,6 +961,24 @@ The limit stays 16 code points, so a stored name is no bigger than before. `cutN
 **Fix (v2.7.6).** The room answers a lead tap that asks for what already happened with `"none"`, as it does a reaction that arrives late: `start` outside the lobby, `rematch` in the lobby, `nextRound` outside a round summary. Nothing is written and only the sender is answered. A seat that may not lead is still refused where the tap would have done something. Server only, so tabs loaded before 2.7.6 get it too, and no wire change.
 
 **Acceptance:** `room.test.ts`, "BUG-12": fails on `main` (`illegal-move`), passes with the fix: each second tap returns `"none"` and leaves `RoomData` as it was; a seat that may not lead still gets `not-allowed` for all three. `worker.test.ts`'s SEC-3 list of rejected messages loses the lobby `rematch`, now answered with a state, still with no row and nothing sent to anyone else.
+
+### BUG-13 — The lobby's ✕ removes a seat by index, so it can remove the wrong one (QA read, 2026-11-11) · v2.7.7
+
+**Report.** A QA read on `main` 0122f4e: `kick` carries a seat index (`Online.tsx:157`). If an earlier seat leaves in the same instant, it removes a different offline seat.
+
+**Evidence (`room.test.ts`, on `main`).** 4 seats, P2 and P3 offline. The host's lobby shows P2 at index 2. P1 leaves, then the host's `{ t: "kick", seat: 2 }` arrives: the room removes P3 and keeps P2. It takes a seat above the target leaving (or being removed by another leader) between the view the host tapped on and the tap's arrival, and another offline seat below the target; with no such seat the host gets "That's not allowed right now." instead.
+
+**Root cause.** A seat's index is its place in `RoomData.seats`, which `removeSeat` shifts; the message named a place, not a player.
+
+**Fix (v2.7.7).** The client also sends the seat's name as it saw it (`{ t: "kick", seat, name }`); names are unique in a room. The room removes the seat with that name. A name that is no longer seated is a late tap: `"none"`, not an error. The same rules apply by name: never yourself, never someone online, only whoever may lead, only in the lobby.
+- **Old tabs:** a tab loaded before 2.7.7 sends only `seat`, and the room handles that as before, wrong seat included, until the tab reloads. `seat` stays required on the wire for that reason.
+- No new cost: the same one message, one row.
+
+**Acceptance:** `room.test.ts`, "BUG-13": fails on `main`, passes with the fix: the named seat goes although its index moved; a second kick of the same name returns `"none"`; a kick by name of yourself or an online seat is `not-allowed`; an index-only kick still works; a non-string `name` is dropped by `parseClientMsg`.
+
+**Delivery (PO, PR #51): UX-11 was flaky on iPhone, and the iPhone job is short of frames.**
+- **UX-11.** `e2e/table.spec.ts`, "UX-11: the summary is a modal…": after Escape, "Show scores" was not focused within 5 s, twice in a row on `main` (run 43117120506, attempts 1 and 2), which skipped v2.7.5's deploy until a third attempt passed. It passes alone (40 of 40 on iPhone at 14 workers; the M27 author saw it fail in about half of full local runs under load). The cause is not proven. The likely one is M26's: headless WebKit draws about 7 frames a second at 4 workers on CI, and the focus moves only after the dialog's `close` event and a render. The check now waits 20 s and reports what has the focus and whether a dialog is still open. If it fails again with the dialog closed and the focus on the page body, the app lost the focus and that is a real bug (a keyboard user stuck after Escape).
+- **PLAN item: the iPhone job at 3 workers.** Two tests have now failed for slow frames at 4 workers (this one and M26's edge scroll, fixed in PR #50). `e2e (iphone)` takes 2:43 at 4 workers (PR #55's run), against the rubric's 3:00, and PR #17's probe measured 62 s for the 2-phone tests at 4 workers. Measure the job at 3 workers: if it stays under 3:00, switch; if not, keep 4 and move the heaviest harness cases to desktop, as M23's follow-up does for Pixel.
 
 ### M17 — Play until one is left (knockout) (user request, 2026-10-24) · v2.2.0 · ✅ shipped (PR #24)
 

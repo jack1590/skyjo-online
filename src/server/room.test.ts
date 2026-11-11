@@ -215,6 +215,31 @@ describe("lobby", () => {
     expect(t.room.data.seats.map((s) => s.name)).toEqual(["P0", "P2"]);
   });
 
+  it("BUG-13: a kick names its seat, so a seat that leaves just before it can't make it remove someone else; a tab loaded before 2.7.7 still sends only the index", () => {
+    const t = setup();
+    const [host, p1, p2, p3] = t.seated(4);
+    t.drop(p2);
+    t.drop(p3);
+    // The host's lobby shows P2 at index 2. As they tap its ✕, P1 leaves: P2 is now at index 1
+    // and P3, offline too, at index 2.
+    const kick = parseClientMsg('{"t":"kick","seat":2,"name":"P2"}') as ClientMsg;
+    expect(kick).toEqual({ t: "kick", seat: 2, name: "P2" });
+    t.send(p1, { t: "leave" });
+    expect(t.send(host, kick)).toBe("data");
+    expect(t.room.data.seats.map((s) => s.name)).toEqual(["P0", "P3"]);
+    // Already gone (another leader's ✕ landed first): late, not an error.
+    expect(t.send(host, kick)).toBe("none");
+    expect(t.room.data.seats.map((s) => s.name)).toEqual(["P0", "P3"]);
+    // By name, the same rules: not yourself, not someone online.
+    expect(t.errorOf(() => t.send(host, { t: "kick", seat: 1, name: "P0" }))).toBe("not-allowed");
+    const back = t.connect("token-3-abcdef");
+    expect(t.errorOf(() => t.send(host, { t: "kick", seat: 0, name: "P3" }))).toBe("not-allowed");
+    t.drop(back);
+    expect(t.send(host, { t: "kick", seat: 1 })).toBe("data");
+    expect(t.room.data.seats.map((s) => s.name)).toEqual(["P0"]);
+    expect(parseClientMsg('{"t":"kick","seat":1,"name":5}')).toEqual({ t: "kick", seat: 1 });
+  });
+
   it("M26: whoever may lead moves a player to another seat in the lobby; the host stays the same person; turn order follows (R5)", () => {
     const t = setup();
     const [a, b, c] = t.seated(4);
