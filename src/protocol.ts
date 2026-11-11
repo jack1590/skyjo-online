@@ -68,6 +68,53 @@ export function lastMover(
   return null;
 }
 
+/**
+ * Chat (M29): quick phrases travel as a key, so each phone reads them in its own language; typed
+ * text is shown as typed, at most CHAT_MAX characters.
+ */
+export const CHAT_PRESETS = [
+  "luck",
+  "nice",
+  "oops",
+  "hurry",
+  "played",
+  "revenge",
+  "haha",
+  "thanks",
+  "wow",
+  "sorry",
+] as const;
+export type ChatPreset = (typeof CHAT_PRESETS)[number];
+export const CHAT_MAX = 80;
+/** Views carry this many of the latest messages. */
+export const CHAT_KEEP = 30;
+/** A sender has CHAT_BURST messages at once, and one more every CHAT_MS. */
+export const CHAT_BURST = 3;
+export const CHAT_MS = 3_000;
+/** A message pops as a bubble by its sender for this long; views older than that call it history. */
+export const CHAT_SHOW_MS = 3_000;
+
+/** One message: a quick phrase or typed text, never both. */
+export interface ChatMsg {
+  /** When it was said (ms), unique and rising within a room. */
+  id: number;
+  /** The sender's seat then; null = a spectator. */
+  from: number | null;
+  /** The sender's name then (seats change in the lobby); "" for a spectator. */
+  name: string;
+  preset?: ChatPreset;
+  text?: string;
+}
+
+/**
+ * Strips control and format characters (zero-width, bidi overrides), trims, and caps the length in
+ * code points (never splits an emoji).
+ */
+export const cleanText = (text: string, max: number, drop = /\p{C}/gu) =>
+  [...text.replace(drop, "").trim()].slice(0, max).join("").trim();
+/** Chat keeps the zero-width joiner, which holds emoji such as 🤦‍♂️ together. */
+const CHAT_DROP = /[^\P{C}‍]/gu;
+
 export type ClientMsg = (
   | { t: "hello"; token: string }
   | { t: "join"; name: string }
@@ -84,6 +131,8 @@ export type ClientMsg = (
   | { t: "toss"; to: number; item: TossItem }
   /** Reacts to a play, mid-game (M23); shares the throws' cooldown. */
   | { t: "react"; kind: ReactionKind; to?: number }
+  /** Says something to the room, in any phase, seated or watching (M29): a quick phrase or text. */
+  | { t: "chat"; preset?: ChatPreset; text?: string }
 ) & {
   /** Client counter; the server echoes the highest one handled as `ack`. */
   seq?: number;
@@ -134,6 +183,15 @@ export interface RoomView {
   toss?: Toss;
   /** The latest reaction, in views sent within TOSS_SHOW_MS of it (M23). */
   reaction?: Reaction;
+  /**
+   * The latest CHAT_KEEP messages (M29), oldest first; unset when there are none. The room keeps
+   * them in memory only, so a phone keeps what it saw.
+   */
+  chat?: ChatMsg[];
+  /** How many of the last messages in `chat` are under CHAT_SHOW_MS old: those pop as bubbles. */
+  chatFresh?: number;
+  /** Ms until you may chat again; unset when you may now. */
+  chatIn?: number;
 }
 
 export type ServerMsg =
@@ -191,6 +249,13 @@ function parseBody(msg: Record<string, unknown>): ClientMsg | null {
       if (!REACTIONS.includes(kind)) return null;
       if (kind !== "migajero") return { t: "react", kind };
       return Number.isInteger(msg.to) ? { t: "react", kind, to: msg.to as number } : null;
+    }
+    case "chat": {
+      if (CHAT_PRESETS.includes(msg.preset as ChatPreset)) {
+        return { t: "chat", preset: msg.preset as ChatPreset };
+      }
+      const text = typeof msg.text === "string" ? cleanText(msg.text, CHAT_MAX, CHAT_DROP) : "";
+      return text ? { t: "chat", text } : null;
     }
     case "act": {
       const a = msg.action;

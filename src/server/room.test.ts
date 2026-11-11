@@ -2,7 +2,17 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { type Action, apply, createGame, type GameState, legalActions } from "../engine/game";
 import { nextRandom, type Rng } from "../engine/rng";
-import { type ClientMsg, parseClientMsg, TOSS_MS, TURN_MS } from "../protocol";
+import {
+  CHAT_BURST,
+  CHAT_KEEP,
+  CHAT_MAX,
+  CHAT_MS,
+  CHAT_SHOW_MS,
+  type ClientMsg,
+  parseClientMsg,
+  TOSS_MS,
+  TURN_MS,
+} from "../protocol";
 import {
   AUTO_FIRST_MS,
   AUTO_NEXT_MS,
@@ -1188,6 +1198,168 @@ describe("throws (M21)", () => {
     expect(t.room.view(b, t.live).toss).toBeDefined();
     t.advance(1);
     expect(t.room.view(b, t.live).toss).toBeUndefined();
+  });
+});
+
+describe("chat (M29)", () => {
+  it("M29: a quick phrase or typed text reaches every view, with who said it, and nothing is saved", () => {
+    const t = setup();
+    const [a, b] = t.seated(2);
+    const watcher = t.connect("token-w-abcdef");
+    const saved = JSON.stringify(t.room.data);
+    expect(t.send(a, { t: "chat", preset: "luck" })).toBe("view");
+    t.advance(10);
+    expect(t.send(b, { t: "chat", text: "¡Hola!" })).toBe("view");
+    const chat = [
+      { id: t.now() - 10, from: 0, name: "P0", preset: "luck" },
+      { id: t.now(), from: 1, name: "P1", text: "¡Hola!" },
+    ];
+    for (const c of [a, b, watcher]) expect(t.room.view(c, t.live)).toMatchObject({ chat });
+    const timeless = (json: string) =>
+      JSON.stringify(JSON.parse(json), (k, v) => (k === "updatedAt" || k === "seenAt" ? 0 : v));
+    expect(timeless(JSON.stringify(t.room.data))).toBe(timeless(saved));
+    expect(t.room.view(t.connect("token-x-abcdef"), t.live).chat).toHaveLength(2);
+  });
+
+  it("M29: a spectator chats too, with no seat or name", () => {
+    const t = setup();
+    const [a] = t.seated(2);
+    const watcher = t.connect("token-w-abcdef");
+    expect(t.send(watcher, { t: "chat", preset: "haha" })).toBe("view");
+    expect(t.room.view(a, t.live).chat).toEqual([
+      { id: t.now(), from: null, name: "", preset: "haha" },
+    ]);
+  });
+
+  it("M29: chat works in the lobby, the flip, a turn, the summary and at game over", () => {
+    const t = setup();
+    const conns = t.seated(2);
+    const phases: (string | undefined)[] = [];
+    const say = () => {
+      phases.push(t.room.data.game?.phase);
+      expect(t.send(conns[1], { t: "chat", preset: "nice" })).toBe("view");
+      t.advance(CHAT_MS);
+    };
+    say();
+    t.send(conns[0], { t: "start" });
+    say();
+    pastFlips(t, conns);
+    say();
+    for (const phase of ["roundOver", "gameOver"] as const) {
+      (t.room.data.game as GameState).phase = phase;
+      say();
+    }
+    expect(phases).toEqual([undefined, "flip", "draw", "roundOver", "gameOver"]);
+    expect(t.room.view(conns[0], t.live).chat).toHaveLength(5);
+  });
+
+  it("M29: views keep the last CHAT_KEEP messages, each with its own id, in order", () => {
+    const t = setup();
+    const [a, b] = t.seated(2);
+    for (let i = 0; i < CHAT_KEEP + 5; i++) {
+      expect(t.send(i % 2 ? a : b, { t: "chat", text: `m${i}` })).toBe("view");
+      if (i % 2) t.advance(CHAT_MS);
+    }
+    const chat = t.room.view(a, t.live).chat ?? [];
+    expect(chat.map((m) => m.text)).toEqual(
+      Array.from({ length: CHAT_KEEP }, (_, i) => `m${i + 5}`),
+    );
+    const ids = chat.map((m) => m.id);
+    expect(new Set(ids).size).toBe(CHAT_KEEP);
+    expect(ids).toEqual([...ids].sort((x, y) => x - y));
+  });
+
+  it("M29: chatFresh counts the messages under CHAT_SHOW_MS old, so a later view replays no bubble", () => {
+    const t = setup();
+    const [a, b] = t.seated(2);
+    t.send(a, { t: "chat", preset: "oops" });
+    t.advance(CHAT_SHOW_MS - 1);
+    t.send(b, { t: "chat", preset: "haha" });
+    expect(t.room.view(a, t.live).chatFresh).toBe(2);
+    t.advance(1);
+    expect(t.room.view(a, t.live).chatFresh).toBe(1);
+    t.advance(CHAT_SHOW_MS);
+    expect(t.room.view(a, t.live)).toMatchObject({ chatFresh: 0, chat: [{}, {}] });
+  });
+
+  it("M29: CHAT_BURST messages at once, then one every CHAT_MS; one too soon is dropped, not an error, and chatIn says how long to wait", () => {
+    const t = setup();
+    const [a, b] = t.seated(2);
+    for (let i = 0; i < CHAT_BURST; i++) {
+      expect(t.room.view(a, t.live).chatIn).toBeUndefined();
+      expect(t.send(a, { t: "chat", text: `m${i}` })).toBe("view");
+    }
+    expect(t.room.view(a, t.live).chatIn).toBe(CHAT_MS);
+    expect(t.send(a, { t: "chat", text: "too soon" })).toBe("none");
+    expect(t.room.view(b, t.live).chat).toHaveLength(CHAT_BURST);
+    // Someone else's wait is their own.
+    expect(t.room.view(b, t.live).chatIn).toBeUndefined();
+    expect(t.send(b, { t: "chat", preset: "wow" })).toBe("view");
+    t.advance(CHAT_MS - 1);
+    expect(t.room.view(a, t.live).chatIn).toBe(1);
+    expect(t.send(a, { t: "chat", text: "still too soon" })).toBe("none");
+    t.advance(1);
+    expect(t.send(a, { t: "chat", text: "now" })).toBe("view");
+    expect(t.send(a, { t: "chat", text: "one at a time" })).toBe("none");
+    // A long silence refills all of it, and no more.
+    t.advance(60_000);
+    for (let i = 0; i < CHAT_BURST; i++) expect(t.send(a, { t: "chat", text: "x" })).toBe("view");
+    expect(t.send(a, { t: "chat", text: "x" })).toBe("none");
+  });
+
+  it("M29: phones on one address share one phone's rate: one message each, then one every CHAT_MS per phone there", () => {
+    const t = setup();
+    const conns = t.seated(4);
+    const watcher = t.connect("token-w-abcdef");
+    for (const c of [...conns.slice(0, 3), watcher]) c.ip = "203.0.113.7";
+    conns[3].ip = "198.51.100.1";
+    const [a, b] = conns;
+    expect(t.send(a, { t: "chat", text: "1" })).toBe("view");
+    expect(t.send(a, { t: "chat", text: "2" })).toBe("none");
+    expect(t.room.view(a, t.live).chatIn).toBe(4 * CHAT_MS);
+    expect(t.send(b, { t: "chat", text: "mine" })).toBe("view");
+    expect(t.send(watcher, { t: "chat", text: "and mine" })).toBe("view");
+    t.advance(4 * CHAT_MS - 1);
+    expect(t.send(a, { t: "chat", text: "2" })).toBe("none");
+    t.advance(1);
+    expect(t.send(a, { t: "chat", text: "2" })).toBe("view");
+    // Alone on its address: the whole burst.
+    for (let i = 0; i < CHAT_BURST; i++) {
+      expect(t.send(conns[3], { t: "chat", text: "x" })).toBe("view");
+    }
+    // A phone that went quiet no longer counts.
+    t.advance(STALE_MS, [a, conns[3]]);
+    expect(t.send(a, { t: "chat", text: "alone now" })).toBe("view");
+    expect(t.room.view(a, t.live).chatIn).toBeUndefined();
+  });
+
+  it("M29: parses chat: a known quick phrase, or text cut to CHAT_MAX characters without control or bidi characters", () => {
+    expect(parseClientMsg('{"t":"chat","preset":"luck","text":"x"}')).toEqual({
+      t: "chat",
+      preset: "luck",
+    });
+    expect(parseClientMsg(JSON.stringify({ t: "chat", text: "  hi\u0000 ‮there\n​ " }))).toEqual({
+      t: "chat",
+      text: "hi there",
+    });
+    // The joiner inside an emoji stays, or 🤦‍♂️ would fall apart.
+    const facepalm = "\u{1F926}‍♂️";
+    expect(parseClientMsg(JSON.stringify({ t: "chat", text: facepalm }))).toEqual({
+      t: "chat",
+      text: facepalm,
+    });
+    const long = parseClientMsg(JSON.stringify({ t: "chat", text: "😀".repeat(CHAT_MAX + 9) }));
+    expect(long).toEqual({ t: "chat", text: "😀".repeat(CHAT_MAX) });
+    for (const raw of [
+      '{"t":"chat"}',
+      '{"t":"chat","preset":"insult"}',
+      '{"t":"chat","text":""}',
+      '{"t":"chat","text":"  \\u200b\\n "}',
+      '{"t":"chat","text":5}',
+      '{"t":"chat","text":["hi"]}',
+    ]) {
+      expect(parseClientMsg(raw), raw).toBeNull();
+    }
   });
 });
 

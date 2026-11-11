@@ -3,7 +3,7 @@
 import { expect, type Page } from "@playwright/test";
 import { apply, createGame, type GameState, legalActions } from "../src/engine/game";
 import { type GameView, toView } from "../src/engine/view";
-import type { Reaction, Toss, Wait } from "../src/protocol";
+import type { ChatMsg, Reaction, Toss, Wait } from "../src/protocol";
 
 /** A game one move into its last turns: someone revealed everything; the next player is to draw. */
 export function lastTurnGame(players: number, seed: number): GameState {
@@ -76,6 +76,8 @@ export interface Shown {
   wait?: Wait[];
   toss?: Toss;
   reaction?: Reaction;
+  /** Chat messages popping as bubbles (M29). */
+  said?: ChatMsg[];
 }
 
 export async function show(page: Page, table: Shown) {

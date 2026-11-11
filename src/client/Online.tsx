@@ -1,6 +1,7 @@
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { MAX_PLAYERS } from "../engine/game";
-import { type ClientMsg, type ErrorCode, NAME_MAX, type RoomView } from "../protocol";
+import { type ChatMsg, type ClientMsg, type ErrorCode, NAME_MAX, type RoomView } from "../protocol";
+import { Bubbles, ChatButton, useChat } from "./Chat";
 import { type Key, useI18n } from "./i18n";
 import { Table } from "./Table";
 import { useOnline } from "./useOnline";
@@ -19,7 +20,8 @@ const goHome = () => window.location.assign("/");
 
 export function Online({ code }: { code: string }) {
   const { t } = useI18n();
-  const { room, status, error, clearError, send, toss, react, waiting, late } = useRoom(code);
+  const { room, status, error, clearError, send, toss, react, chat, waiting, late } = useRoom(code);
+  const talk = useChat(room, chat);
   const online = useOnline();
 
   useEffect(() => {
@@ -73,7 +75,7 @@ export function Online({ code }: { code: string }) {
     return (
       <>
         {notices}
-        <Lobby room={room} send={send} />
+        <Lobby room={room} send={send} chat={<ChatButton chat={talk} />} said={talk.said} />
       </>
     );
   }
@@ -92,6 +94,8 @@ export function Online({ code }: { code: string }) {
         onToss={toss}
         reaction={room.reaction}
         onReact={react}
+        chat={<ChatButton chat={talk} />}
+        said={talk.said}
         waiting={waiting}
         onAction={(action) => send({ t: "act", action })}
         onAuto={(on) => send({ t: "auto", on })}
@@ -102,8 +106,22 @@ export function Online({ code }: { code: string }) {
   );
 }
 
-function Lobby({ room, send }: { room: RoomView; send: (msg: ClientMsg) => void }) {
+interface LobbyProps {
+  room: RoomView;
+  send: (msg: ClientMsg) => void;
+  /** The chat button, and the messages to pop now (M29). */
+  chat: ReactNode;
+  said: ChatMsg[];
+}
+
+function Lobby({ room, send, chat, said }: LobbyProps) {
   const { t } = useI18n();
+  const seats = useRef<HTMLUListElement>(null);
+  // A bubble points at its sender's name in the list.
+  const spot = (seat: number) => {
+    const r = seats.current?.children[seat]?.getBoundingClientRect();
+    return r ? { x: r.left + Math.min(r.width / 2, 120), y: r.top + r.height / 2 } : null;
+  };
   const [copied, setCopied] = useState(false);
   const link = `${window.location.origin}/r/${room.code}`;
 
@@ -127,6 +145,7 @@ function Lobby({ room, send }: { room: RoomView; send: (msg: ClientMsg) => void 
         <button type="button" className="btn icon" aria-label={t("quit")} onClick={goHome}>
           ←
         </button>
+        {chat}
       </div>
       <p className="tagline">{t("roomCode")}</p>
       <h1 className="room-code" data-testid="room-code">
@@ -141,7 +160,7 @@ function Lobby({ room, send }: { room: RoomView; send: (msg: ClientMsg) => void 
         <h2>
           {room.seats.length === 1 ? t("playersOne") : t("playersCount", { n: room.seats.length })}
         </h2>
-        <ul className="seats" data-testid="seats">
+        <ul ref={seats} className="seats" data-testid="seats">
           {room.seats.map((s, i) => (
             <li key={s.name} className={s.connected ? undefined : "away"}>
               <span>{s.name}</span>
@@ -210,6 +229,8 @@ function Lobby({ room, send }: { room: RoomView; send: (msg: ClientMsg) => void 
           </button>
         )}
       </section>
+      {/* After the list, whose names the bubbles point at. */}
+      <Bubbles said={said} spot={spot} />
     </main>
   );
 }

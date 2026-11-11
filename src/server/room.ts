@@ -12,9 +12,15 @@ import {
 import type { Rng } from "../engine/rng";
 import { toView } from "../engine/view";
 import {
+  CHAT_BURST,
+  CHAT_KEEP,
+  CHAT_MS,
+  CHAT_SHOW_MS,
+  type ChatMsg,
   type ClientMsg,
   CODE_ALPHABET,
   CODE_LENGTH,
+  cleanText,
   type ErrorCode,
   lastMover,
   NAME_MAX,
@@ -238,10 +244,6 @@ export function ipKey(ip: string): string {
   return `${[...left, ...zeros, ...right].slice(0, 4).join(":")}::/64`;
 }
 
-/** Strips control/format characters (zero-width, bidi overrides), trims, caps length in code points (never splits an emoji). */
-const cleanName = (name: string) =>
-  [...name.replace(/\p{C}/gu, "").trim()].slice(0, NAME_MAX).join("").trim();
-
 export class Room {
   /**
    * The latest throw and each seat's last one (M21). In memory only: a throw writes no row, and
@@ -250,6 +252,13 @@ export class Room {
   private toss: Toss | null = null;
   private reaction: Reaction | null = null;
   private tossed = new Map<number, number>();
+  /**
+   * The latest messages (M29), in memory only like the throws: a message writes no row, and a room
+   * that slept forgets them (each phone keeps what it saw). `chatted`: per token, when its
+   * allowance is whole again.
+   */
+  private chat: ChatMsg[] = [];
+  private chatted = new Map<string, number>();
 
   constructor(
     readonly data: RoomData,
@@ -307,7 +316,7 @@ export class Room {
       case "join": {
         if (seat !== null || !lobby) throw new RoomError("not-allowed");
         if (seats.length >= MAX_PLAYERS) throw new RoomError("room-full");
-        const name = cleanName(msg.name);
+        const name = cleanText(msg.name, NAME_MAX);
         if (!name) throw new RoomError("bad-name");
         if (seats.some((s) => s.name.toLowerCase() === name.toLowerCase())) {
           throw new RoomError("name-taken");
@@ -404,7 +413,45 @@ export class Room {
         };
         return "view";
       }
+      case "chat": {
+        // Too soon: the client greys Send meanwhile. Dropped, never an error or a disconnect.
+        if (this.chatIn(conn, live) > 0) return "none";
+        for (const [token, whole] of this.chatted) if (whole <= now) this.chatted.delete(token);
+        const whole = Math.max(this.chatted.get(conn.token) ?? 0, now);
+        this.chatted.set(conn.token, whole + this.chatRate(conn, live).wait);
+        const said: ChatMsg = {
+          id: Math.max(now, (this.chat.at(-1)?.id ?? 0) + 1),
+          from: seat,
+          name: seat === null ? "" : seats[seat].name,
+          ...(msg.preset ? { preset: msg.preset } : { text: msg.text }),
+        };
+        this.chat = [...this.chat, said].slice(-CHAT_KEEP);
+        return "view";
+      }
     }
+  }
+
+  /**
+   * A sender's chat allowance (M29): CHAT_BURST messages at once and one more every CHAT_MS, alone
+   * on its address. Phones sharing an address (one Wi-Fi) share its message budget, and each
+   * message costs a unit, so there each has one message and waits CHAT_MS per phone: together 20 a
+   * minute, what one phone may alone, and chat can't spend the budget their moves need (the rule
+   * BUG-4 set for throws). A socket gone stale can't chat without showing up again: not counted.
+   */
+  private chatRate(conn: Conn, live: Conn[]): { wait: number; burst: number } {
+    const now = this.deps.now();
+    const near = live.filter(
+      (c) => c.ip !== null && c.ip === conn.ip && c.token !== null && now - c.seenAt < STALE_MS,
+    );
+    const phones = Math.max(1, new Set(near.map((c) => c.token)).size);
+    return { wait: CHAT_MS * phones, burst: phones === 1 ? CHAT_BURST : 1 };
+  }
+
+  /** Ms until `conn` may chat again; 0 = now. */
+  private chatIn(conn: Conn, live: Conn[]): number {
+    const { wait, burst } = this.chatRate(conn, live);
+    const whole = this.chatted.get(conn.token ?? "") ?? 0;
+    return Math.max(0, whole - (burst - 1) * wait - this.deps.now());
   }
 
   /**
@@ -438,6 +485,8 @@ export class Room {
 
   view(conn: Conn, live: Conn[]): RoomView {
     const you = this.seatOf(conn);
+    const now = this.deps.now();
+    const chatIn = this.chatIn(conn, live);
     return {
       code: this.data.code,
       seats: this.data.seats.map((s, i) => ({
@@ -454,6 +503,11 @@ export class Room {
       ...(this.toss && this.deps.now() - this.toss.id < TOSS_SHOW_MS && { toss: this.toss }),
       ...(this.reaction &&
         this.deps.now() - this.reaction.id < TOSS_SHOW_MS && { reaction: this.reaction }),
+      ...(this.chat.length > 0 && {
+        chat: this.chat,
+        chatFresh: this.chat.filter((m) => now - m.id < CHAT_SHOW_MS).length,
+      }),
+      ...(chatIn > 0 && { chatIn }),
     };
   }
 

@@ -439,11 +439,11 @@ export function Tosses({ toss, on, you, warned, reduced, spot, names }: TossesPr
  * Returns the stop. ponytail: a flight's launch point moves too, so one in the air while the strip
  * scrolls starts a little off its thrower; re-aim the arc if anyone notices.
  */
-export function follow(
+export function follow<S extends Pick<Spot, "x" | "y">>(
   el: HTMLElement | null,
-  now: () => Spot | null,
-  from: Spot,
-  onFrame?: (spot: Spot) => void,
+  now: () => S | null,
+  from: S,
+  onFrame?: (spot: S) => void,
 ) {
   let raf = 0;
   const frame = () => {

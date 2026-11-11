@@ -1287,26 +1287,26 @@ The sticker sits centred over the opponent's panel head, or 24 px above your nam
 **Request.** "Add a chat feature like Parchís has one, considering the new design." Parchís-style mobile games offer a chat button with quick phrases and emojis, plus typed messages; a message pops up as a speech bubble by its sender and is kept in a short history.
 
 **What players get.**
-- A 44 px chat button in the top bar of the lobby and the table (no card gets smaller). It opens a bottom sheet with the last 30 messages, a row of 10 quick phrases, a row of 10 emojis, and a text box (80 characters) with Send.
+- A 44 px chat button in the top bar of the lobby and the table (no card gets smaller; the round label beside it shortens to "R3", so the turn pill keeps its width). It opens a bottom sheet with the last 30 messages, a row of 10 quick phrases, a row of 10 emojis, and a text box (80 characters) with Send.
 - A message shows as a speech bubble over its sender for 3 s on every phone: over an opponent's panel (it follows the panel while the strip scrolls), over your own name bar, beside the sender's name in the lobby. Taps go through it. With the sheet closed, the button counts unread messages.
-- Chat works in the lobby, in the game, at the round summary and at game over. Seated players and spectators send; a spectator's message has no bubble (no panel), only the sheet and the badge.
+- Chat works in the lobby, in the game, at the round summary and at game over. Seated players and spectators send; a spectator has no panel, so their bubble hangs from the chat button, with "Spectator" in it. At the summary, a modal over the table, the button is in the sheet's head and bubbles point at the scores' rows.
 - A quick phrase travels as a key and each phone shows it in its own language. Typed text is shown as typed.
 - A "Chat" switch in the sheet (per device, `skyjo:chat`) hides the bubbles, the badge and the history, and stops sending. The button stays, dimmed, so it can be switched back on.
 
 **Server.** `{ t: "chat", text }` or `{ t: "chat", preset }`, on the throws' path: kept in memory (never in `RoomData`), `"view"`, no row. `RoomView.chat` carries the last 30, `chatFresh` how many of them are under 3 s old (those pop as bubbles; older ones are history, so a reconnect replays nothing), `chatIn` the sender's wait. Limit: 3 messages at once, then one every 3 s for each phone on the sender's address (the rule PR #42 uses for throws and reactions), so one address chats 20 times a minute however many phones share it. A message too soon is dropped (`"none"`), never an error or a disconnect; the client greys Send for `chatIn`. Each message costs one `MESSAGES` unit like any other.
 
 **Acceptance.**
-- [ ] `room.test.ts`: a message reaches every view and nothing is saved; last 30; presets and text; spectators; every phase; the limit drops, and scales with phones on one address.
-- [ ] `protocol`: 80 characters by code point, control and bidi characters stripped (the emoji joiner kept), empty and unknown presets rejected.
-- [ ] `worker.test.ts`: a chat message writes no row; 8 phones on one address playing and chatting as fast as the app allows stay under 0.75 of the budget and no socket closes; `holdRooms` keeps its 14 h / 18 h bounds with a chat-spam mode.
-- [ ] E2E, 3 phones (es, pt, en), Worker and Node: a quick phrase pops over its sender on the other phones, in each phone's language, and is in the sheet; typed Spanish shows as typed on the Portuguese phone; the badge counts; the switch hides it all. The text box stays visible above an open keyboard (`visualViewport`). No sideways scroll at 360 px with 8 players.
-- [ ] Styled only through CSS custom properties (`--chat-*`, falling back to the theme's tokens), so M28's themes restyle it without code.
+- [x] `room.test.ts`: a message reaches every view and nothing is saved; last 30; presets and text; spectators; every phase; the limit drops, and scales with phones on one address.
+- [x] `protocol`: 80 characters by code point, control and bidi characters stripped (the emoji joiner kept), empty and unknown presets rejected.
+- [x] `worker.test.ts`: a chat message writes no row; 8 phones on one address playing and chatting as fast as the app allows stay under 0.75 of the budget and no socket closes; `holdRooms` keeps its 14 h / 18 h bounds with a chat-spam mode.
+- [x] E2E, 3 phones (es, pt, en), Worker and Node: a quick phrase pops over its sender on the other phones, in each phone's language, and is in the sheet; typed Spanish shows as typed on the Portuguese phone; the badge counts; the switch hides it all. The text box stays visible above an open keyboard (`visualViewport`). No sideways scroll at 360 px with 8 players.
+- [x] Styled only through CSS custom properties (`--chat-*`, falling back to the theme's tokens), so M28's themes restyle it without code.
 
 **Not in this PR (follow-ups).**
 - **Moderation** (owner: "don't waste time on safety yet"): a word filter, mute a player, report. Needed before M16's store review (both stores require a way to block and report user-generated content).
 - **History survives hibernation only on phones.** A Durable Object asleep for 10 s forgets its 30 messages; each phone keeps what it saw. A phone that joins later misses them. Persisting would cost a row a message.
-- **Spectator bubbles**, and a sound for an incoming message.
-- **After PR #42 lands:** re-measure the shared-address minute with throws, reactions and chat together (expected 72 + 28).
+- A sound for an incoming message; a countdown on the greyed Send.
+- **After PR #42 lands:** re-measure the shared-address minute with throws, reactions and chat together. Chat alone measures 74 (8 phones, a tap every 2 s); PR #42 measured 72 with gags, so about 92–100 of 120 together.
 
 ### M16 — Launch in the App Store and Google Play (user decision, 2026-10-24) · last
 
