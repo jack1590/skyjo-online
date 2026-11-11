@@ -161,7 +161,8 @@ const en = {
   youDrew: "You drew",
   discardHere: "Discard here",
   doubledLower: "{name} ended the round, but {other} scored lower, so {name}'s {n} counts double.",
-  doubledTied: "{name} ended the round, but {other} scored the same, so {name}'s {n} counts double.",
+  doubledTied:
+    "{name} ended the round, but {other} scored the same, so {name}'s {n} counts double.",
   endedLowest: "{name} ended the round with the lowest score.",
   lowestWins: "Lowest total wins",
   endsAt100: "Game ends at 100",
@@ -332,7 +333,8 @@ const es: Record<Key, string> = {
   youDrew: "Robaste",
   discardHere: "Descarta aquí",
   doubledLower: "{name} cerró la ronda, pero {other} sumó menos: los {n} de {name} cuentan doble.",
-  doubledTied: "{name} cerró la ronda, pero {other} sumó lo mismo: los {n} de {name} cuentan doble.",
+  doubledTied:
+    "{name} cerró la ronda, pero {other} sumó lo mismo: los {n} de {name} cuentan doble.",
   endedLowest: "{name} cerró la ronda con el puntaje más bajo.",
   lowestWins: "Gana el total más bajo",
   endsAt100: "La partida termina a los 100",
@@ -498,8 +500,10 @@ const pt: Record<Key, string> = {
   secondsShort: "{s} s",
   youDrew: "Você comprou",
   discardHere: "Descarte aqui",
-  doubledLower: "{name} encerrou a rodada, mas {other} somou menos: os {n} de {name} contam em dobro.",
-  doubledTied: "{name} encerrou a rodada, mas {other} somou o mesmo: os {n} de {name} contam em dobro.",
+  doubledLower:
+    "{name} encerrou a rodada, mas {other} somou menos: os {n} de {name} contam em dobro.",
+  doubledTied:
+    "{name} encerrou a rodada, mas {other} somou o mesmo: os {n} de {name} contam em dobro.",
   endedLowest: "{name} encerrou a rodada com a menor pontuação.",
   lowestWins: "Vence o menor total",
   endsAt100: "A partida termina aos 100",
