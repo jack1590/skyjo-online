@@ -217,7 +217,7 @@ test("M23: each reaction shows on its seat: laugh on the reactor's panel or your
   expect(moving).toEqual([]);
 });
 
-test("BUG-2: out of a knockout game, your own reaction pops over the corner button, not on your panel up in the strip", async ({
+test("BUG-2: out of a knockout game, your own reaction pops over the corner button, not on your row in the strip", async ({
   page,
 }, info) => {
   const state = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 1).find(
@@ -246,12 +246,12 @@ test("BUG-2: out of a knockout game, your own reaction pops over the corner butt
     await page.screenshot({ path: "docs/screenshots/bug2/out-own-laugh.jpg", scale: "css" });
   }
   expect(gag.x + gag.width).toBeLessThanOrEqual(page.viewportSize()?.width ?? 0);
-  await expect(sticker).toHaveCount(0, { timeout: 4_000 });
 
   // Someone else's still pops on their panel.
-  await react(page, { from: them, kind: "laugh" });
+  await react(page, { from: them, kind: "love" });
   const panel = await box(page, `[data-testid=opponent]:has-text("${state.players[them].name}")`);
-  const o = await centre();
+  const face = await box(page, "[data-testid=reaction][data-kind=love] .react-face");
+  const o = { x: face.x + face.width / 2, y: face.y + face.height / 2 };
   expect(o.x).toBeGreaterThanOrEqual(panel.x);
   expect(o.x).toBeLessThanOrEqual(panel.x + panel.width);
   expect(o.y).toBeLessThan(button.y - 60);

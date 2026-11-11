@@ -8,7 +8,7 @@ Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When
 
 ### Fixed
 
-- **Out of a knockout game, your own reactions show by your thumb.** Once you were out and watching, your laugh, love or anger popped on your thin "Out · watching" row, wherever it sat among the other players: at the very top of the screen for some seats, far from the button you had just tapped. It now pops right over the reaction button, in the bottom corner. Everyone else still sees it on your row, and a migajero still flies to its player.
+- **Out of a knockout game, your own reactions show by your thumb.** Once you were out and watching, your laugh, love or anger popped on your thin "Out · watching" row, up among the other players and far from the button you had just tapped. It now pops right over the reaction button, in the bottom corner. Everyone else still sees it on your row, and a migajero still flies to its player.
 
 ## [2.6.0] - 2026-10-29
 

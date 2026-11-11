@@ -116,7 +116,8 @@ export function Reactions({ reaction, on, you, warned, reduced, spot, names }: R
           shown={s}
           you={you}
           reduced={reduced}
-          now={() => seatOf(s.reaction, you, spot)}
+          // Its anchor gone (the Fun switch takes the corner button away): it stays where it is.
+          now={() => (s.at.el.isConnected ? seatOf(s.reaction, you, spot) : null)}
           name={names[s.reaction.from] ?? ""}
           onDone={() => set(live.current.filter((x) => x.key !== s.key))}
         />
@@ -130,8 +131,8 @@ export function Reactions({ reaction, on, you, warned, reduced, spot, names }: R
 
 /**
  * Where a reaction shows: its target's seat, or the reactor's. Out of a knockout game (R16) you
- * have no name bar, and your panel is a thin row somewhere in the strip, maybe at the top of the
- * screen: your own laugh, love or anger pops just over the corner button you tapped (BUG-2).
+ * have no name bar, and your seat is a thin row in the strip, under the players still in: your
+ * own laugh, love or anger pops just over the corner button you tapped instead (BUG-2).
  */
 function seatOf(
   { kind, from, to }: Reaction,
@@ -180,7 +181,7 @@ function Pop({ shown, you, reduced, now, name, onDone }: PopProps) {
   const fly = useRef<HTMLSpanElement>(null);
   const migajero = kind === "migajero";
   // Just under an opponent's panel head, so their name still says who; on your own seat, a little
-  // above your name.
+  // above your name (or, out, above the corner button).
   const opp = at.panel.querySelector(".opp-head") !== null;
   const mine = !migajero && reaction.from === you;
   const x = at.x;
