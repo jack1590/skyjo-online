@@ -95,7 +95,7 @@ export function Reactions({ reaction, on, you, warned, reduced, spot, names }: R
     ]);
     if (kind === "laugh") play("giggle");
     else if (kind === "love") play("sigh");
-    else if (kind === "anger") play("grumble");
+    else if (kind === "anger") play("seethe");
     else {
       if (!reduced) play("flap");
       play("coo", reduced ? 0 : LAND - COO_ONSET);

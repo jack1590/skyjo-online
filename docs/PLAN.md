@@ -1159,7 +1159,7 @@ The sticker sits centred over the opponent's panel head, or 24 px above your nam
   - heartbeats (1 → 1.14 → 1, 220 ms) at 420, on the exhale, and at 900;
   - a slow ±6° sway, floating up 10 px over the hold;
   - three `mark-heart` hearts (reused) rise 50 px from behind it, at x −22, 0 and +22, from 350 ms, staggered 150 ms, swaying and gone by 1600.
-- **Anger** (red face with steam; `grumble.mp3` at 0, growling from 50 to 900):
+- **Anger** (red face with steam; `seethe.mp3` at 0, screaming through its teeth from 50 to 1500; until v2.6.5 `grumble.mp3`, growling from 50 to 900):
   - a slam in: from scale 1.4 and transparent to 1 in 120 ms (ease-in), squash 1.1 × 0.9 at 140, settled by 220;
   - 220–1000: a tremble of ±3 px at about 16 Hz, with a red glow disc behind it pulsing in opacity, 0 to 0.5;
   - two `mark-steam` puffs shoot out and up from its sides, ±20 to ±44 px and −30 px, at 250 and 650, growing from 0.6 to 1.2 as they fade (500 ms);
@@ -1175,13 +1175,13 @@ The sticker sits centred over the opponent's panel head, or 24 px above your nam
 
 **Sound** (in `sound.ts`'s `NAMES`). Everyone with Throws on hears them, the reactor included:
 
-| Name      | Length | Peak (`PEAK`, ms)      | Plays                               |
-| --------- | ------ | ---------------------- | ----------------------------------- |
-| `giggle`  | 1.78 s | 1210 (bursts from 10)  | laugh, at 0                         |
-| `sigh`    | 1.15 s | 390                    | love, at 0                          |
-| `grumble` | 1.23 s | 310                    | anger, at 0                         |
-| `flap`    | 0.73 s | 420                    | migajero, at launch and at the exit |
-| `coo`     | 1.44 s | 1010 (first coo at 40) | migajero, at landing − 40           |
+| Name     | Length | Peak (`PEAK`, ms)      | Plays                               |
+| -------- | ------ | ---------------------- | ----------------------------------- |
+| `giggle` | 1.78 s | 1210 (bursts from 10)  | laugh, at 0                         |
+| `sigh`   | 1.15 s | 390                    | love, at 0                          |
+| `seethe` | 1.54 s | 200                    | anger, at 0                         |
+| `flap`   | 0.73 s | 420                    | migajero, at launch and at the exit |
+| `coo`    | 1.44 s | 1010 (first coo at 40) | migajero, at landing − 40           |
 
 **Haptics:**
 - the reactor's phone: a 10 ms tap when sending;
@@ -1228,15 +1228,16 @@ The sticker sits centred over the opponent's panel head, or 24 px above your nam
   - `mark-heart.webp` is reused.
 - **Sounds** in `public/sfx/`: freesound.org, every license checked as CC0 1.0 on the sound's own page (2026-10-29). Each was trimmed, given a 5 ms fade-in, a fade-out and a high-pass, made mono at 44.1 kHz, set to −19.4 LUFS integrated (M22's impacts measure −18 to −20) with peaks limited to −1.5 dBFS, and encoded at 96 kb/s like the throws:
 
-  | File          | Source                                                                         | Author       | Cut                           |
-  | ------------- | ------------------------------------------------------------------------------ | ------------ | ----------------------------- |
-  | `giggle.mp3`  | [388407](https://freesound.org/s/388407/) "Baby Giggles.wav"                   | amccoy711    | 7.30 s + 1.75 s, 350 ms fade  |
-  | `sigh.mp3`    | [446788](https://freesound.org/s/446788/) "Suspiro Amor.wav"                   | IanLyanx     | 0 + 1.10 s, 300 ms fade       |
-  | `grumble.mp3` | [713755](https://freesound.org/s/713755/) "Angry Grr"                          | kanyonwyvern | 0.50 s + 1.20 s, 350 ms fade  |
-  | `coo.mp3`     | [735366](https://freesound.org/s/735366/) "Domestic Dove Coo"                  | haulaway     | 11.90 s + 1.40 s, 300 ms fade |
-  | `flap.mp3`    | [689998](https://freesound.org/s/689998/) "Pigeon, Flies Away, Flapping Wings" | Kinoton      | 0.85 s + 0.70 s, 200 ms fade  |
+  | File         | Source                                                                         | Author    | Cut                           |
+  | ------------ | ------------------------------------------------------------------------------ | --------- | ----------------------------- |
+  | `giggle.mp3` | [388407](https://freesound.org/s/388407/) "Baby Giggles.wav"                   | amccoy711 | 7.30 s + 1.75 s, 350 ms fade  |
+  | `sigh.mp3`   | [446788](https://freesound.org/s/446788/) "Suspiro Amor.wav"                   | IanLyanx  | 0 + 1.10 s, 300 ms fade       |
+  | `seethe.mp3` | [343900](https://freesound.org/s/343900/) "muffled angry screaming.wav"        | Reitanna  | 0 + 1.50 s, 250 ms fade       |
+  | `coo.mp3`    | [735366](https://freesound.org/s/735366/) "Domestic Dove Coo"                  | haulaway  | 11.90 s + 1.40 s, 300 ms fade |
+  | `flap.mp3`   | [689998](https://freesound.org/s/689998/) "Pigeon, Flies Away, Flapping Wings" | Kinoton   | 0.85 s + 0.70 s, 200 ms fade  |
 
   The README credits name the five authors.
+- **`seethe.mp3` was picked by the owner by ear, 2026-11-11 (v2.6.5).** It replaces `grumble.mp3` ([713755](https://freesound.org/s/713755/) "Angry Grr" by kanyonwyvern, 0.50 s + 1.20 s), which the owner found not good enough. The owner heard 4 candidates on a listening page beside the sticker and chose this one: a scream through gritted teeth, as on the sticker, recorded by someone who had just lost a game. CC0 1.0, checked on its own page on 2026-11-11; cut from freesound's HQ preview; two 120 Hz high-passes; −19.4 LUFS integrated, true peak −8.7 dBFS; its onset is at 50 ms, on the slam. The owner liked none of the 4 love candidates, so `sigh.mp3` stays until a second round.
 - **The PO picked the sounds by measurement, not by ear.** It chose them by license, title and description, rating count, and signal-to-noise ratio (39–41 dB after gain, none clipped), and took the loudest window of each. **The implementer listens to all five before wiring them in.** Swap a cut (window or source) that isn't funny, and record the change here.
 
 **Acceptance.**

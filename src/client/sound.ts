@@ -16,8 +16,8 @@ import {
  * tick.mp3, the 5 s warning, and last.mp3, the last-round chime, are generated for this project
  * (ffmpeg, decaying sines). The throws' sounds (M22) are CC0 recordings from freesound.org, edited
  * for this project (credits in the README): a whoosh at launch, the bomb's fuse, and one impact
- * per item. The reactions' (M23) are from freesound.org too: a baby's giggle, a sigh, a growl, a
- * dove's coo and a pigeon's wings.
+ * per item. The reactions' (M23) are from freesound.org too: a baby's giggle, a sigh, a scream
+ * through gritted teeth, a dove's coo and a pigeon's wings.
  */
 const NAMES = [
   "flip",
@@ -42,7 +42,7 @@ const NAMES = [
   "kiss",
   "giggle",
   "sigh",
-  "grumble",
+  "seethe",
   "coo",
   "flap",
 ] as const;
