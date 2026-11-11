@@ -34,6 +34,7 @@ import {
 import { ReactButton, Reactions } from "./Reactions";
 import { nudge, play, type Sound, useMuted, useSounds } from "./sound";
 import { type Spot, Tosses, Tray, useThrowsOn } from "./Toss";
+import { LookButton } from "./theme";
 
 interface TableProps {
   view: GameView;
@@ -427,7 +428,7 @@ export function Table(props: TableProps) {
       data-myturn={myTurn}
     >
       <header className="bar">
-        <span className="round">{t("round", { n: view.round })}</span>
+        <LookButton label={t("round", { n: view.round })} />
         {summary && peek ? (
           <button
             ref={showScores}
@@ -503,6 +504,7 @@ export function Table(props: TableProps) {
             >
               <span className="opp-head">
                 <span className="opp-name">
+                  <Avatar seat={i} name={p.name} />
                   {auto?.[i] && <Bot />}
                   {p.name}
                 </span>
@@ -646,6 +648,7 @@ export function Table(props: TableProps) {
               <span className="auto-note">{t(away ? "autoAway" : "autoOn")}</span>
             ) : (
               <span className="me">
+                <Avatar seat={seat} name={me.name} />
                 <strong>{me.name}</strong>
                 <span className="stat">
                   <small>{t("game")}</small>
@@ -1020,6 +1023,7 @@ function Summary({ view, you, lead, auto, onPeek, onNext, onPlayAgain, onExit }:
                   <td>
                     {/* Their place, drawn by CSS: the row's text starts with the name. */}
                     <span className="who" data-rank={place[p.seat]}>
+                      <Avatar seat={p.seat} name={p.name} />
                       {auto?.[p.seat] && <Bot />}
                       <span className="who-name">{p.name}</span>
                       {p.seat === you && <span className="tag you">{t("you")}</span>}
@@ -1221,6 +1225,17 @@ function Sum({ grid }: { grid: ViewSlot[] }) {
     <b className="sum" data-testid="sum">
       {formatCard(faceUpSum(grid))}
     </b>
+  );
+}
+
+/** A seat's monogram disc, in its own colour (M28): drawn in the Modern look only (styles.css). */
+function Avatar({ seat, name }: { seat: number; name: string }) {
+  return (
+    <span
+      className={`av av-${seat}`}
+      data-initial={[...name.trim()][0]?.toUpperCase()}
+      aria-hidden="true"
+    />
   );
 }
 

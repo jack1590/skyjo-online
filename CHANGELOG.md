@@ -4,6 +4,17 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.10.0] - 2026-11-11
+
+### Added
+
+- **A new default look: Modern.** A deep purple stage, chunky glossy cards you want to press, big condensed numbers, and colours that run from cool to hot: indigo below zero, white for 0, aqua for 1–4, tangerine for 5–8, magenta for 9–12. Face-down cards are dark with a gold ring. Mint means it's your turn; yellow is what to tap. Every player gets a coloured disc with their initial. Home, the lobby, the table, the round summary, game over, throws and reactions all wear it.
+- **Two looks, your choice.** **Modern** and **Classic** (the look from 2.9.0) sit side by side as two small cards: on Home, and in a game behind the palette by the round number at the top left. A tap changes the look at once, in the middle of a game too, and your phone remembers it. It only changes your own screen: everyone at the table keeps the look they like.
+
+### Changed
+
+- The app's colour in your phone's status bar, and its splash screen once installed, follow the look.
+
 ## [2.9.0] - 2026-11-11
 
 ### Changed

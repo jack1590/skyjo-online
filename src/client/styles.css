@@ -6,6 +6,11 @@
   --raised: linear-gradient(rgb(255 255 255 / 0.09), rgb(255 255 255 / 0.03));
   --raised-shadow: inset 0 1px 0 rgb(255 255 255 / 0.12), 0 4px 10px -4px rgb(0 0 0 / 0.5);
   --gold: linear-gradient(#ffd978, #f2c14e 55%, #d99f2b);
+  /* A lantern's glow where the piles are, over a deep night (M27). */
+  --stage:
+    radial-gradient(95% 34% at 50% 37%, var(--bg-hi) 0%, rgb(29 65 96 / 0.55) 55%, transparent 100%)
+    fixed,
+    linear-gradient(#0f2234, var(--bg)) fixed;
   --line: rgb(255 255 255 / 0.14);
   --text: #f5f1e6;
   --muted: #a8b6c6;
@@ -29,11 +34,7 @@ body,
 }
 
 body {
-  /* A lantern's glow where the piles are, over a deep night (M27). */
-  background:
-    radial-gradient(95% 34% at 50% 37%, var(--bg-hi) 0%, rgb(29 65 96 / 0.55) 55%, transparent 100%)
-    fixed,
-    linear-gradient(#0f2234, var(--bg)) fixed;
+  background: var(--stage);
   background-color: var(--bg);
   color: var(--text);
   -webkit-tap-highlight-color: transparent;
@@ -326,10 +327,24 @@ button {
   gap: 8px;
 }
 
+/* The round, and the way to the looks (M28): a quiet button as wide as the label was. */
 .round {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 70px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
   color: var(--muted);
   font-size: 14px;
-  min-width: 70px;
+  white-space: nowrap;
+}
+
+.round svg {
+  flex: none;
+  fill: currentColor;
 }
 
 .turn {
@@ -2501,12 +2516,13 @@ dialog.zoom::backdrop {
 .card.up.b-neg:not(.sm)::after {
   --d: max(5px, calc(var(--w) * 0.095));
   width: var(--d);
-  background:
-    linear-gradient(#fff, #fff) content-box,
-    var(--ink);
-  /* The square inside turns into a diamond; the pill around it stays a circle. */
+  /* A white square, turned: a diamond, edged in the band's ink. */
+  padding: 0;
+  border-radius: 14%;
+  background: #fff;
+  box-shadow: 0 0 0 calc(var(--d) * 0.32) var(--ink);
   rotate: 45deg;
-  padding: calc(var(--d) * 0.55);
+  margin-bottom: calc(7% + var(--d) * 0.4);
 }
 
 /* White numerals outlined in the band's ink (M27): 4.5:1 and more on every band's art, the pale
@@ -3286,4 +3302,791 @@ dialog.overlay:focus {
 .opponents.watch .out-note {
   min-height: 0;
   justify-items: end;
+}
+
+/* The looks' switch (M28): two previews, a small card in each look, on Home and in the table's
+   sheet. The previews are drawn here, whatever look is on. */
+.looks {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.looks legend {
+  padding: 0;
+  margin-bottom: 10px;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.look {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 64px;
+  padding: 8px 12px;
+  border: 2px solid var(--line);
+  border-radius: 14px;
+  background: rgb(0 0 0 / 0.2);
+  font-weight: 700;
+  text-align: left;
+}
+
+.look[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: rgb(255 255 255 / 0.1);
+}
+
+.look-card {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 44px;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.look-card.classic {
+  background: url("./art/band-mid.webp") center / 112%;
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.3),
+    0 3px 5px rgb(0 0 0 / 0.5);
+  font-family: system-ui, sans-serif;
+  font-size: 20px;
+  font-weight: 900;
+  -webkit-text-stroke: 2.5px #7a4706;
+  paint-order: stroke fill;
+}
+
+.look-card.casual {
+  margin-bottom: 3px;
+  background: linear-gradient(#ffbf4d, #f28418);
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 0.6),
+    0 3px 0 #b4550a;
+  font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
+  font-weight: 700;
+  font-size: 28px;
+  text-shadow: 0 2px 0 #b4550a;
+}
+
+/* A seat's monogram disc: the Modern look's (below). */
+.av {
+  display: none;
+}
+
+/* ---------------------------------------------------------------------------------------------
+   Modern, "Polished casual" (M28): the default look. Everything above is Classic (M27); this is a
+   second set of tokens and the rules that differ, all under [data-theme="casual"] on <html>.
+   --------------------------------------------------------------------------------------------- */
+
+/* Both SIL OFL 1.1 (public/fonts/OFL-*.txt). Latin Extended loads only for text that needs it. */
+@font-face {
+  font-family: "Barlow Condensed";
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/barlow-condensed-700-latin.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Barlow Condensed";
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/barlow-condensed-700-latin-ext.woff2") format("woff2");
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1D00-1DBF, U+1E00-1E9F,
+    U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: "Nunito Sans";
+  font-weight: 800;
+  font-display: swap;
+  src: url("/fonts/nunito-sans-800-latin.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Nunito Sans";
+  font-weight: 800;
+  font-display: swap;
+  src: url("/fonts/nunito-sans-800-latin-ext.woff2") format("woff2");
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1D00-1DBF, U+1E00-1E9F,
+    U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+:root[data-theme="casual"] {
+  --bg: #100a33;
+  --well: rgb(13 8 48 / 0.55);
+  --panel: rgb(13 8 48 / 0.5);
+  --line: rgb(185 179 230 / 0.3);
+  --text: #fff;
+  --muted: #c4bfee;
+  --accent: #ffd23f;
+  --accent-ink: #3a2a00;
+  --go: #3ee6b0;
+  --go-ink: #06382a;
+  --raised: rgb(13 8 48 / 0.5);
+  --raised-shadow: inset 0 2px 5px rgb(0 0 0 / 0.45), inset 0 -1px 0 rgb(255 255 255 / 0.1);
+  --gold: linear-gradient(#ffe27a, #ffd23f 55%, #ffb81f);
+  --stage:
+    radial-gradient(80% 30% at 50% 37%, #5a45d8 0%, rgb(58 42 150 / 0.5) 60%, transparent 100%)
+    fixed,
+    linear-gradient(#2a1f7a, #160f45 70%, #100a33) fixed;
+  --num: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
+  font-family: "Nunito Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-weight: 800;
+}
+
+/* Long reading text stays in the system's regular weight. */
+[data-theme="casual"] :is(.rules li, .option-help, .link, .version) {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-weight: 400;
+}
+
+/* Buttons you can press: a lip under them that the press pushes in. */
+[data-theme="casual"] .btn {
+  border-radius: 16px;
+  background: linear-gradient(#5a4cd4, #4a3cc4);
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 0.22),
+    0 4px 0 #1c1466;
+  font-weight: 800;
+}
+
+[data-theme="casual"] .btn:active:not(:disabled) {
+  translate: 0 3px;
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 0.22),
+    0 1px 0 #1c1466;
+}
+
+[data-theme="casual"] .btn.primary {
+  background: var(--gold);
+  color: var(--accent-ink);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 0.7),
+    0 5px 0 #b97a00,
+    0 14px 20px -6px rgb(255 190 31 / 0.5);
+}
+
+[data-theme="casual"] .btn.primary:active:not(:disabled) {
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 0.7),
+    0 2px 0 #b97a00;
+}
+
+[data-theme="casual"] .btn.quiet {
+  background: none;
+  box-shadow: none;
+  font-weight: 800;
+}
+
+[data-theme="casual"] .name-input,
+[data-theme="casual"] .lang {
+  background-color: var(--well);
+  border-radius: 14px;
+}
+
+[data-theme="casual"] .toast {
+  background: #4a3cc4;
+  box-shadow: 0 4px 0 #1c1466;
+  border: 0;
+}
+
+[data-theme="casual"] .toast.error {
+  background: #dc2060;
+  box-shadow: 0 4px 0 #96103e;
+}
+
+[data-theme="casual"] .logo,
+[data-theme="casual"] .room-code,
+[data-theme="casual"] .sheet h2,
+[data-theme="casual"] .panel h2,
+[data-theme="casual"] .looks legend {
+  font-family: var(--num);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+}
+
+[data-theme="casual"] .logo {
+  font-size: 56px;
+  line-height: 1;
+}
+
+[data-theme="casual"] .panel {
+  border-radius: 20px;
+  background: linear-gradient(#3a2ea6, #2c2188);
+  box-shadow:
+    inset 0 3px 0 rgb(255 255 255 / 0.12),
+    0 5px 0 #170f52;
+}
+
+[data-theme="casual"] .panel h2,
+[data-theme="casual"] .looks legend {
+  font-size: 24px;
+}
+
+[data-theme="casual"] .look {
+  background: var(--well);
+  border-color: transparent;
+}
+
+[data-theme="casual"] .look[aria-pressed="true"] {
+  border-color: var(--go);
+  background: rgb(62 230 176 / 0.14);
+}
+
+/* The pill: mint means go. */
+[data-theme="casual"] .turn {
+  background: linear-gradient(#6ff5c8, #3ee6b0);
+  color: var(--go-ink);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 14px;
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 0.6),
+    0 3px 0 #129c78,
+    0 0 26px rgb(62 230 176 / 0.5);
+}
+
+[data-theme="casual"] .turn.final {
+  background: linear-gradient(#ffa27f, #ff7a59);
+  color: #2a0d05;
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 0.5),
+    0 3px 0 #b3401f;
+}
+
+[data-theme="casual"] .turn.idle {
+  background: var(--well);
+  color: var(--text);
+  box-shadow: none;
+}
+
+[data-theme="casual"] .turn.warn {
+  background: #ffa630;
+  color: #2a1700;
+  box-shadow: 0 3px 0 #b36a00;
+}
+
+[data-theme="casual"] .turn.danger {
+  background: #ff5247;
+  color: #2a0503;
+  box-shadow: 0 3px 0 #a81f16;
+}
+
+[data-theme="casual"] .round {
+  color: #d9d4ff;
+}
+
+/* Players: a well a panel, a disc a seat. */
+[data-theme="casual"] .opp {
+  border-radius: 16px;
+}
+
+[data-theme="casual"] .ring {
+  border-radius: 16px;
+}
+
+[data-theme="casual"] .opp.active {
+  border-color: var(--go);
+}
+
+[data-theme="casual"] .opp.timed {
+  border-color: transparent;
+}
+
+[data-theme="casual"] .ring {
+  --ring: var(--go);
+}
+
+/* The initial is drawn, like a row's place: a name's text starts with the name. */
+.av::before {
+  content: attr(data-initial);
+}
+
+[data-theme="casual"] .av {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 1.5em;
+  height: 1.5em;
+  margin-right: 0.35em;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px rgb(255 255 255 / 0.9);
+  font-size: 0.8em;
+  font-weight: 800;
+  line-height: 1;
+  vertical-align: 0.1em;
+}
+
+.av-0 {
+  background: #52b6ff;
+  color: #062a4a;
+}
+
+.av-1 {
+  background: #ff8a5b;
+  color: #4a1500;
+}
+
+.av-2 {
+  background: #3ee6b0;
+  color: #053a2a;
+}
+
+.av-3 {
+  background: #ffd23f;
+  color: #4a3500;
+}
+
+.av-4 {
+  background: #ff7ab8;
+  color: #4a0a2a;
+}
+
+.av-5 {
+  background: #b79bff;
+  color: #24104f;
+}
+
+.av-6 {
+  background: #a6e34b;
+  color: #23380a;
+}
+
+.av-7 {
+  background: #e9ecf5;
+  color: #1c1552;
+}
+
+[data-theme="casual"] .opp-name {
+  padding: 2px 0 2px 2px;
+}
+
+[data-theme="casual"] .me .av {
+  margin-right: 0;
+  font-size: 0.75em;
+}
+
+[data-theme="casual"] .who .av {
+  margin-right: 0;
+}
+
+[data-theme="casual"] .sum {
+  color: var(--text);
+}
+
+[data-theme="casual"] .me .sum {
+  color: var(--accent);
+}
+
+/* Cards: drawn, not painted. A glossy face in the band's colour over a lip of its darker shade;
+   the art of the Classic look, set inline by Card.tsx and motion.ts, is overridden. */
+[data-theme="casual"] .b-neg {
+  --c1: #7d70ff;
+  --c2: #4a38dc;
+  --lip: #2a1c9c;
+}
+
+[data-theme="casual"] .b-zero {
+  --c1: #fff;
+  --c2: #cfd6f2;
+  --lip: #8f98c4;
+  --fg: #1c1552;
+  --ink: #1c1552;
+}
+
+[data-theme="casual"] .b-low {
+  --c1: #2be0d2;
+  --c2: #0a9fa8;
+  --lip: #066a75;
+}
+
+[data-theme="casual"] .b-mid {
+  --c1: #ffbf4d;
+  --c2: #f28418;
+  --lip: #b4550a;
+}
+
+[data-theme="casual"] .b-high {
+  --c1: #ff6198;
+  --c2: #dc2060;
+  --lip: #96103e;
+}
+
+[data-theme="casual"] :is(.b-neg, .b-low, .b-mid, .b-high) {
+  --ink: var(--lip);
+}
+
+[data-theme="casual"] .card {
+  --h: max(2px, calc(var(--w, 40px) * 0.06));
+  --card-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 0.6), inset 0 calc(var(--h) * -1) 0 rgb(0 0 0 / 0.14),
+    0 var(--h) 0 var(--lip, #120c40), 0 calc(var(--h) * 2.4) 12px -4px rgb(0 0 0 / 0.55);
+  border-radius: 15% / 11%;
+  background-color: transparent;
+  background-repeat: no-repeat;
+  font-family: var(--num);
+}
+
+[data-theme="casual"] .card.up {
+  background-image:
+    linear-gradient(rgb(255 255 255 / 0.36), rgb(255 255 255 / 0.04)),
+    linear-gradient(var(--c1), var(--c2)) !important;
+  background-size:
+    92% 44%,
+    100% 100%;
+  background-position:
+    50% 3%,
+    0 0;
+  color: var(--fg, #fff);
+}
+
+/* Face down: dark, with a gold ring. Also the far side of a card that turns (motion.ts). */
+[data-theme="casual"] .card.down,
+[data-theme="casual"] .card[data-motion]::before {
+  --lip: #120c40;
+  background-image:
+    radial-gradient(
+      circle closest-side,
+      transparent 0 30%,
+      rgb(255 210 63 / 0.9) 31% 38%,
+      transparent 39%
+    ),
+    repeating-linear-gradient(45deg, rgb(255 255 255 / 0.07) 0 4px, transparent 4px 9px),
+    linear-gradient(#3a3192, #231b66) !important;
+  background-size: 100% 100%;
+  background-position: 0 0;
+}
+
+[data-theme="casual"] .card.sm {
+  --h: 2px;
+  --card-shadow: inset 0 1px 0 rgb(255 255 255 / 0.55), 0 2px 0 var(--lip, #120c40);
+  border-radius: 18% / 14%;
+  box-shadow: var(--card-shadow);
+}
+
+[data-theme="casual"] .card.sm.up {
+  background-size:
+    0 0,
+    100% 100%;
+}
+
+[data-theme="casual"] .card.gone {
+  background-image: none !important;
+  box-shadow: none;
+  border: 1.5px dashed rgb(185 179 230 / 0.4);
+}
+
+/* Condensed and heavy, so a number fills its card. Outlined in the lip's shade: white alone on
+   aqua or tangerine is under 3:1; against the outline it is 4.9:1 or more. */
+[data-theme="casual"] .num {
+  font-family: var(--num);
+  font-weight: 700;
+  font-size: calc(var(--w) * 0.7);
+  letter-spacing: -0.02em;
+  line-height: 1;
+  color: var(--fg, #fff);
+  -webkit-text-stroke: 0.07em var(--ink);
+  text-shadow: 0 0.07em 0 var(--ink);
+}
+
+[data-theme="casual"] .card.sm .num {
+  font-size: max(13px, 19cqw);
+  -webkit-text-stroke-width: 0;
+}
+
+[data-theme="casual"] .b-zero .num {
+  -webkit-text-stroke-width: 0;
+  text-shadow: 0 0.05em 0 #fff;
+}
+
+[data-theme="casual"] .card.sm.b-zero .num {
+  text-shadow: none;
+}
+
+[data-theme="casual"] .card.hl {
+  outline-color: var(--accent);
+}
+
+/* Lifted: the same card, higher, on a white edge and a yellow glow. */
+[data-theme="casual"] .held .card,
+[data-theme="casual"] .stack.taken > .card + .card {
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 0.6),
+    0 var(--h) 0 var(--lip),
+    0 0 0 3px #fff,
+    0 0 30px 6px rgb(255 210 63 / 0.75),
+    0 20px 18px -6px rgb(0 0 0 / 0.6);
+}
+
+[data-theme="casual"] .held .pile-label {
+  padding: 0 9px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+[data-theme="casual"] .drop .card.hl {
+  outline: 2.5px dashed var(--accent);
+  outline-offset: 5px;
+}
+
+[data-theme="casual"] .pile [data-testid="deck"] {
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 0.3),
+    0 3px 0 #120c40,
+    0 4px 0 #4a3fb0,
+    0 7px 0 #120c40;
+}
+
+[data-theme="casual"] button.card[data-pending] {
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 0.6),
+    0 var(--h) 0 var(--lip, #120c40),
+    0 20px 18px -6px rgb(0 0 0 / 0.6);
+}
+
+/* Room under each pile for its card's lip. */
+[data-theme="casual"] .pile {
+  gap: 9px;
+}
+
+[data-theme="casual"] .undo {
+  box-shadow: 0 3px 0 #1c1466;
+}
+
+/* Your panel: always there, ringed in mint on your turn. */
+[data-theme="casual"] .mine::before {
+  border-width: 2.5px;
+  border-radius: 22px;
+  background: linear-gradient(#3a2ea6, #261c7c);
+  box-shadow: inset 0 4px 0 rgb(255 255 255 / 0.12);
+}
+
+[data-theme="casual"] .mine.my-turn::before {
+  border-color: var(--go);
+  background: linear-gradient(#3a2ea6, #261c7c);
+  box-shadow:
+    inset 0 4px 0 rgb(255 255 255 / 0.12),
+    0 0 34px -6px rgb(62 230 176 / 0.7);
+}
+
+[data-theme="casual"] .me .stat {
+  background: var(--well);
+  border-radius: 10px;
+}
+
+[data-theme="casual"] .switch {
+  background: rgb(13 8 48 / 0.6);
+}
+
+[data-theme="casual"] .auto-on .switch,
+[data-theme="casual"] .switch:has(input:checked) {
+  background: var(--go);
+}
+
+[data-theme="casual"] .track {
+  height: 8px;
+  border-radius: 4px;
+  background: rgb(13 8 48 / 0.6);
+}
+
+[data-theme="casual"] .clock {
+  background: linear-gradient(#6ff5c8, #3ee6b0);
+}
+
+[data-theme="casual"] .clock.warn {
+  background: #ffa630;
+}
+
+[data-theme="casual"] .clock.danger {
+  background: #ff5247;
+}
+
+[data-theme="casual"] .secs {
+  color: var(--go);
+}
+
+/* Reactions: a round pink button with a lip. */
+[data-theme="casual"] .react-btn {
+  border: 0;
+  background: linear-gradient(#ff6198, #dc2060);
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 0.4),
+    0 3px 0 #96103e;
+  color: #fff;
+}
+
+[data-theme="casual"] .react-item,
+[data-theme="casual"] .tray-item {
+  border: 0;
+  background: linear-gradient(#5a4cd4, #4a3cc4);
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 0.22),
+    0 4px 0 #1c1466;
+}
+
+/* The summary. */
+[data-theme="casual"] .scrim {
+  background: rgb(12 7 45 / 0.78);
+}
+
+[data-theme="casual"] dialog.zoom::backdrop {
+  background: rgb(12 7 45 / 0.7);
+}
+
+[data-theme="casual"] .sheet {
+  border-radius: 28px 28px 0 0;
+  background: linear-gradient(#4234b8, #2a1f7a 35%, #1c1458);
+  box-shadow:
+    inset 0 3px 0 rgb(255 255 255 / 0.22),
+    0 -20px 50px rgb(0 0 0 / 0.55);
+}
+
+[data-theme="casual"] .sheet h2 {
+  font-size: 32px;
+  line-height: 1;
+}
+
+[data-theme="casual"] .scores tbody td {
+  background: #352a9b;
+  box-shadow: none;
+}
+
+[data-theme="casual"] .scores tbody tr:first-child td {
+  box-shadow: inset 0 2px 0 rgb(255 255 255 / 0.14);
+}
+
+/* Each player's card has a lip, so the gap between two is a little wider. */
+[data-theme="casual"] .scores tbody tr:last-child td {
+  box-shadow: 0 4px 0 #170f52;
+}
+
+[data-theme="casual"] .scores tbody + tbody::before {
+  height: 10px;
+}
+
+[data-theme="casual"] .sheet:has(.scores.many) {
+  gap: 8px;
+}
+
+[data-theme="casual"] .sheet:has(.scores.many) .why {
+  margin-top: 0;
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+[data-theme="casual"] .scores.many tbody + tbody::before {
+  height: 3px;
+}
+
+[data-theme="casual"] .scores.many tbody tr:last-child td {
+  box-shadow: 0 2px 0 #170f52;
+}
+
+[data-theme="casual"] .scores .win td {
+  background: #ffd23f;
+  color: var(--accent-ink);
+}
+
+[data-theme="casual"] .scores .win tr:first-child td {
+  box-shadow: inset 0 2px 0 rgb(255 255 255 / 0.7);
+}
+
+[data-theme="casual"] .scores .win tr:last-child td {
+  box-shadow: 0 4px 0 #b97a00;
+}
+
+[data-theme="casual"] .scores.many .win tr:last-child td {
+  box-shadow: 0 2px 0 #b97a00;
+}
+
+[data-theme="casual"] .who::before {
+  background: rgb(13 8 48 / 0.55);
+}
+
+[data-theme="casual"] .win .who::before {
+  background: var(--accent-ink);
+  color: var(--accent);
+}
+
+[data-theme="casual"] .tot {
+  font-family: var(--num);
+  font-weight: 700;
+  font-size: 28px;
+  line-height: 0.9;
+}
+
+[data-theme="casual"] .scores.many .tot {
+  font-size: 19px;
+}
+
+[data-theme="casual"] .win .tot {
+  color: var(--accent-ink);
+}
+
+[data-theme="casual"] .tag {
+  background: rgb(13 8 48 / 0.5);
+  color: #d9d4ff;
+}
+
+[data-theme="casual"] .tag.you {
+  background: rgb(13 8 48 / 0.5);
+  color: var(--go);
+}
+
+[data-theme="casual"] .win .tag {
+  background: rgb(58 42 0 / 0.85);
+  color: #ffe27a;
+}
+
+[data-theme="casual"] .tag.x2 {
+  background: #ff4f8b;
+  color: #fff;
+}
+
+[data-theme="casual"] .meter {
+  height: 8px;
+  border-radius: 4px;
+  background: rgb(13 8 48 / 0.55);
+}
+
+[data-theme="casual"] .scores.many .meter {
+  height: 4px;
+  border-radius: 0 0 12px 12px;
+}
+
+[data-theme="casual"] .meter i {
+  background:
+    linear-gradient(90deg, #3ee6b0, #ffbf4d 60%, #ff4f8b) 0 / calc(10000% / var(--p)) 100%;
+}
+
+[data-theme="casual"] .win .meter {
+  background: rgb(58 42 0 / 0.25);
+}
+
+[data-theme="casual"] .win .meter i {
+  background: var(--accent-ink);
+}
+
+[data-theme="casual"] .sheet .sub.out {
+  color: #ffb3c9;
 }

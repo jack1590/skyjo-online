@@ -4,6 +4,10 @@ import { App } from "./App";
 import { I18nProvider } from "./i18n";
 import { preloadSounds, recoverAudio, unlockAudio } from "./sound";
 import "./styles.css";
+import { applyTheme } from "./theme";
+
+// The look (M28), on <html> before the first render.
+applyTheme();
 
 // Installable app + offline shell. Production only: in dev it would cache stale modules.
 if (import.meta.env.PROD && "serviceWorker" in navigator) {
