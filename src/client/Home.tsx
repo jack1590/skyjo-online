@@ -35,26 +35,31 @@ function usePublicRooms(online: boolean) {
   useEffect(() => {
     if (!online) return;
     let left = 0;
+    /** The current run of polls: a fetch still out when a new run starts answers to nobody. */
+    let run = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const load = async () => {
+    const load = async (mine: number) => {
       if (left-- <= 0 || document.visibilityState !== "visible") return;
+      let rooms: PublicRoom[] | undefined;
       try {
         const res = await fetch("/api/public");
-        if (res.ok) setRooms((await res.json()) as PublicRoom[]);
+        if (res.ok) rooms = (await res.json()) as PublicRoom[];
       } catch {
         // Offline or limited: the last list stays, and the next poll tries again.
       }
-      timer = setTimeout(load, POLL_MS);
+      if (mine !== run) return;
+      if (rooms) setRooms(rooms);
+      timer = setTimeout(load, POLL_MS, mine);
     };
     const start = () => {
       clearTimeout(timer);
       left = POLLS;
-      void load();
+      void load(++run);
     };
     start();
     document.addEventListener("visibilitychange", start);
     return () => {
-      left = 0;
+      run++;
       clearTimeout(timer);
       document.removeEventListener("visibilitychange", start);
     };

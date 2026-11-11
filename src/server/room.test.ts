@@ -1463,6 +1463,10 @@ describe("public rooms (M24)", () => {
     const back = t.connect("token-0-abcdef");
     t.send(back, { t: "leave" });
     expect(t.room.listing(t.live)).toBeNull(); // no seats
+    // An emptied room is private again: the next to sit down hosts it, and didn't choose Public.
+    t.send(watcher, { t: "join", name: "Next" });
+    expect(t.room.view(watcher, t.live).public).toBe(false);
+    expect(t.room.listing(t.live)).toBeNull();
   });
 
   it("M24: relist says what to tell the directory once per change, and again 12 h later, since the directory forgets after 24 h; it survives a reload from storage", () => {

@@ -690,6 +690,8 @@ export class Room {
 
   private removeSeat(seat: number): void {
     this.data.seats.splice(seat, 1);
+    // An emptied room is private again (M24): whoever sits down next didn't choose to be listed.
+    if (this.data.seats.length === 0) delete this.data.public;
     // The next seat inherits the host role.
     if (seat < this.data.host) this.data.host--;
     else if (this.data.host >= this.data.seats.length) this.data.host = 0;

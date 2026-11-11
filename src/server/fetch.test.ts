@@ -160,15 +160,19 @@ describe("Worker public list (M24)", () => {
     expect((await t.api("/api/public", "203.0.113.7", t.create)).status).toBe(404); // GET only
   });
 
-  it("M24: an IP past its /api limit or its message budget gets 429, and the directory isn't read", async () => {
+  it("M24: an IP past its message budget gets 429 and the directory isn't read; Home's polling uses none of the 30 /api requests, so 8 friends on Home can still create and join", async () => {
     const t = setup();
     clock += 60_000;
     at(clock);
     for (let i = 0; i < 120; i++) await t.env.MESSAGES.limit({ key: "203.0.113.7" });
     expect((await t.api("/api/public", "203.0.113.7")).status).toBe(429);
-    for (let i = 0; i < 30; i++) await t.api("/api/x", "198.51.100.1");
-    expect((await t.api("/api/public", "198.51.100.1")).status).toBe(429);
     expect(t.list.reads).toBe(0);
+    for (let i = 0; i < 40; i++) {
+      expect((await t.api("/api/public", "198.51.100.1")).status).toBe(200);
+    }
+    expect(t.list.reads).toBe(1);
+    for (let i = 0; i < 30; i++) expect((await t.api("/api/x", "198.51.100.1")).status).toBe(404);
+    expect((await t.api("/api/public", "198.51.100.1")).status).toBe(200); // even past that limit
   });
 
   it("M24: a local run reads the list every time, so its tests see a change at once", async () => {

@@ -100,6 +100,17 @@ export default {
     // Only /api/* reaches the Worker (run_worker_first). A 429 costs this Worker request and no
     // Durable Object request; it still counts toward the Worker quota, which only a WAF rule saves.
     const key = clientKey(request);
+    // Home polls the public list (M24), so it stays out of API_REQUESTS: 8 friends on one router
+    // waiting on Home would use it up and couldn't create or join. A cached answer costs what a
+    // 429 would, this Worker request; a read of the directory spends 2 of MESSAGES.
+    if (url.pathname === "/api/public" && request.method === "GET") {
+      // A local run always reads afresh, so its tests see a change at once.
+      if (!key || Date.now() - listed.at >= LIST_CACHE_MS) {
+        if (key && !(await spend(env, key, 2))) return tooMany("requests");
+        listed = { at: Date.now(), rooms: await directory(env).list() };
+      }
+      return Response.json(listed.rooms);
+    }
     if (key && !(await env.API_REQUESTS.limit({ key })).success) return tooMany("requests");
     if (url.pathname === "/api/rooms" && request.method === "POST") {
       if (key && !(await env.ROOM_CREATION.limit({ key })).success) return tooMany("rooms");
@@ -110,14 +121,6 @@ export default {
         if (made === "created") return Response.json({ code });
       }
       return new Response("Try again", { status: 503 });
-    }
-    if (url.pathname === "/api/public" && request.method === "GET") {
-      // A local run always reads afresh, so its tests see a change at once.
-      if (!key || Date.now() - listed.at >= LIST_CACHE_MS) {
-        if (key && !(await spend(env, key, 2))) return tooMany("requests");
-        listed = { at: Date.now(), rooms: await directory(env).list() };
-      }
-      return Response.json(listed.rooms);
     }
     const code = url.pathname.match(/^\/api\/rooms\/([A-Z0-9]+)\/ws$/)?.[1];
     if (code && isRoomCode(code) && request.headers.get("Upgrade") === "websocket") {
@@ -287,7 +290,7 @@ export class RoomDO extends DurableObject<Env> {
 
   /**
    * Charges 2 to every IP with a live socket in the room, and closes the sockets of one past its
-   * budget. Their close events take the room off the public list if they were its last seats.
+   * budget; they stop counting at once, so the next commit sees the room without them.
    */
   private async charge(live: Map<WebSocket, Conn>) {
     for (const ip of new Set([...live.values()].map((conn) => conn.ip))) {
