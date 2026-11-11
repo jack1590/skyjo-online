@@ -1198,6 +1198,19 @@ describe("throws (M21)", () => {
     expect(t.room.view(b, t.live).toss).toMatchObject({ from: 0, to: 2, item: "bomb" });
   });
 
+  it("BUG-7: a throw at a round summary or at game over is dropped, like a reaction: nobody sees it and no cooldown starts", () => {
+    const t = setup();
+    const [a, b] = startedGame(t, 2);
+    const game = t.room.data.game as GameState;
+    for (const phase of ["roundOver", "gameOver"] as const) {
+      game.phase = phase;
+      expect(t.send(a, { t: "toss", to: 1, item: "bomb" })).toBe("none");
+      expect(t.room.view(b, t.live).toss).toBeUndefined();
+    }
+    game.phase = "draw";
+    expect(t.send(a, { t: "toss", to: 1, item: "bomb" })).toBe("view");
+  });
+
   it("M21: views carry a throw for TOSS_SHOW_MS only, so a phone that reconnects later doesn't replay it", () => {
     const t = setup();
     const [a, b] = startedGame(t, 2);

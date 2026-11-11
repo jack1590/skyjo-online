@@ -802,7 +802,8 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 20  | ✅ M21                             | Throws: bombs, beers, donkeys and more at other players (user request, 2026-10-27)                                      | 2.5.0         | the user asked for it; ahead of M16, which waits on the owner                                                    |
 | 21  | ✅ M22                             | Throws, part 2: stickers, choreography, marks, real sounds (user feedback)                                              | 2.5.1         | the owner found v2.5.0 throws not fun                                                                            |
 | 22  | ✅ M23                             | Reactions: laugh, love, anger and the migajero, from a button beside your grid (user request)                           | 2.6.0         | the user asked for it; reuses M21/M22's in-memory throw path and sticker pipeline                                |
-| 23  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
+| 23  | ✅ BUG-2                           | Out of a knockout game, your own reaction popped on your row in the strip, far from the button you tapped               | 2.6.1         | a user report from real phones; effort S. The report's "top of the screen" is still open (see § BUG-2)           |
+| 24  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
 
 Deferred: Turnstile (SEC-4) and SEC-12 (until M16). Quick reactions, deferred until now, are M23 (user request, 2026-10-29). Declined: SEC-7. Versions assume this order; a PR that reorders says so.
 
@@ -849,17 +850,31 @@ There is a second guard the old rule hid: `autoMove` never flips a seat's last f
 - **Accepted:** a present player who runs out of time while every other connected seat is on Auto-play goes on Auto-play in the same `tick`, so that very move may turn over their last card and end the round, doubled unless lowest (the PO reproduced it). That is the decision above (at that moment nobody is playing by hand), and the round has to end. Computing `mayEnd` before the due seats switch would spare that one move; revisit if players say so.
 - **M17:** `canStall` only counts seats, so a lone connected spectator keeps nothing running (the PO checked on the injected clock), but no test pins it. M17's out-seat test covers it; see there.
 
-### BUG-6 — A host on Auto-play at game over loses the lobby after Play again (QA, 2026-11-11, `main` 0122f4e) · v2.6.6
+### BUG-6 — A host on Auto-play at game over loses the lobby after Play again (QA, 2026-11-11, `main` 0122f4e) · v2.6.4
 
 **Report.** 3 phones, Pixel 7. The host ticks Auto-play (or runs out of time) and the game is played to game over; a guest taps Play again. In the lobby every phone shows "Start game" and an enabled knockout switch, nobody sees "Waiting for host", and a guest can start.
 
 **Root cause.** `canLead` (`room.ts`) treats a host whose `Seat.auto` is set as away, which is right during a game (M8: one absent phone can't freeze a summary). But `rematch` only set `game = null`, and `auto` was cleared only at `start`. So the flag outlived its game, into a lobby that has no Auto-play switch: the host could not clear it, and stayed "away" while connected. M8's room test even asserted it ("Still away in the lobby").
 
-**Fix.** `rematch` clears every seat's Auto-play, as `start` already did (kept, for lobbies saved before 2.6.6). Nothing else to reset: at game over no seat is waited on, so `stopped` is already empty, and `start` sets `turnSince`. A host whose page is closed or whose phone sleeps (the wake lock is game-only) is offline within 45 s, which `canLead` still reads as away, so the others can start.
+**Fix.** `rematch` clears every seat's Auto-play, as `start` already did (kept, for lobbies saved before 2.6.4). Nothing else to reset: at game over no seat is waited on, so `stopped` is already empty, and `start` sets `turnSince`. A host whose page is closed or whose phone sleeps (the wake lock is game-only) is offline within 45 s, which `canLead` still reads as away, so the others can start.
 
 **PO to decide (review finding).** A host who walks away from a page that stays open and visible (a desktop tab) keeps pinging, so after Play again the lobby waits for them, and a connected seat can't be removed. That is how every lobby already works before a first game; before this fix a timed-out host's Auto-play happened to cover it after a rematch. If it matters, the fix is a lobby rule of its own (for example, guests may lead when the host has sent nothing but pings for N seconds), not a flag that outlives its game.
 
+**PO decision (PR #52 review).** Accepted as is. It is the rule of every first lobby, the game is phone-first and a sleeping phone goes offline within 45 s, so others then lead. No new lobby rule until a player reports a lobby held by an idle host.
+
 **Test.** `room.test.ts`, "BUG-6": after a guest's Play again nobody is on Auto-play, only the host leads, and a guest's `start` and `knockout` are refused.
+
+### BUG-7 — A throw from "View table" at a summary is accepted but never shown (QA, 2026-11-11, `main` 0122f4e) · v2.6.3
+
+**Report.** Pixel 7. At round over or game over, tap View table, tap an opponent, tap an item. The server broadcasts the throw and the thrower's 3 s rest starts, but no phone draws it.
+
+**Root cause.** Two halves of the client disagreed, and the server sided with neither. `Table.tsx` mounts `Tosses` (and `Reactions`) only when there is no summary, but the `Tray` in an opponent's sheet had no such guard. The server took a `toss` in any phase of a game, while it already dropped a `react` outside flip, draw and place.
+
+**Decision.** Throws follow reactions: only while a round is being played. A summary is a pause between rounds; drawing throws over "View table" would also mean flights over a table whose panels the sheet may cover at any tap of Show scores.
+
+**Fix.** Server: one `playing(game)` check for both `toss` and `react`; a throw outside it returns `"none"` before the cooldown is touched. Client: the sheet at a summary shows the cards without the tray.
+
+**Tests.** `room.test.ts`, "BUG-7" (dropped at `roundOver` and `gameOver`, no cooldown started); `e2e/toss.spec.ts`, "BUG-7" (View table, tap an opponent: sheet, no tray).
 
 ### M17 — Play until one is left (knockout) (user request, 2026-10-24) · v2.2.0 · ✅ shipped (PR #24)
 
@@ -1166,12 +1181,12 @@ The sticker sits centred over the opponent's panel head, or 24 px above your nam
   - two `mark-tear` drops spring sideways from the eyes (±28 px) at 300 and 800 ms and fall 20 px as they fade (600 ms each);
   - the bubble pops at 150;
   - the reactor's panel head hops (−3 px) at 0 and 400 (composite add, like `KNOCK`).
-- **Love** (heart-eyes face; `sigh.mp3` at 0, the exhale peaks at 390):
+- **Love** (heart-eyes face; `aww.mp3` at 0: "aww" from 100, "yeah" from about 870, on the second heartbeat; until v2.6.1 `sigh.mp3`, whose exhale peaked at 390):
   - 0–300: a soft pop (overshoot 1.08);
   - heartbeats (1 → 1.14 → 1, 220 ms) at 420, on the exhale, and at 900;
   - a slow ±6° sway, floating up 10 px over the hold;
   - three `mark-heart` hearts (reused) rise 50 px from behind it, at x −22, 0 and +22, from 350 ms, staggered 150 ms, swaying and gone by 1600.
-- **Anger** (red face with steam; `grumble.mp3` at 0, growling from 50 to 900):
+- **Anger** (red face with steam; `seethe.mp3` at 0, screaming through its teeth from 50 to 1500; until v2.6.1 `grumble.mp3`, growling from 50 to 900):
   - a slam in: from scale 1.4 and transparent to 1 in 120 ms (ease-in), squash 1.1 × 0.9 at 140, settled by 220;
   - 220–1000: a tremble of ±3 px at about 16 Hz, with a red glow disc behind it pulsing in opacity, 0 to 0.5;
   - two `mark-steam` puffs shoot out and up from its sides, ±20 to ±44 px and −30 px, at 250 and 650, growing from 0.6 to 1.2 as they fade (500 ms);
@@ -1187,13 +1202,13 @@ The sticker sits centred over the opponent's panel head, or 24 px above your nam
 
 **Sound** (in `sound.ts`'s `NAMES`). Everyone with Throws on hears them, the reactor included:
 
-| Name      | Length | Peak (`PEAK`, ms)      | Plays                               |
-| --------- | ------ | ---------------------- | ----------------------------------- |
-| `giggle`  | 1.78 s | 1210 (bursts from 10)  | laugh, at 0                         |
-| `sigh`    | 1.15 s | 390                    | love, at 0                          |
-| `grumble` | 1.23 s | 310                    | anger, at 0                         |
-| `flap`    | 0.73 s | 420                    | migajero, at launch and at the exit |
-| `coo`     | 1.44 s | 1010 (first coo at 40) | migajero, at landing − 40           |
+| Name     | Length | Peak (`PEAK`, ms)      | Plays                               |
+| -------- | ------ | ---------------------- | ----------------------------------- |
+| `giggle` | 1.78 s | 1210 (bursts from 10)  | laugh, at 0                         |
+| `aww`    | 1.54 s | 550                    | love, at 0                          |
+| `seethe` | 1.54 s | 240                    | anger, at 0                         |
+| `flap`   | 0.73 s | 420                    | migajero, at launch and at the exit |
+| `coo`    | 1.44 s | 1010 (first coo at 40) | migajero, at landing − 40           |
 
 **Haptics:**
 - the reactor's phone: a 10 ms tap when sending;
@@ -1240,15 +1255,17 @@ The sticker sits centred over the opponent's panel head, or 24 px above your nam
   - `mark-heart.webp` is reused.
 - **Sounds** in `public/sfx/`: freesound.org, every license checked as CC0 1.0 on the sound's own page (2026-10-29). Each was trimmed, given a 5 ms fade-in, a fade-out and a high-pass, made mono at 44.1 kHz, set to −19.4 LUFS integrated (M22's impacts measure −18 to −20) with peaks limited to −1.5 dBFS, and encoded at 96 kb/s like the throws:
 
-  | File          | Source                                                                         | Author       | Cut                           |
-  | ------------- | ------------------------------------------------------------------------------ | ------------ | ----------------------------- |
-  | `giggle.mp3`  | [388407](https://freesound.org/s/388407/) "Baby Giggles.wav"                   | amccoy711    | 7.30 s + 1.75 s, 350 ms fade  |
-  | `sigh.mp3`    | [446788](https://freesound.org/s/446788/) "Suspiro Amor.wav"                   | IanLyanx     | 0 + 1.10 s, 300 ms fade       |
-  | `grumble.mp3` | [713755](https://freesound.org/s/713755/) "Angry Grr"                          | kanyonwyvern | 0.50 s + 1.20 s, 350 ms fade  |
-  | `coo.mp3`     | [735366](https://freesound.org/s/735366/) "Domestic Dove Coo"                  | haulaway     | 11.90 s + 1.40 s, 300 ms fade |
-  | `flap.mp3`    | [689998](https://freesound.org/s/689998/) "Pigeon, Flies Away, Flapping Wings" | Kinoton      | 0.85 s + 0.70 s, 200 ms fade  |
+  | File         | Source                                                                         | Author    | Cut                           |
+  | ------------ | ------------------------------------------------------------------------------ | --------- | ----------------------------- |
+  | `giggle.mp3` | [388407](https://freesound.org/s/388407/) "Baby Giggles.wav"                   | amccoy711 | 7.30 s + 1.75 s, 350 ms fade  |
+  | `aww.mp3`    | [541382](https://freesound.org/s/541382/) "aw yeah (awww yeah aww yeah) 2.wav" | NaBoKaMe  | 0.12 s + 1.50 s, 400 ms fade  |
+  | `seethe.mp3` | [343900](https://freesound.org/s/343900/) "muffled angry screaming.wav"        | Reitanna  | 0 + 1.50 s, 250 ms fade       |
+  | `coo.mp3`    | [735366](https://freesound.org/s/735366/) "Domestic Dove Coo"                  | haulaway  | 11.90 s + 1.40 s, 300 ms fade |
+  | `flap.mp3`   | [689998](https://freesound.org/s/689998/) "Pigeon, Flies Away, Flapping Wings" | Kinoton   | 0.85 s + 0.70 s, 200 ms fade  |
 
   The README credits name the five authors.
+- **`aww.mp3` was picked by the owner, 2026-11-11 (v2.6.1).** It replaces `sigh.mp3` ([446788](https://freesound.org/s/446788/) "Suspiro Amor.wav" by IanLyanx, 0 + 1.10 s). The owner liked none of 10 candidates over two rounds and brought this sound: a man's drawn-out "aww, yeah". The owner's file came from Pixabay ([95782](https://pixabay.com/sound-effects/aw-yeah-awww-yeah-aww-yeah-2-95782/), account "freesound_community", Pixabay Content License, which allows use inside a game but not passing the file on as a standalone sound). It is the same recording as freesound 541382 by NaBoKaMe (called Jekteir when Pixabay copied it; the waveforms correlate at 0.99), which is CC0 1.0 on its own page (checked 2026-11-11). `aww.mp3` is cut from the freesound copy, so it is CC0 like the rest, and the Pixabay license doesn't apply to it. Cut from freesound's HQ preview: 0.12 s + 1.50 s of the 2.67 s take (the "yeah" fades 0.9 s early), two 100 Hz high-passes, −19.4 LUFS integrated, true peak −5.9 dBFS.
+- **`seethe.mp3` was picked by the owner by ear, 2026-11-11 (v2.6.1).** It replaces `grumble.mp3` ([713755](https://freesound.org/s/713755/) "Angry Grr" by kanyonwyvern, 0.50 s + 1.20 s), which the owner found not good enough. The owner heard 4 candidates on a listening page beside the sticker and chose this one: a scream through gritted teeth, as on the sticker, recorded by someone who had just lost a game. CC0 1.0, checked on its own page on 2026-11-11; cut from freesound's HQ preview; two 120 Hz high-passes; −19.4 LUFS integrated, true peak −8.7 dBFS; its onset is at 50 ms, on the slam.
 - **The PO picked the sounds by measurement, not by ear.** It chose them by license, title and description, rating count, and signal-to-noise ratio (39–41 dB after gain, none clipped), and took the loudest window of each. **The implementer listens to all five before wiring them in.** Swap a cut (window or source) that isn't funny, and record the change here.
 
 **Acceptance.**
@@ -1287,12 +1304,26 @@ The sticker sits centred over the opponent's panel head, or 24 px above your nam
 - **Scrolled-out targets** (the PR #39 follow-up below, the lead's call, for throws and reactions): instead of an edge label, the target's panel of a throw or a migajero scrolls into view (smooth, `inline: "nearest"`; instant with reduced motion) once the last move's cards have landed (their stand-ins don't scroll, UX-8), and the flights follow it. Laughs, love and anger don't scroll: at the edge their bubble names the reactor. The server drops a migajero not at the last mover, and reactions at the summary. Under 24 px showing counts as out. A later turn may scroll it away again.
 
 **PO follow-ups (PR #40 review, 2026-10-29).** None blocks; each is one small patch, in this order.
-- **The owner listens.** Nobody has heard `giggle`, `sigh`, `grumble`, `coo` and `flap` yet: the PO measured them again (all −19.4 LUFS integrated, peaks −0.7 to −5.7 dBFS; `giggle` pauses at 0.99–1.19 s and `coo` at 0.40–0.58 s, as the choreography expects) but can't judge funny. The owner plays one reaction of each on the live site, in Spanish, and names any cut to swap. This is the bar the owner rejected v2.5.0's throws on.
-- **Your own reaction when you're out (R16).** An out player's laugh, love or anger shows on every other phone but not on theirs: `spot(you)` finds no name bar. Pop it over the corner button, so the reactor sees what they sent.
+- **The owner listens.** (Done in v2.6.1 for love and anger: `aww.mp3` and `seethe.mp3`, above.) Nobody has heard `giggle`, `sigh`, `grumble`, `coo` and `flap` yet: the PO measured them again (all −19.4 LUFS integrated, peaks −0.7 to −5.7 dBFS; `giggle` pauses at 0.99–1.19 s and `coo` at 0.40–0.58 s, as the choreography expects) but can't judge funny. The owner plays one reaction of each on the live site, in Spanish, and names any cut to swap. This is the bar the owner rejected v2.5.0's throws on.
+- ✅ **Done in BUG-2 (v2.6.2), with the cause corrected: it did show, on their row in the strip.** **Your own reaction when you're out (R16).** An out player's laugh, love or anger shows on every other phone but not on theirs: `spot(you)` finds no name bar. Pop it over the corner button, so the reactor sees what they sent.
 - **Pixel and other narrow phones: confirm the button with the owner.** There it sits at the end of the name bar, above row 1, not where the owner circled (beside row 3). The PO accepts the lead's reason (Pixel 7's cards stay 91 px), but the owner circled the spot on an iPhone. If the owner plays on Android and wants the circle, the asymmetric 56 px right gutter (cards 77 px, grid 28 px off centre) is the fallback measured above.
 - **Delivery: take back the Pixel job's headroom.** `react.spec.ts` adds 43 s of tests to `e2e (pixel)` (2 workers): the job went from 2:33 (PR #39) to 2:56, and PR CI wall time to 3:00, right at the rubric's ceiling and past this milestone's +15 s budget. iPhone (2:18, 4 workers) and desktop (2:09) have room. Run the two heaviest harness cases, "a throw or reaction at a panel scrolled out of the strip…" (7.2 s on Pixel) and "each reaction shows on its seat…" (6.5 s), on iPhone and desktop only (their motion-on Pixel cases stay), and check the Pixel job is back under 2:45.
-- **Delivery: fix the UX-19 flake on iPhone.** "UX-19: thrown away, the drawn card lies on the discard pile…" (`e2e/motion.spec.ts:371`) failed its first try on `e2e (iphone)` in this PR's run 40961612856 (`moving` was below 2: the tap's flight hadn't started), and in runs 40580400974 and 40578482285 before it. `failOnFlakyTests` turns that into a red check, and on `main` a blocked deploy. The test waits one `setTimeout` for React to render the tap; under WebKit's 4-worker CPU contention that isn't enough. Wait for the animations instead (`await expect.poll(() => discard.getAnimations().length)`), then seek them to 300 ms.
+- ✅ **Done in BUG-2's PR (#41, v2.6.2), in the game, not the test.** Root cause: `Table`'s "local modes never outlive the turn" reset (`setDiscarding(false)`) was a passive effect. React runs a pending passive effect just before it renders the next update, so a tap that landed between the table's first commit and that effect queued `true`, then the mount's reset queued `false` after it, and the tap did nothing: no flight, no tilt, `moving` 0. Under WebKit's 4 workers on CI the test's click could land in that gap. The reset of discard mode is now a layout effect, which runs inside the commit, before any tap can (the tapped-card reset beside it stays passive: UX-27's reveal reads it first). New test: `e2e/table.spec.ts`, "UX-19: a tap on the pile as your turn appears, before the page has settled…", which taps from a `MutationObserver` the moment the pile is added; it failed on iPhone and desktop before the fix and passes on all three after. The PO's bounded wait wasn't used: it would have waited 1 s for animations that never start. `--repeat-each=50 --project=iphone --workers=4` on the UX-19 motion test: 50 of 50 (this Mac also passed 50 of 50 and 150 of 150 at 12 workers before the fix, so the new test, not the repeat, is the proof). **Delivery: fix the UX-19 flake on iPhone.** "UX-19: thrown away, the drawn card lies on the discard pile…" (`e2e/motion.spec.ts:371`) failed its first try on `e2e (iphone)` in this PR's run 40961612856 (`moving` was below 2: the tap's flight hadn't started), and in runs 40580400974 and 40578482285 before it. `failOnFlakyTests` turns that into a red check, and on `main` a blocked deploy. The test waits one `setTimeout` for React to render the tap; under WebKit's 4-worker CPU contention that isn't enough. Wait for the animations instead (`await expect.poll(() => discard.getAnimations().length)`), then seek them to 300 ms.
 - **Nit:** `AGENTS.md`'s `src/client/Reactions.tsx` row lists `lastMover`, which lives in `src/protocol.ts`.
+
+### BUG-2 — Your own reaction, away from where you tapped (user report, 2026-11-11) · v2.6.2
+
+**Report.** Playing on real phones: "My own reactions are sometimes placed at the top of the screen."
+
+**What reproduces, and what doesn't** (table harness; iPhone 13, Pixel 7, and 375 × 548 and 320 × 480 viewports).
+- **Seated, a laugh, love or anger: always on your name bar.** 2, 4 and 8 players; your turn, someone else's, the opening flip, a round's first turn, Auto-play on; motion on; read at 200 ms and 1 s. The sticker's centre sat 8–14 px above the name bar's top in 90 of 90 runs. The button's place (beside row 3, or in the name bar) changes nothing, and the table never scrolled.
+- **Out of a knockout game (R16): on your row in the strip, far from the button. This is the bug fixed here.** `Table` sets `seat` to `null` for an out player, so there is no name bar and `others` lists every seat, their own included ("a spectator sees everyone"). `spot(you)` (`Table.tsx`) looks a seat up in the strip first, so `Reactions` popped their laugh on their own "Out · watching" row. That row sits under the players still in (`.opponents.watch .opp.out { order: 1 }`), 297 px (iPhone) or 319 px (Pixel) from the corner button they had just tapped. M23's follow-up above guessed "not shown on theirs"; it was shown, in the wrong place. It is not at the very top, so it may not be all of the report.
+- **Your own migajero: at the top, by design, unchanged.** It lands on the last mover, in the strip, with your name on its sign. It is the only own reaction that shows at the top of the screen for a seated player, 1 of the 4, which fits "sometimes". **PO / owner: if this is what the report means, decide where the reactor should see it** (for example, the sign also over your own name bar); that is a design change, not made here.
+- **Not verifiable here: a real phone.** The stickers are `position: fixed` at `getBoundingClientRect` coordinates, inside `.table` (`overflow-y: auto`). No ancestor has a transform, filter or containment, so the two agree in Playwright's WebKit and Chromium. If the owner sees a laugh, love or anger at the top while still in the game, that is the next suspect, and it needs the phone, its browser (Safari or home-screen app) and a screenshot.
+
+**Fix.** `seatOf` in `Reactions.tsx`: your own laugh, love or anger, when the corner button is on screen (only when you are out), pops just over that button, and follows it. Every other reaction goes to `spot(to ?? from)` as before: other phones still show an out player's reaction on their row, throws at an out player still land on their row, and a migajero from an out player still flies from their row.
+
+**Tests.** `e2e/react.spec.ts`, "BUG-2: out of a knockout game, your own reaction pops over the corner button…" (all three devices; it failed by 297 px on iPhone and 319 px on Pixel before the fix). Screenshot: `docs/screenshots/bug2/out-own-laugh.jpg`.
 
 ### M16 — Launch in the App Store and Google Play (user decision, 2026-10-24) · last
 

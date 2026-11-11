@@ -4,11 +4,32 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
-## [2.6.6] - 2026-11-11
+## [2.6.4] - 2026-11-11
 
 ### Fixed
 
 - **The host stays the host after Play again.** When the host finished a game on Auto-play (switched on, or after running out of time) and someone tapped Play again, every phone showed "Start game" and nobody saw "Waiting for host": anyone could start or change the knockout option, and the host had no way to take the lobby back. Play again now switches everyone's Auto-play off, so the host leads the lobby as before. If the host's phone is off or the page is closed, the others can still start.
+
+## [2.6.3] - 2026-11-11
+
+### Fixed
+
+- **No more throws that nobody sees.** From a round summary or the final scores, View table let you tap an opponent and throw something: your items went to rest for 3 seconds, but nothing flew on any phone. Throws, like reactions, are for a round being played, so at a summary an opponent's cards now open without the row of things to throw.
+
+## [2.6.2] - 2026-11-11
+
+### Fixed
+
+- **Out of a knockout game, your own reactions show by your thumb.** Once you were out and watching, your laugh, love or anger popped on your thin "Out · watching" row, up among the other players and far from the button you had just tapped. It now pops right over the reaction button, in the bottom corner. Everyone else still sees it on your row, and a migajero still flies to its player.
+- **A tap on the discard pile the instant your turn appears is no longer lost.** Throwing the drawn card away in the same moment the table drew your turn could do nothing, and needed a second tap.
+
+## [2.6.1] - 2026-11-11
+
+### Changed
+
+- **Love and Angry have new sounds,** both chosen by ear this time:
+  - **Love:** a drawn-out "aww, yeah" in place of the sigh. It starts as the face pops in, and the "yeah" lands on its second heartbeat.
+  - **Angry:** a scream of rage through gritted teeth, like the face on the sticker, in place of the low growl. It starts as the face slams down.
 
 ## [2.6.0] - 2026-10-29
 
