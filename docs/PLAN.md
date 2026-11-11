@@ -802,6 +802,7 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 20  | ✅ M21                             | Throws: bombs, beers, donkeys and more at other players (user request, 2026-10-27)                                      | 2.5.0         | the user asked for it; ahead of M16, which waits on the owner                                                    |
 | 21  | ✅ M22                             | Throws, part 2: stickers, choreography, marks, real sounds (user feedback)                                              | 2.5.1         | the owner found v2.5.0 throws not fun                                                                            |
 | 22  | ✅ M23                             | Reactions: laugh, love, anger and the migajero, from a button beside your grid (user request)                           | 2.6.0         | the user asked for it; reuses M21/M22's in-memory throw path and sticker pipeline                                |
+| —   | BUG-10                             | Back from a locked screen, a dead socket that looked open showed a stale table for up to a minute                       | 2.6.10        | BUG-4's open suspicion; the page's side proven in a browser                                                      |
 | 23  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
 
 Deferred: Turnstile (SEC-4) and SEC-12 (until M16). Quick reactions, deferred until now, are M23 (user request, 2026-10-29). Declined: SEC-7. Versions assume this order; a PR that reorders says so.
@@ -848,6 +849,20 @@ There is a second guard the old rule hid: `autoMove` never flips a seat's last f
 - **The motion test's race → first thing in SEC-9's PR, test only.** `e2e/motion.spec.ts:28` ("an opponent's flip animates") failed 10 of 40 runs on iPhone at 12 local workers and 0 of 20 at 1 worker. It predates BUG-1 and hasn't failed on CI yet, but `failOnFlakyTests` would block a deploy. Ben's reload may not have rendered the dealt table when Ana flips, so his first view already holds the flip and there is nothing to animate; the fixed 400 ms wait is the other half. The fix, which the PO ran 80 of 80 times at 12 workers (both tests in the file): before Ana's tap, wait for Ben's `table` to have `data-phase="flip"`; after it, wait for Ben's `opponent` grid to show one `[data-face="up"]` card instead of waiting 400 ms.
 - **Accepted:** a present player who runs out of time while every other connected seat is on Auto-play goes on Auto-play in the same `tick`, so that very move may turn over their last card and end the round, doubled unless lowest (the PO reproduced it). That is the decision above (at that moment nobody is playing by hand), and the round has to end. Computing `mayEnd` before the due seats switch would spare that one move; revisit if players say so.
 - **M17:** `canStall` only counts seats, so a lone connected spectator keeps nothing running (the PO checked on the injected clock), but no test pins it. M17's out-seat test covers it; see there.
+
+### BUG-10 — Back from a locked screen, a dead socket that looks open shows a stale table for up to a minute (BUG-4's suspicion, 2026-11-11) · v2.6.10
+
+**Report.** BUG-4 left it "suspected, not proven": a phone back from a locked screen sends its hello into a socket that looks open, and shows a stale table until the next 20 s check, or 5 s after a tap.
+
+**Evidence (Pixel project, local workerd, the page's clock stepped by hand).** One phone in a lobby. Its socket goes dead without closing (`routeWebSocket` drops every frame), the page is hidden for 10 s, then visible again. On `main` 0122f4e the page sent its hello into the dead socket and kept that socket for 50 s more, without a tap. That is longer than BUG-4 guessed: the 20 s check only replaces a socket silent for over `SILENT_MS` (45 s), so a lock of 10 s leaves 35–55 s of stale table.
+
+**Not reproduced: the phone side.** Whether iOS or Android leave a socket open-looking but dead after a short lock was not tested on real phones. `useRoom` already assumes they do ("Phones freeze sockets in the background without closing them"). What is proven is what the page does when one is.
+
+**Root cause.** `wake` (`useRoom.ts:135-144`) replaces a socket at once only when it is closed, or silent for over 45 s. Otherwise it says hello and trusts the socket: nothing waits for the answer.
+
+**Fix (v2.6.10).** The room answers every hello, to its sender at least. `wake` now waits `ACK_MS` (5 s) for anything from the socket after its hello and replaces the socket if nothing came. No wire or server change, and no new message: a working socket costs what it did.
+
+**Acceptance:** `e2e/online.spec.ts`, "BUG-10": fails on `main` (still 1 socket 5 s after the unlock) and passes with the fix; a second lock on the working socket says hello, is answered, and keeps the socket.
 
 ### M17 — Play until one is left (knockout) (user request, 2026-10-24) · v2.2.0 · ✅ shipped (PR #24)
 

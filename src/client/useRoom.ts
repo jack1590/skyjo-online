@@ -140,6 +140,12 @@ export function useRoom(code: string) {
         // Back from the background: a hello, unlike a ping, reaches the room, which then shows
         // this phone online and restarts any clock that stopped while it was gone (M8).
         ws.send(JSON.stringify({ t: "hello", token } satisfies ClientMsg));
+        // The room answers every hello. No answer: the socket died while the phone was away and
+        // only looks open, and the table on screen is stale until it's replaced (BUG-10).
+        const said = Date.now();
+        setTimeout(() => {
+          if (!stopped && socket.current === ws && lastHeard < said) connect();
+        }, ACK_MS);
       } else check();
     };
 
