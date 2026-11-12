@@ -48,14 +48,19 @@ jobs:
         include:
           # WebKit is the critical path: on one runner, the iPhone project took 80–82 s with 2
           # workers (Playwright's default on 4 vCPUs) and 62 s with 4 (PR #17 probe).
-          # Each phone's suite is split over runners (Playwright's --shard): as one job each, iPhone
-          # took 4:59 and Pixel 3:39 (PR #56), past the 3 min a PR's checks may take (PLAN, rubric).
-          - { name: iphone, project: iphone, workers: 4, part: 1, of: 3 }
-          - { name: iphone, project: iphone, workers: 4, part: 2, of: 3 }
-          - { name: iphone, project: iphone, workers: 4, part: 3, of: 3 }
-          - { name: pixel, project: pixel, part: 1, of: 2 }
-          - { name: pixel, project: pixel, part: 2, of: 2 }
-          - { name: desktop, project: desktop }
+          # Each device's suite is split over runners (Playwright's --shard): as one job each,
+          # iPhone took 4:59, Pixel 3:39 and desktop 2:36 (PR #56), and a PR's checks may take 3 min
+          # (PLAN, rubric). Shards hold equal numbers of tests, not equal minutes: with 3, iPhone's
+          # slowest took 2:51 (PR #59's first run).
+          - { name: iphone, project: iphone, workers: 4, part: 1, of: 4 }
+          - { name: iphone, project: iphone, workers: 4, part: 2, of: 4 }
+          - { name: iphone, project: iphone, workers: 4, part: 3, of: 4 }
+          - { name: iphone, project: iphone, workers: 4, part: 4, of: 4 }
+          - { name: pixel, project: pixel, part: 1, of: 3 }
+          - { name: pixel, project: pixel, part: 2, of: 3 }
+          - { name: pixel, project: pixel, part: 3, of: 3 }
+          - { name: desktop, project: desktop, part: 1, of: 2 }
+          - { name: desktop, project: desktop, part: 2, of: 2 }
           # The self-host fallback must keep passing the online suite.
           - { name: node, project: pixel, server: node, spec: e2e/online.spec.ts }
     steps:
@@ -74,17 +79,19 @@ jobs:
           path: playwright-report/
           retention-days: 7
 
-  # Branch protection requires checks named "e2e (iphone)" and "e2e (pixel)". Their suites run as
-  # shards with other names, so these two stand for them: green only when every E2E job passed.
-  e2e-phones:
+  # Branch protection requires checks named "e2e (iphone)", "e2e (pixel)" and "e2e (desktop)".
+  # Their suites run as shards with other names, so these three stand for them: green only when
+  # every E2E job passed.
+  e2e-devices:
     name: e2e (${{ matrix.name }})
     if: always()
     needs: e2e
     runs-on: ubuntu-latest
     timeout-minutes: 2
     strategy:
+      fail-fast: false
       matrix:
-        name: [iphone, pixel]
+        name: [iphone, pixel, desktop]
     steps:
       - run: test "${{ needs.e2e.result }}" = success
 
