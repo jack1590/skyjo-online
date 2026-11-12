@@ -33,6 +33,14 @@ export function cutName(name: string): string {
   return kept;
 }
 
+/**
+ * Characters (M32): a seat's sticker is a number under this; the art and colours are the client's
+ * (`Character.tsx`). More than MAX_PLAYERS, so there is always a free one.
+ */
+export const CHARACTERS = 16;
+const isCharacter = (v: unknown): v is number =>
+  Number.isInteger(v) && (v as number) >= 0 && (v as number) < CHARACTERS;
+
 /** Closing code for a room that doesn't exist. Close codes can get lost, so a "missing" message precedes it. */
 export const CLOSE_UNKNOWN_ROOM = 4004;
 /** Closing code (policy violation) for a socket over the per-socket or per-IP message limit. */
@@ -151,7 +159,10 @@ const CHAT_DROP = /[^\P{C}‍]/gu;
 
 export type ClientMsg = (
   | { t: "hello"; token: string }
-  | { t: "join"; name: string }
+  /** `char`: the character asked for (M32); tabs loaded before 2.14.0 send none. */
+  | { t: "join"; name: string; char?: number }
+  /** In the lobby, a seated player takes another character, one no other seat holds (M32). */
+  | { t: "char"; char: number }
   | { t: "leave" }
   /**
    * `name`: the seat as the sender saw it. Its index shifts when an earlier seat leaves, and names
@@ -203,6 +214,8 @@ export interface SeatView {
   connected: boolean;
   /** Auto-play is on: the server plays this seat's turns. */
   auto: boolean;
+  /** Its character (M32), unique in the room; unset for a seat that joined without one. */
+  char?: number;
 }
 
 /**
@@ -292,7 +305,12 @@ function parseBody(msg: Record<string, unknown>): ClientMsg | null {
         ? { t: "hello", token: msg.token }
         : null;
     case "join":
-      return typeof msg.name === "string" ? { t: "join", name: msg.name } : null;
+      // A character out of range is dropped, not the join: the seat matters more.
+      return typeof msg.name === "string"
+        ? { t: "join", name: msg.name, ...(isCharacter(msg.char) && { char: msg.char }) }
+        : null;
+    case "char":
+      return isCharacter(msg.char) ? { t: "char", char: msg.char } : null;
     case "leave":
     case "start":
     case "rematch":

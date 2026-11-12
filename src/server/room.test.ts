@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { type Action, apply, createGame, type GameState, legalActions } from "../engine/game";
 import { randomBelow, type Seed, seedRng } from "../engine/rng";
 import {
+  CHARACTERS,
   CHAT_BURST,
   CHAT_KEEP,
   CHAT_MAX,
@@ -129,6 +130,65 @@ describe("lobby", () => {
       { name: "P0", connected: true, auto: false },
       { name: "P1", connected: true, auto: false },
     ]);
+  });
+
+  it("M32: a join picks a character; a taken one becomes the next free one; views carry it", () => {
+    const t = setup();
+    const [a, b, c, old] = ["a", "b", "c", "o"].map((x) => t.connect(`token-${x}-abcdef`));
+    expect(t.send(a, { t: "join", name: "A", char: 3 })).toBe("data");
+    t.send(b, { t: "join", name: "B", char: 3 });
+    t.send(c, { t: "join", name: "C", char: CHARACTERS - 1 });
+    // A tab loaded before 2.14.0 sends no character: it joins and plays, with none.
+    t.send(old, { t: "join", name: "Old" });
+    expect(t.room.data.seats.map((s) => s.char)).toEqual([3, 4, CHARACTERS - 1, undefined]);
+    // Past the last one, the first.
+    const d = t.connect("token-d-abcdef");
+    t.send(d, { t: "join", name: "D", char: CHARACTERS - 1 });
+    expect(t.room.data.seats[4].char).toBe(0);
+    t.send(d, { t: "leave" });
+    expect(t.room.view(old, t.live).seats).toEqual([
+      { name: "A", connected: true, auto: false, char: 3 },
+      { name: "B", connected: true, auto: false, char: 4 },
+      { name: "C", connected: true, auto: false, char: CHARACTERS - 1 },
+      { name: "Old", connected: true, auto: false },
+    ]);
+    t.send(a, { t: "start" });
+    pastFlips(t, [a, b, c, old]);
+    stepAny(t, [a, b, c, old]);
+    expect(t.room.data.game?.phase).toBe("place");
+  });
+
+  it("M32: a seated player changes character in the lobby, never to another seat's", () => {
+    const t = setup();
+    const [a, b] = t.seated(2);
+    const watcher = t.connect("token-w-abcdef");
+    expect(t.send(a, { t: "char", char: 5 })).toBe("data");
+    expect(t.send(a, { t: "char", char: 5 })).toBe("none");
+    // Taken a moment ago by someone else: late, not an error.
+    expect(t.send(b, { t: "char", char: 5 })).toBe("none");
+    expect(t.send(b, { t: "char", char: 6 })).toBe("data");
+    expect(t.room.data.seats.map((s) => s.char)).toEqual([5, 6]);
+    expect(t.errorOf(() => t.send(watcher, { t: "char", char: 7 }))).toBe("not-allowed");
+    // A seat that left frees its character.
+    t.send(a, { t: "leave" });
+    expect(t.send(b, { t: "char", char: 5 })).toBe("data");
+    t.send(a, { t: "join", name: "A", char: 6 });
+    t.send(b, { t: "start" });
+    expect(t.errorOf(() => t.send(a, { t: "char", char: 9 }))).toBe("not-allowed");
+  });
+
+  it("M32: a phone that reconnects keeps its character, which is saved with the seat", () => {
+    const t = setup();
+    const a = t.connect("token-a-abcdef");
+    const b = t.connect("token-b-abcdef");
+    t.send(a, { t: "join", name: "A", char: 9 });
+    t.send(b, { t: "join", name: "B", char: 2 });
+    t.drop(b);
+    const back = t.connect("token-b-abcdef");
+    expect(t.room.view(back, t.live).seats.map((s) => s.char)).toEqual([9, 2]);
+    // What an adapter saves and loads back.
+    const saved = JSON.parse(JSON.stringify(t.room.data));
+    expect(saved.seats.map((s: { char?: number }) => s.char)).toEqual([9, 2]);
   });
 
   it("rejects blank and duplicate names; trims and strips invisible characters", () => {
@@ -1819,9 +1879,32 @@ describe("protocol", () => {
       '{"t":"toss","to":1.5,"item":"bomb"}',
       '{"t":"toss","to":1,"item":"brick"}',
       `{"t":"join","name":"${"x".repeat(2000)}"}`,
+      '{"t":"char"}',
+      '{"t":"char","char":"3"}',
+      '{"t":"char","char":-1}',
+      '{"t":"char","char":1.5}',
+      `{"t":"char","char":${CHARACTERS}}`,
     ]) {
       expect(parseClientMsg(raw)).toBeNull();
     }
+  });
+
+  it("M32: a join keeps a valid character and drops any other, so the join still lands", () => {
+    expect(parseClientMsg('{"t":"join","name":"Ana","char":4}')).toEqual({
+      t: "join",
+      name: "Ana",
+      char: 4,
+    });
+    for (const char of ['"4"', "-1", "2.5", `${CHARACTERS}`, "null"]) {
+      expect(parseClientMsg(`{"t":"join","name":"Ana","char":${char}}`)).toEqual({
+        t: "join",
+        name: "Ana",
+      });
+    }
+    expect(parseClientMsg(`{"t":"char","char":${CHARACTERS - 1},"seat":2}`)).toEqual({
+      t: "char",
+      char: CHARACTERS - 1,
+    });
   });
 
   it("never copies a seat from the payload; keeps a valid seq", () => {

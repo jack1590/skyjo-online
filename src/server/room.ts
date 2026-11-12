@@ -12,6 +12,7 @@ import {
 import { type Seed, seedRng } from "../engine/rng";
 import { toView } from "../engine/view";
 import {
+  CHARACTERS,
   CHAT_BURST,
   CHAT_KEEP,
   CHAT_MS,
@@ -40,6 +41,8 @@ export interface Seat {
   seenAt: number;
   /** Auto-play (M8): the server plays this seat's turns until its player unticks it. Unset before 2.1.0. */
   auto?: boolean;
+  /** Its character (M32). Unset before 2.14.0, and for a seat whose tab sent none. */
+  char?: number;
 }
 
 export interface RoomData {
@@ -297,7 +300,7 @@ const RGI_EMOJI = new RegExp("^\\p{RGI_Emoji}$", "v");
 const clusters = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
 /** Strips those characters cluster by cluster, trims, and cuts (`cutName`). */
-const cleanName = (name: string) =>
+export const cleanName = (name: string) =>
   cutName(
     Array.from(clusters.segment(name), ({ segment }) =>
       RGI_EMOJI.test(segment) ? segment : segment.replace(/\p{C}/gu, ""),
@@ -388,9 +391,21 @@ export class Room {
         if (seats.some((s) => s.name.toLowerCase() === name.toLowerCase())) {
           throw new RoomError("name-taken");
         }
-        seats.push({ token: conn.token, name, seenAt: now });
+        // Taken by another seat: the next free one instead (there are more than seats), as the
+        // join form shows it.
+        let char = msg.char;
+        while (char !== undefined && seats.some((s) => s.char === char)) {
+          char = (char + 1) % CHARACTERS;
+        }
+        seats.push({ token: conn.token, name, seenAt: now, ...(char !== undefined && { char }) });
         return "data";
       }
+      case "char":
+        if (seat === null || !lobby) throw new RoomError("not-allowed");
+        // Yours already, or someone took it a moment ago: late, not an error.
+        if (seats.some((s) => s.char === msg.char)) return "none";
+        seats[seat].char = msg.char;
+        return "data";
       case "leave":
         if (seat === null || !lobby) throw new RoomError("not-allowed");
         this.removeSeat(seat);
@@ -612,6 +627,7 @@ export class Room {
         name: s.name,
         connected: this.connected(i, live),
         auto: s.auto === true,
+        ...(s.char !== undefined && { char: s.char }),
       })),
       host: this.data.host,
       you,

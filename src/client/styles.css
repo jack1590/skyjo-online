@@ -4551,3 +4551,124 @@ dialog.chat .chat-log {
 .home .ready h2 {
   color: var(--accent);
 }
+
+/* ---------------------------------------------------------------------------------------------
+   Characters (M32): a head on a disc of its own colour, in both looks. The colour and the art come
+   inline (Character.tsx). Bigger than the line it sits in, with the overhang taken back as
+   negative margin: no name bar, panel or row grows, so no card shrinks.
+   --------------------------------------------------------------------------------------------- */
+.av.char,
+.char-pick {
+  background-size: 86%;
+  background-position: center;
+  background-repeat: no-repeat;
+  border-radius: 50%;
+}
+
+.av.char {
+  flex: none;
+  display: inline-block;
+  width: 1.7em;
+  height: 1.7em;
+  margin: -0.35em 0.35em -0.35em 0;
+  box-shadow:
+    0 0 0 1.5px rgb(255 255 255 / 0.9),
+    0 1px 2px rgb(0 0 0 / 0.5);
+  font-size: 1em;
+  vertical-align: middle;
+}
+
+.av.char::before {
+  content: none;
+}
+
+/* Your own bar is the tightest row at 360 px: a size that leaves your name some room, the same
+   in both looks. */
+.me .av.char {
+  margin-right: -2px;
+  font-size: 0.85em;
+}
+
+.who .av.char {
+  margin-right: 0;
+}
+
+.seat-name {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.seat-name .av {
+  margin-right: 8px;
+}
+
+.seat-name .av.char {
+  width: 32px;
+  height: 32px;
+  margin-block: 0;
+}
+
+.join {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.chars {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
+  justify-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.chars legend {
+  padding: 0;
+  margin-bottom: 8px;
+  font-weight: 700;
+}
+
+.char-pick {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  box-shadow: 0 2px 3px rgb(0 0 0 / 0.45);
+  cursor: pointer;
+}
+
+.char-pick[aria-pressed="true"] {
+  box-shadow:
+    0 0 0 2px var(--bg, #0f2234),
+    0 0 0 5px var(--accent);
+}
+
+/* Another seat's: there to see, not to take. */
+.char-pick:disabled {
+  opacity: 0.3;
+  filter: grayscale(1);
+  cursor: default;
+}
+
+.option-more summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.option-more .chars legend {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.option-more .chars {
+  padding: 4px 0 8px;
+}

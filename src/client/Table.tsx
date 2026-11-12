@@ -22,6 +22,7 @@ import {
   type Wait,
 } from "../protocol";
 import { Card, formatCard } from "./Card";
+import { Avatar } from "./Character";
 import { Bubbles } from "./Chat";
 import { type Locale, ordinal, type T, useI18n } from "./i18n";
 import {
@@ -48,6 +49,8 @@ interface TableProps {
   connected?: boolean[];
   /** Per seat, whether Auto-play is on. */
   auto?: boolean[];
+  /** Per seat, its character (M32); none for a seat without one. */
+  chars?: (number | undefined)[];
   /** The seats the table waits on whose clock runs (RoomView.clocks). */
   wait?: Wait[];
   /**
@@ -546,7 +549,7 @@ export function Table(props: TableProps) {
             >
               <span className="opp-head">
                 <span className="opp-name">
-                  <Avatar seat={i} name={p.name} />
+                  <Avatar seat={i} name={p.name} char={props.chars?.[i]} />
                   {auto?.[i] && <Bot />}
                   {p.name}
                 </span>
@@ -690,7 +693,7 @@ export function Table(props: TableProps) {
               <span className="auto-note">{t(away ? "autoAway" : "autoOn")}</span>
             ) : (
               <span className="me">
-                <Avatar seat={seat} name={me.name} />
+                <Avatar seat={seat} name={me.name} char={props.chars?.[seat]} />
                 <strong>{me.name}</strong>
                 <span className="stat">
                   <small>{t("game")}</small>
@@ -803,6 +806,7 @@ export function Table(props: TableProps) {
           reduced={reduced}
           spot={spot}
           names={players.map((p) => p.name)}
+          chars={props.chars}
         />
       )}
 
@@ -839,6 +843,7 @@ export function Table(props: TableProps) {
             you={props.seat}
             lead={lead}
             auto={auto}
+            chars={props.chars}
             chat={props.chat}
             said={props.said ?? []}
             ending={props.ending}
@@ -983,6 +988,7 @@ interface SummaryProps {
   you: number | null;
   lead: boolean;
   auto?: boolean[];
+  chars?: (number | undefined)[];
   /** The chat button and the messages to pop (M29): the sheet is modal, so they live inside it. */
   chat?: ReactNode;
   said: ChatMsg[];
@@ -1052,7 +1058,7 @@ export function overTitle(t: T, locale: Locale, view: GameView, you: number | nu
  * <dialog>, like the zoom, so the table behind it is inert (UX-11); Escape is "View table".
  */
 function Summary(props: SummaryProps) {
-  const { view, you, lead, auto, asked, onPeek, onNext, onPlayAgain, onExit } = props;
+  const { view, you, lead, auto, chars, asked, onPeek, onNext, onPlayAgain, onExit } = props;
   const { t, locale } = useI18n();
   const reduced = useReducedMotion();
   const ref = useRef<HTMLDialogElement>(null);
@@ -1163,7 +1169,7 @@ function Summary(props: SummaryProps) {
                   <td>
                     {/* Their place, drawn by CSS: the row's text starts with the name. */}
                     <span className="who" data-rank={place[p.seat]}>
-                      <Avatar seat={p.seat} name={p.name} />
+                      <Avatar seat={p.seat} name={p.name} char={chars?.[p.seat]} />
                       {auto?.[p.seat] && <Bot />}
                       <span className="who-name">{p.name}</span>
                       {p.seat === you && <span className="tag you">{t("you")}</span>}
@@ -1398,17 +1404,6 @@ function Sum({ grid }: { grid: ViewSlot[] }) {
     <b className="sum" data-testid="sum">
       {formatCard(faceUpSum(grid))}
     </b>
-  );
-}
-
-/** A seat's monogram disc, in its own colour (M28): drawn in the Modern look only (styles.css). */
-function Avatar({ seat, name }: { seat: number; name: string }) {
-  return (
-    <span
-      className={`av av-${seat}`}
-      data-initial={[...name.trim()][0]?.toUpperCase()}
-      aria-hidden="true"
-    />
   );
 }
 

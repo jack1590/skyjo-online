@@ -817,8 +817,9 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 35  | ✅ M28                             | Polished casual, the new default look, and a switch between it and Classic (owner)                                      | 2.10.0        | the owner's choice of direction B; stacked on M27                                                                |
 | 36  | ✅ M29                             | Chat: quick phrases, emojis and typed messages, as bubbles by whoever spoke (owner request, 2026-11-11)                 | 2.11.0        | the owner asked for it; after the redesign (M27, M28)                                                            |
 | 37  | ✅ M30                             | Round celebrations: the round's winner, a highlight, a kind line for every place, and "wants a rematch" (owner)         | 2.12.0        | product review 2026-11-11, idea 3 (K6, K7, F3); owner-approved                                                   |
-| 38  | M31                                | Learn to play: a first-game tutorial, one scripted round on the real table (owner-approved, 2026-11-11)                 | 2.13.0        | the product review's idea 4 (K1, K2); tutorial only: the owner plans "Play on one phone" himself                 |
-| 39  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
+| 38  | ✅ M31                             | Learn to play: a first-game tutorial, one scripted round on the real table (owner-approved, 2026-11-11)                 | 2.13.0        | the product review's idea 4 (K1, K2); tutorial only: the owner plans "Play on one phone" himself                 |
+| 39  | M32                                | Characters and friendly names: 16 stickers to pick from, a dice for a two-word name (owner-approved, product review 5)  | 2.14.0        | the product review's K8: every player was just a word                                                            |
+| 40  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
 
 Deferred: Turnstile (SEC-4) and SEC-12 (until M16). Quick reactions, deferred until now, are M23 (user request, 2026-10-29). Declined: SEC-7. Versions assume this order; a PR that reorders says so.
 
@@ -1794,6 +1795,35 @@ Both carry the same clarity changes, which this milestone builds, so M28 is toke
 - **"You're ready!" is a panel on Home: kept.** It sits over Create a room, the next thing to do.
 - **The offer shows on Home only: kept.** Someone who opens a room link is joining friends who are waiting; Learn to play stays on Home for later.
 - **The play-through test no longer asserts a wall-clock time.** It checked that a bot finished in 20 s (5 s locally). That measures the runner, not the lesson, and CI's WebKit runs several times slower at 4 workers; the test's own timeout is the bound.
+
+### M32 — Characters and friendly names (owner-approved, 2026-11-11) · v2.14.0
+
+**Problem** (product review, K8 and idea 5). Every player is a word: no face, no colour, no character. A child can't find "theirs" on the table, and a stranger in a public room is a typed name.
+
+**What players get.**
+- **Pick your character** when joining: 16 original stickers, an animal's head each, on a disc of its own colour (fox, otter, owl, cat, panda, frog, penguin, lion, koala, axolotl, raccoon, wolf, toucan, octopus, bear, rabbit). One is already picked for you (the one from last time, `skyjo:char`, or any). Characters other players hold are shown greyed out, not offered. Seated in the lobby, **Change character** opens the same 16.
+- Your character shows by your name wherever your name is: the lobby's list, your name bar, your panel on the others' phones, the round summary, the migajero's sign and a reaction that names you. In Modern it takes the monogram disc's place; in Classic, where a name had nothing by it, it sits before the name. Bigger than its line of text with the overhang taken back, so no bar, panel or row grows and no card shrinks.
+- A seat without a character (a tab loaded before 2.14.0) keeps what it had: the monogram in Modern, the name alone in Classic.
+- A **dice** by the name field offers a two-word name in your language, "Brave Otter" / "Nutria Valiente" / "Lontra Valente", and picks its animal as your character. Typing your own name, or tapping another character, stays.
+
+**Server.** One small number: `{ t: "join", name, char? }` and `Seat.char`, sent as `SeatView.char`. `CHARACTERS` (16) is more than `MAX_PLAYERS`, so there is always a free one: a join asking for a taken character gets the next free one, never an error. `{ t: "char", char }` changes it in the lobby (`"data"`, one row; `"none"` when another seat holds it). A `join` whose `char` is out of range is still a join, without one. A tab loaded before 2.14.0 sends none and ignores the field in views. A join writes the rows it wrote before.
+
+**Art.** `npm run art` (Gemini, local only): `CHARACTERS` and `CHARACTER_STYLE` in `scripts/gen-art.ts`, a head cut out of a key colour, 256 px WebP, 6–13 kB each (133 kB the set). The disc's colour is the client's (`Character.tsx`), so each look frames it. Style: flat, bold shapes, a confident look; not a nursery mascot (the owner rejected that). Every image was looked at; 7 were redone (a white frame, a body under the head, a clown-coloured rabbit).
+
+**Names.** Fixed lists in `i18n.tsx`: the 16 animals (`char0`…`char15`, also each button's label) and 16 adjectives a language (`nameAdjectives`). Spanish and Portuguese use only adjectives that don't change with the noun's gender (Valiente, Veloz, Leal…), so every pair agrees. An adjective is offered only with an animal it fits beside in `NAME_MAX` (16).
+
+**Acceptance.**
+- [x] `room.test.ts`: a join picks a character; a taken one becomes the next free one; a join without one (an old tab) is seated and plays; a change in the lobby, never to another seat's, never mid-game or by a spectator; a seat that leaves frees its character; a reconnect keeps it and it is saved with the seat.
+- [x] `protocol`: `char` is an integer in `0…15`; a join with any other value keeps its name and loses the character; a bad `char` message is dropped.
+- [x] `worker.test.ts`: a join with a character writes the rows a join without one does; a change is one row, a repeat none.
+- [x] `names.test.ts`: every name the dice can offer in en, es and pt (each animal with each adjective that fits) is two capitalised words, at most 16 code points, and unchanged by `cutName` and the server's `cleanName`; at least 8 adjectives fit each animal.
+- [x] E2E, both looks, iPhone and Pixel (`e2e/characters.spec.ts`): two phones (en, es) pick, roll a name in their language, can't take each other's character, change it in the lobby, see both on the table and after a reload. Through the harness at 360 px with 8 players: characters change no card's, name bar's or panel's size, nothing scrolls sideways, every target is 44 px, a seat without one keeps its initial, and the summary and the migajero's sign show them.
+
+**Not in this PR (follow-ups).**
+- Your own name bar at 360 px, with the reactions button in it, has little room: the character takes about 30 px there, and a long name is cut to its first letter or two (Modern already did with its monogram; Classic showed four letters). The character is the identity there. A wider fix is the bar's layout, not the avatar.
+- A throw has no name on screen to put a face by: it winds up at the thrower's name, where the character is. Chat bubbles hang from the sender's name or panel, likewise.
+- A character on Home's public list (the host's face by "Ana's room"): it would add a field to `PublicRoom` and the list's row.
+- More characters, or unlockable ones (the review's sticker book, idea 9): append to `CHARS`, never reorder.
 
 ### M16 — Launch in the App Store and Google Play (user decision, 2026-10-24) · last
 

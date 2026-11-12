@@ -337,6 +337,27 @@ describe("RoomDO storage writes", () => {
     expect(t.rows()).toBe(rows);
   });
 
+  it("M32: a join with a character writes the rows a join without one does; a change of character is one row", async () => {
+    const cost = async (char?: number) => {
+      const t = await harness();
+      await t.seat(1);
+      const ws = await t.connect();
+      await t.send(ws, { t: "hello", token: token(5) });
+      const rows = t.rows();
+      await t.send(ws, { t: "join", name: "Late", ...(char !== undefined && { char }) });
+      return { t, ws, rows: t.rows() - rows };
+    };
+    const plain = await cost();
+    const picked = await cost(7);
+    expect(picked.rows).toBe(plain.rows);
+    expect(lastView(picked.ws).seats[1].char).toBe(7);
+    const rows = picked.t.rows();
+    await picked.t.send(picked.ws, { t: "char", char: 8 });
+    expect(picked.t.rows()).toBe(rows + 1);
+    await picked.t.send(picked.ws, { t: "char", char: 8 });
+    expect(picked.t.rows()).toBe(rows + 1);
+  });
+
   it("SEC-3: a 4-player game writes each move once and sets an alarm only to move it earlier", async () => {
     const t = await harness();
     const conns = await t.seat(4);

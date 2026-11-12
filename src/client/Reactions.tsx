@@ -19,6 +19,7 @@ import angerFace from "./art/react-anger.webp";
 import laughFace from "./art/react-laugh.webp";
 import loveFace from "./art/react-love.webp";
 import pigeon from "./art/react-pigeon.webp";
+import { Avatar } from "./Character";
 import { useI18n } from "./i18n";
 import { play } from "./sound";
 import { buzzAt, flight, follow, type Spot, useResting, WIND, windUp } from "./Toss";
@@ -59,10 +60,13 @@ interface ReactionsProps {
   reduced: boolean;
   spot: (seat: number) => Spot | null;
   names: string[];
+  /** Per seat, its character (M32): drawn by the reactor's name. */
+  chars?: (number | undefined)[];
 }
 
 /** Every reaction on screen, over the table. Taps go through them. */
-export function Reactions({ reaction, on, you, warned, reduced, spot, names }: ReactionsProps) {
+export function Reactions(props: ReactionsProps) {
+  const { reaction, on, you, warned, reduced, spot, names, chars } = props;
   const { t } = useI18n();
   // The ref is the truth (reactions can arrive faster than renders); the state draws it.
   const live = useRef<Shown[]>([]);
@@ -119,6 +123,7 @@ export function Reactions({ reaction, on, you, warned, reduced, spot, names }: R
           // Its anchor gone (the Fun switch takes the corner button away): it stays where it is.
           now={() => (s.at.el.isConnected ? seatOf(s.reaction, you, spot) : null)}
           name={names[s.reaction.from] ?? ""}
+          char={chars?.[s.reaction.from]}
           onDone={() => set(live.current.filter((x) => x.key !== s.key))}
         />
       ))}
@@ -170,10 +175,11 @@ interface PopProps {
   /** Where its seat is now. */
   now: () => Spot | null;
   name: string;
+  char?: number;
   onDone: () => void;
 }
 
-function Pop({ shown, you, reduced, now, name, onDone }: PopProps) {
+function Pop({ shown, you, reduced, now, name, char, onDone }: PopProps) {
   const { t } = useI18n();
   const { reaction, at, from } = shown;
   const { kind } = reaction;
@@ -232,6 +238,8 @@ function Pop({ shown, you, reduced, now, name, onDone }: PopProps) {
       for (const a of anims) a.cancel();
     };
   }, []);
+  // The reactor's face by their name; a seat without a character has its name only.
+  const who = char !== undefined && <Avatar seat={reaction.from} name={name} char={char} />;
   return (
     <span
       ref={box}
@@ -253,10 +261,14 @@ function Pop({ shown, you, reduced, now, name, onDone }: PopProps) {
       {migajero ? (
         <span className="react-sign" data-testid="migajero-sign">
           <b>{t("migajeroSign")}</b>
-          <small>{t("reactedBy", { name })}</small>
+          <small>
+            {who}
+            {t("reactedBy", { name })}
+          </small>
         </span>
       ) : (
         <b className="react-gag">
+          {named && who}
           {named ? t("reactionFrom", { name, gag: t(`gag_${kind}`) }) : t(`gag_${kind}`)}
         </b>
       )}
