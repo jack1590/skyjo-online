@@ -36,6 +36,7 @@ import {
 import { ReactButton, Reactions } from "./Reactions";
 import { nudge, play, type Sound, useMuted, useSounds } from "./sound";
 import { type Spot, Tosses, Tray, useThrowsOn } from "./Toss";
+import { LookButton } from "./theme";
 
 interface TableProps {
   view: GameView;
@@ -104,9 +105,12 @@ export function Table(props: TableProps) {
   // The card you last tapped to turn over, so a final reveal turns it first (UX-27).
   const tapped = useRef<string | null>(null);
   // Local modes never outlive the turn or summary they started in (the server may move for us).
+  // A layout effect: a passive one can run after a tap that landed first, and undid it (UX-19).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the deps are triggers, not inputs
+  useLayoutEffect(() => setDiscarding(false), [view.round, view.current, phase]);
+  // Passive: the final reveal's flights (a layout effect) read the tapped card first (UX-27).
   // biome-ignore lint/correctness/useExhaustiveDependencies: the deps are triggers, not inputs
   useEffect(() => {
-    setDiscarding(false);
     tapped.current = null;
   }, [view.round, view.current, phase]);
   useEffect(() => {
@@ -387,6 +391,8 @@ export function Table(props: TableProps) {
     };
   }
   const discardTap = myAuto ? pointAtSwitch : onDiscard;
+  // Holding a card from the deck, the discard pile is where to drop it (M27).
+  const drop = !!onDiscard && phase === "place" && !discardMode;
 
   const n = players.length;
   // Opponents in turn order after you; a spectator sees everyone.
@@ -434,14 +440,10 @@ export function Table(props: TableProps) {
     >
       <header className="bar">
         {/* Beside the chat button the round is short (M29), so the pill keeps its width. */}
-        {props.chat ? (
-          <span className="round short">
-            <span aria-hidden="true">{t("roundShort", { n: view.round })}</span>
-            <span className="sr-only">{t("round", { n: view.round })}</span>
-          </span>
-        ) : (
-          <span className="round">{t("round", { n: view.round })}</span>
-        )}
+        <LookButton
+          label={t("round", { n: view.round })}
+          short={props.chat ? t("roundShort", { n: view.round }) : undefined}
+        />
         {summary && peek ? (
           <button
             ref={showScores}
@@ -469,7 +471,13 @@ export function Table(props: TableProps) {
           aria-pressed={!muted}
           onClick={toggleMuted}
         >
-          {muted ? "🔇" : "🔊"}
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+            <path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z" />
+            <path
+              className="line"
+              d={muted ? "M16 9.5l5 5m0-5l-5 5" : "M15.5 9a4.5 4.5 0 0 1 0 6M18 6.5a8 8 0 0 1 0 11"}
+            />
+          </svg>
         </button>
         <button
           type="button"
@@ -477,7 +485,9 @@ export function Table(props: TableProps) {
           aria-label={t("quit")}
           onClick={() => window.confirm(t("confirmLeave")) && exit()}
         >
-          ✕
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <path className="line" d="M6 6l12 12M18 6L6 18" />
+          </svg>
         </button>
       </header>
 
@@ -503,19 +513,31 @@ export function Table(props: TableProps) {
               }}
               className={`opp${active ? " active" : ""}${gone ? " away" : ""}${clock ? " timed" : ""}${out ? " out" : ""}`}
               data-testid="opponent"
-              aria-label={`${gone ? `${t("offline")}: ` : ""}${auto?.[i] ? `${t("autoPlay")}: ` : ""}${out ? `${p.name}, ${t("outWatching")}` : t("showCards", { name: p.name })}, ${t("pts", { n: total(p) })}${out || summary || !upCount(p.grid) ? "" : `, ${signed(faceUpSum(p.grid))} ${t("thisRound")}`}`}
+              aria-label={`${gone ? `${t("offline")}: ` : ""}${auto?.[i] ? `${t("autoPlay")}: ` : ""}${out ? `${p.name}, ${t("outWatching")}` : t("showCards", { name: p.name })}, ${t("pts", { n: total(p) })}${out || summary || !upCount(p.grid) ? "" : `, ${formatCard(faceUpSum(p.grid))} ${t("thisRound")}`}`}
               // No cards to show.
               disabled={out}
               onClick={() => setZoom(i)}
             >
               <span className="opp-head">
                 <span className="opp-name">
+                  <Avatar seat={i} name={p.name} />
                   {auto?.[i] && <Bot />}
                   {p.name}
                 </span>
                 {clock && <Ring inMs={clock.inMs} />}
-                {!out && !summary && upCount(p.grid) > 0 && <Sum grid={p.grid} />}
-                <span className="opp-total">{total(p)}</span>
+              </span>
+              {/* Labelled (M27): which number is the game's and which the round's so far. */}
+              <span className="opp-scores">
+                <span className="stat">
+                  <small>{t("game")}</small>
+                  <b className="opp-total">{total(p)}</b>
+                </span>
+                {!out && !summary && upCount(p.grid) > 0 && (
+                  <span className="stat">
+                    <small>{t("colRound")}</small>
+                    <Sum grid={p.grid} />
+                  </span>
+                )}
               </span>
               {out ? (
                 <span className="out-note">{t("outWatching")}</span>
@@ -563,7 +585,7 @@ export function Table(props: TableProps) {
               testId="drawn"
               cardRef={reg("drawn")}
             />
-            <span className="pile-label">{t("drawn")}</span>
+            <span className="pile-label">{t(myTurn ? "youDrew" : "drawn")}</span>
           </div>
         ) : (
           <div className="pile empty" aria-hidden={discardMode ? undefined : "true"}>
@@ -586,7 +608,7 @@ export function Table(props: TableProps) {
             <span className="pile-label">&nbsp;</span>
           </div>
         )}
-        <div className="pile">
+        <div className={`pile${drop ? " drop" : ""}`}>
           {/* A card taken from the discard is held up over its pile, not moved aside (UX-21). The
               pile's place takes a tap while its card is still flying in, away from it (M9 PO). */}
           {/* biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noStaticElementInteractions: the card is the button; this only catches taps the card isn't under yet */}
@@ -619,7 +641,9 @@ export function Table(props: TableProps) {
               />
             )}
           </span>
-          <span className="pile-label">{fromDiscard ? t("fromDiscard") : t("discard")}</span>
+          <span className="pile-label">
+            {t(fromDiscard ? "fromDiscard" : drop ? "discardHere" : "discard")}
+          </span>
         </div>
       </section>
 
@@ -629,7 +653,7 @@ export function Table(props: TableProps) {
       </p>
 
       {me && seat !== null && (
-        <section ref={mine} className="mine">
+        <section ref={mine} className={`mine${myTurn ? " my-turn" : ""}`}>
           {/* Auto-play lives here: a quiet switch, or while on, a bar holding the same switch. */}
           <div
             ref={mineHead}
@@ -640,14 +664,24 @@ export function Table(props: TableProps) {
               <span className="auto-note">{t(away ? "autoAway" : "autoOn")}</span>
             ) : (
               <span className="me">
-                <strong>{me.name}</strong> <span className="pts">{t("pts", { n: total(me) })}</span>{" "}
-                {!summary && upCount(me.grid) > 0 && <Sum grid={me.grid} />}
+                <Avatar seat={seat} name={me.name} />
+                <strong>{me.name}</strong>
+                <span className="stat">
+                  <small>{t("game")}</small>
+                  <b className="pts">{total(me)}</b>
+                </span>
+                {!summary && upCount(me.grid) > 0 && (
+                  <span className="stat">
+                    <small>{t("thisRound")}</small>
+                    <Sum grid={me.grid} />
+                  </span>
+                )}
               </span>
             )}
             {/* Nothing left to play once you're out (R16), even at that round's summary. */}
             {me.out === null && (
               <label className="auto">
-                {!myAuto && t("autoPlay")}
+                {!myAuto && t("autoShort")}
                 <span className="switch">
                   <input
                     type="checkbox"
@@ -658,18 +692,32 @@ export function Table(props: TableProps) {
                 </span>
               </label>
             )}
-            {myClock.until !== null && (
-              <Drain
-                key={myClock.until}
-                until={myClock.until}
-                className={`clock${hurry(myClock.left)}`}
-                testId="clock"
-              />
-            )}
             <span className="sr-only" role="status">
               {said}
             </span>
             {!side && reactButton("bar")}
+          </div>
+          {/* One fixed line inside your frame (M27): what to aim for, and your clock while it runs. */}
+          <div className="clock-row">
+            <span className="low-wins">{t("lowWins")}</span>
+            {myClock.until !== null && (
+              <>
+                <span className="track">
+                  <Drain
+                    key={myClock.until}
+                    until={myClock.until}
+                    className={`clock${hurry(myClock.left)}`}
+                    testId="clock"
+                  />
+                </span>
+                {/* Its seconds, in its last 10 (the pill has them too). */}
+                {myClock.left !== null && (
+                  <span className={`secs${hurry(myClock.left)}`} aria-hidden="true">
+                    {t("secondsShort", { s: myClock.left })}
+                  </span>
+                )}
+              </>
+            )}
           </div>
           <div className="grid-wrap">
             <div
@@ -699,8 +747,9 @@ export function Table(props: TableProps) {
 
       {zoom !== null && players[zoom] && !isOut(players[zoom], view.round) && (
         <Zoom view={view} seat={zoom} total={total(players[zoom])} onClose={() => setZoom(null)}>
-          {/* Seated players throw, out ones (R16) too; spectators only watch (M21). */}
-          {props.seat !== null && props.onToss && (
+          {/* Seated players throw, out ones (R16) too; spectators only watch (M21). Not at a
+              summary, which shows no throws (BUG-7). */}
+          {props.seat !== null && props.onToss && !summary && (
             <Tray
               name={players[zoom].name}
               on={throwsOn}
@@ -872,6 +921,27 @@ function Zoom({ children, view, seat, total, onClose }: ZoomProps) {
   );
 }
 
+/**
+ * Why the ender's round score is what it is (R12), in one sentence: doubled because someone scored
+ * lower or the same, or not, for the lowest score. Compares that round's players only (R16), on
+ * the ender's score before it doubled. None when the round ended without an ender's rule to tell
+ * (a score of 0 or less that isn't the lowest).
+ */
+export function endedNote(t: T, view: GameView): string | null {
+  if (view.ender === null || (view.phase !== "roundOver" && view.phase !== "gameOver")) return null;
+  const ender = view.players[view.ender];
+  const mine = lastScore(ender, view.round) / (view.doubled ? 2 : 1);
+  const others = view.players
+    .filter((p, i) => i !== view.ender && !isOut(p, view.round))
+    .map((p) => ({ name: p.name, score: lastScore(p, view.round) }))
+    .sort((a, b) => a.score - b.score);
+  const best = others[0];
+  if (!best) return null;
+  const names = { name: ender.name, other: best.name, n: mine };
+  if (view.doubled) return t(best.score < mine ? "doubledLower" : "doubledTied", names);
+  return mine < best.score ? t("endedLowest", names) : null;
+}
+
 interface SummaryProps {
   view: GameView;
   /** Your seat, out or not; null when watching. */
@@ -936,6 +1006,7 @@ function Summary(props: SummaryProps) {
   let sub: string | null = null;
   if (wentOut) sub = t("youreOut");
   else if (over && you !== null && !won) sub = overTitle(t, locale, view, null);
+  const why = endedNote(t, view);
   return (
     <dialog
       ref={ref}
@@ -961,36 +1032,45 @@ function Summary(props: SummaryProps) {
             {sub}
           </p>
         )}
-        <table className="scores">
+        {why && (
+          <p className="why" data-testid="summary-why">
+            {why}
+          </p>
+        )}
+        {/* From 6 players on, slimmer rows: 8 fit a small phone without scrolling. */}
+        <table className={`scores${rows.length > 5 ? " many" : ""}`}>
           <thead>
             <tr>
               <th>{t("colPlayer")}</th>
-              <th>{t("colRound")}</th>
-              <th>{t("colTotal")}</th>
+              <th>{t("thisRound")}</th>
+              <th>{t("game")}</th>
             </tr>
           </thead>
-          <tbody>
-            {rows.map((p) => {
-              // Players out before this round (R16) have no score in it.
-              const played = !isOut(p, view.round);
-              const last = lastScore(p, view.round);
-              return (
-                <tr
-                  key={p.seat}
-                  data-seat={p.seat}
-                  className={view.winners.includes(p.seat) ? "win" : undefined}
-                >
+          {rows.map((p) => {
+            // Players out before this round (R16) have no score in it.
+            const played = !isOut(p, view.round);
+            const last = lastScore(p, view.round);
+            // In front: the winners at game over, the lowest total until then.
+            const first = over ? view.winners.includes(p.seat) : place[p.seat] === 1;
+            return (
+              // A body a player: their row, and under it their bar.
+              <tbody key={p.seat} className={first ? "win" : undefined}>
+                <tr data-seat={p.seat}>
                   <td>
-                    {auto?.[p.seat] && <Bot />}
-                    {p.name}
-                    {p.seat === you && <span className="tag you">{t("you")}</span>}
-                    {p.seat === view.ender && <span className="tag">{t("ended")}</span>}
-                    {/* A winner may have reached 100 too, when nobody was left under it. */}
-                    {p.out !== null && !view.winners.includes(p.seat) && (
-                      <span className="tag" data-testid="out-tag">
-                        {t("outInRound", { n: p.out })}
-                      </span>
-                    )}
+                    {/* Their place, drawn by CSS: the row's text starts with the name. */}
+                    <span className="who" data-rank={place[p.seat]}>
+                      <Avatar seat={p.seat} name={p.name} />
+                      {auto?.[p.seat] && <Bot />}
+                      <span className="who-name">{p.name}</span>
+                      {p.seat === you && <span className="tag you">{t("you")}</span>}
+                      {p.seat === view.ender && <span className="tag">{t("ended")}</span>}
+                      {/* A winner may have reached 100 too, when nobody was left under it. */}
+                      {p.out !== null && !view.winners.includes(p.seat) && (
+                        <span className="tag" data-testid="out-tag">
+                          {t("outInRound", { n: p.out })}
+                        </span>
+                      )}
+                    </span>
                   </td>
                   <td>
                     {!played ? (
@@ -1005,14 +1085,32 @@ function Summary(props: SummaryProps) {
                       last
                     )}
                   </td>
-                  <td>
+                  <td className="tot">
                     <CountUp from={p.total - last} to={p.total} />
                   </td>
                 </tr>
-              );
-            })}
-          </tbody>
+                {/* How close to 100 (R14, R16): the game's end, or going out. */}
+                {/* biome-ignore lint/a11y/noAriaHiddenOnFocusable: a row takes no focus; the bar only draws the total beside it */}
+                <tr aria-hidden="true">
+                  <td colSpan={3}>
+                    <span
+                      className="meter"
+                      style={{ "--p": Math.min(100, Math.max(0, p.total)) } as CSSProperties}
+                    >
+                      <i />
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            );
+          })}
         </table>
+        {!over && (
+          <p className="goal">
+            <span>{t(view.knockout ? "lastOneWins" : "lowestWins")}</span>
+            <span>{t(view.knockout ? "outAt100" : "endsAt100")}</span>
+          </p>
+        )}
         {/* Nothing comes after game over unless the host starts a new one. */}
         {!lead && !wentOut && <p className="prompt">{t(over ? "hostNewGame" : "waitingHost")}</p>}
         {over ? (
@@ -1165,21 +1263,27 @@ function useRoomBeside(grid: { current: HTMLElement | null }, shown: boolean): b
   return room;
 }
 
-/** "+14", "−3": a signed round score, as it adds to the total. */
-const signed = (n: number) => (n > 0 ? `+${n}` : formatCard(n));
-
 /**
- * A player's round score so far, beside their total (UX-15): their face-up cards. Only while the
- * round is played: from the final reveal on, the summary has the round's scores (M9's hold).
+ * A player's round score so far, beside their total (UX-15): their face-up cards, under a caption
+ * (M27). Only while the round is played: from the final reveal on, the summary has the round's
+ * scores (M9's hold).
  */
 function Sum({ grid }: { grid: ViewSlot[] }) {
-  const { t } = useI18n();
-  const n = signed(faceUpSum(grid));
   return (
-    <span className="sum" data-testid="sum">
-      {n}
-      <span className="sr-only"> {t("thisRound")}</span>
-    </span>
+    <b className="sum" data-testid="sum">
+      {formatCard(faceUpSum(grid))}
+    </b>
+  );
+}
+
+/** A seat's monogram disc, in its own colour (M28): drawn in the Modern look only (styles.css). */
+function Avatar({ seat, name }: { seat: number; name: string }) {
+  return (
+    <span
+      className={`av av-${seat}`}
+      data-initial={[...name.trim()][0]?.toUpperCase()}
+      aria-hidden="true"
+    />
   );
 }
 

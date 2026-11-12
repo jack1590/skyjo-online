@@ -3,7 +3,7 @@
 // Works for every player's moves (and for spectators), because it only needs views.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { GameView, ViewSlot } from "../engine/view";
-import { art, formatCard } from "./Card";
+import { art, band, formatCard } from "./Card";
 
 export const slotKey = (seat: number, pos: number) => `slot-${seat}-${pos}`;
 
@@ -398,7 +398,7 @@ function standIn(
     const text = look.querySelector(".num");
     num = text ? Number.parseFloat(getComputedStyle(text).fontSize) : 0;
   } else if (look !== null) {
-    el.className = `card ${size} ${look === "down" ? "down" : "up"}`;
+    el.className = `card ${size} ${look === "down" ? "down" : `up ${band(look)}`}`;
     el.style.backgroundImage = `url(${art(look)})`;
     // A large card's width comes from your grid; its number is a share of it.
     if (size === "lg") el.style.setProperty("--w", `${box.width}px`);
@@ -697,9 +697,16 @@ export function useFlights(
         if (!el || !at) return;
         const go = leave + i * COLUMN.gap;
         // Until it leaves, a stand-in of its own card where it lies: its size, and its number's
-        // (an opponent's, like styles.css's `.card.sm .num`, from their grid's width).
+        // (an opponent's: as tall as a number still in their grid, whatever the look, M28; with
+        // none left to read, styles.css's Classic `.card.sm .num`, from their grid's width).
         const size = sizeOf(el);
-        const num = size === "sm" ? Math.max(12, 0.15 * (el.parentElement?.clientWidth ?? 0)) : 0;
+        const shown = el.parentElement?.querySelector(".num");
+        const num =
+          size !== "sm"
+            ? 0
+            : shown
+              ? Number.parseFloat(getComputedStyle(shown).fontSize)
+              : Math.max(12, 0.15 * (el.parentElement?.clientWidth ?? 0));
         const card = keep(standIn(m.card ?? null, at, { size, num, hidden: true }));
         if (outOfSight(el, at)) card.style.visibility = "hidden"; // still times the column
         const rest = (t: number, scale = 1) => ({ t, x: 0, y: 0, rotate: 0, scale, turn: 0 });

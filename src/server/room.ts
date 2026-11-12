@@ -9,7 +9,7 @@ import {
   MIN_PLAYERS,
   RuleError,
 } from "../engine/game";
-import type { Rng } from "../engine/rng";
+import { type Seed, seedRng } from "../engine/rng";
 import { toView } from "../engine/view";
 import {
   CHAT_BURST,
@@ -20,10 +20,10 @@ import {
   type ClientMsg,
   CODE_ALPHABET,
   CODE_LENGTH,
-  cleanText,
+  cutName,
   type ErrorCode,
   lastMover,
-  NAME_MAX,
+  type PublicRoom,
   type Reaction,
   type RoomView,
   TOSS_MS,
@@ -62,6 +62,20 @@ export interface RoomData {
   stopped?: number[];
   /** "Play until one is left" (R16), set in the lobby and dealt with at every start. Unset before 2.2.0. */
   knockout?: boolean;
+  /** The host listed the room on Home (M24). Unset before 2.8.0. */
+  public?: boolean;
+  /**
+   * What the public list was last told about this room, and when; unset = not on it. Saved, so a
+   * room back from hibernation tells the list (a row and a request) only what changed.
+   */
+  listed?: { room: PublicRoom; at: number };
+  /**
+   * The address (`ipKey`) of the host who switched Public on; null = a local run. The list counts
+   * the room against it (2 an address). Never in a view.
+   */
+  publicBy?: string | null;
+  /** Tokens the host removed from this public lobby, and until when (ms) they can't join it. */
+  removed?: Record<string, number>;
 }
 
 /** One open socket, persisted in its attachment. */
@@ -79,6 +93,8 @@ export interface Conn {
   ack: number;
   windowStart: number;
   windowCount: number;
+  /** Throws and reactions it has sent: its IP pays for the first of every GAGS_PER_UNIT (BUG-4). */
+  gags: number;
   /** The client's `ipKey`, which its messages count against; null = a local run, not limited. */
   ip: string | null;
   /** When the socket opened (ms). A deploy closes every socket, so no attachment predates it. */
@@ -88,7 +104,7 @@ export interface Conn {
 export interface Deps {
   now: () => number;
   /** Fresh CSPRNG entropy for each deal. */
-  seed: () => Rng;
+  seed: () => Seed;
 }
 
 /**
@@ -137,12 +153,23 @@ const WINDOW_MAX = 120;
  */
 export const IP_MESSAGES_PER_MINUTE = 120;
 /**
+ * Throws and reactions (gags) a socket sends per unit of its IP's budget (BUG-4). A gag writes no
+ * row, and Cloudflare bills 20 incoming WebSocket messages as one Durable Object request, so 8 of
+ * them cost 0.4 of a request, under the half a unit buys elsewhere (an alarm run is 2 units): one
+ * IP throwing from every seat it holds still needs 19.2 h to use up the requests (worker.test.ts;
+ * 17.8 h at 10 a unit). At a unit each, 6 phones on one Wi-Fi gagging every 3 s spent the whole
+ * budget and were all closed.
+ */
+export const GAGS_PER_UNIT = 8;
+/**
  * Sockets per room that said hello (SEC-2): 8 players and a dozen spectators. Each one gets every
  * broadcast and can send its own writes, so a room can't take as many as a script opens.
  */
 export const MAX_SOCKETS = 20;
 /** A socket that hasn't said hello this long after opening is closed (SEC-6); the client says it at once. */
 export const HELLO_MS = 10_000;
+/** A player the host removed from a public lobby (M24) can't join it again for this long. */
+export const REMOVED_MS = 10 * 60_000;
 /** Views carry a throw this long (M21): later ones, such as a reconnecting phone's, leave it out. */
 export const TOSS_SHOW_MS = 2_000;
 
@@ -156,7 +183,7 @@ export const dead = (conn: Conn, now: number) => now - conn.seenAt >= 2 * STALE_
 /** Real clock and CSPRNG; both runtimes (Workers, Node 22) have a global `crypto`. */
 export const systemDeps: Deps = {
   now: () => Date.now(),
-  seed: () => Array.from(crypto.getRandomValues(new Int32Array(4))) as Rng,
+  seed: () => Array.from(crypto.getRandomValues(new Int32Array(8))),
 };
 
 /** 32-letter alphabet, so `byte % 32` is unbiased. */
@@ -182,6 +209,7 @@ export const newConn = (now: number, ip: string | null): Conn => ({
   ack: 0,
   windowStart: now,
   windowCount: 0,
+  gags: 0,
   ip,
   openedAt: now,
 });
@@ -202,6 +230,16 @@ function count(w: Window, now: number, ms: number, max: number): boolean {
 
 /** The per-socket flood limit. */
 export const allowMessage = (conn: Conn, now: number) => count(conn, now, WINDOW_MS, WINDOW_MAX);
+
+/**
+ * Whether this message costs its IP a unit: any message does, but of a socket's gags (throws,
+ * reactions and chat messages, M29: none writes a row) only the first of every GAGS_PER_UNIT,
+ * landed, too soon or refused. Paid ahead, so a new socket gets none free.
+ */
+export function costs(conn: Conn, msg: ClientMsg | null): boolean {
+  if (msg?.t !== "toss" && msg?.t !== "react" && msg?.t !== "chat") return true;
+  return conn.gags++ % GAGS_PER_UNIT === 0;
+}
 
 /** The per-IP budget, for a server without the Worker's MESSAGES binding (node.ts). */
 export function allowIp(windows: Map<string, Window>, key: string, now: number): boolean {
@@ -243,6 +281,30 @@ export function ipKey(ip: string): string {
   const zeros = tail === undefined ? [] : Array(8 - left.length - right.length).fill("0");
   return `${[...left, ...zeros, ...right].slice(0, 4).join(":")}::/64`;
 }
+
+/** Throws and reactions are for a round being played: a summary shows neither. */
+const playing = (game: GameState) =>
+  game.phase === "flip" || game.phase === "draw" || game.phase === "place";
+
+/**
+ * A name keeps a `\p{C}` character (control, zero-width, bidi, tag, private use) only inside an
+ * emoji on Unicode's list (RGI): the joiner of a family or a rainbow flag, the tags of the England,
+ * Scotland and Wales flags (BUG-8). Anywhere else it could hide text or pass one name off as
+ * another.
+ */
+// biome-ignore lint/complexity/useRegexLiterals: a literal with the "v" flag needs target ES2024
+const RGI_EMOJI = new RegExp("^\\p{RGI_Emoji}$", "v");
+const clusters = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+/** Strips those characters cluster by cluster, trims, and cuts (`cutName`). */
+const cleanName = (name: string) =>
+  cutName(
+    Array.from(clusters.segment(name), ({ segment }) =>
+      RGI_EMOJI.test(segment) ? segment : segment.replace(/\p{C}/gu, ""),
+    )
+      .join("")
+      .trim(),
+  ).trim();
 
 export class Room {
   /**
@@ -314,9 +376,9 @@ export class Room {
         // from `online` that the table saw it offline (SEC-9).
         return this.online(live) === online && !quiet ? "none" : "view";
       case "join": {
-        if (seat !== null || !lobby) throw new RoomError("not-allowed");
+        if (seat !== null || !lobby || this.removed(conn.token)) throw new RoomError("not-allowed");
         if (seats.length >= MAX_PLAYERS) throw new RoomError("room-full");
-        const name = cleanText(msg.name, NAME_MAX);
+        const name = cleanName(msg.name);
         if (!name) throw new RoomError("bad-name");
         if (seats.some((s) => s.name.toLowerCase() === name.toLowerCase())) {
           throw new RoomError("name-taken");
@@ -328,16 +390,50 @@ export class Room {
         if (seat === null || !lobby) throw new RoomError("not-allowed");
         this.removeSeat(seat);
         return "data";
-      case "kick":
-        // Clears ghost seats (someone who closed the tab without leaving); online players stay.
-        if (!lobby || !this.canLead(seat, live) || msg.seat === seat) {
+      case "kick": {
+        // By name when the client sent one: the index it saw may be another seat's by now (BUG-13).
+        const { name } = msg;
+        const at = name === undefined ? msg.seat : seats.findIndex((s) => s.name === name);
+        // Already gone, by its own leave or another leader's tap: late, not an error.
+        if (at === -1) return "none";
+        const target = seats[at];
+        if (!lobby || !target || at === seat || !this.canLead(seat, live)) {
           throw new RoomError("not-allowed");
         }
-        if (!seats[msg.seat] || this.connected(msg.seat, live)) throw new RoomError("not-allowed");
-        this.removeSeat(msg.seat);
+        // Clears ghost seats (someone who closed the tab without leaving); online players stay,
+        // except in a public lobby (M24), where the host may remove a stranger who is there.
+        const present = this.connected(at, live);
+        if (present && !(this.data.public === true && seat === this.data.host)) {
+          throw new RoomError("not-allowed");
+        }
+        if (present) {
+          // Shut out for a while, or they'd sit straight back down. 20 at most, the latest.
+          const kept = Object.entries(this.data.removed ?? {}).filter(([, until]) => until > now);
+          kept.push([target.token, now + REMOVED_MS]);
+          this.data.removed = Object.fromEntries(kept.slice(-20));
+        }
+        this.removeSeat(at);
         return "data";
+      }
+      case "move": {
+        // Seat order is turn order (R5), e.g. so couples don't play right after each other (M26).
+        const from = seats.findIndex((s) => s.name === msg.name);
+        if (!lobby || !this.canLead(seat, live) || from === -1 || !seats[msg.to]) {
+          throw new RoomError("not-allowed");
+        }
+        if (from === msg.to) return "none";
+        // The host is a person, not a place.
+        const host = seats[this.data.host];
+        seats.splice(msg.to, 0, ...seats.splice(from, 1));
+        this.data.host = seats.indexOf(host);
+        return "data";
+      }
       case "start":
-        if (!lobby || seats.length < MIN_PLAYERS || !this.canLead(seat, live)) {
+        // A lead tap that lands after another leader's (the host is away, so anyone seated may
+        // lead) asks for what already happened: late, not an error (BUG-12). So with Play again
+        // and Next round below.
+        if (!lobby) return "none";
+        if (seats.length < MIN_PLAYERS || !this.canLead(seat, live)) {
           throw new RoomError("not-allowed");
         }
         this.data.game = createGame(
@@ -347,7 +443,7 @@ export class Room {
         );
         this.data.waitSince = now;
         this.data.turnSince = now;
-        // Auto-play lasts a game: in the lobby it only let others lead while you were away.
+        // A lobby saved before 2.6.4 may still hold a seat on Auto-play (BUG-6).
         for (const s of seats) s.auto = false;
         return "data";
       case "knockout":
@@ -355,6 +451,13 @@ export class Room {
         if (!lobby || !this.canLead(seat, live)) throw new RoomError("not-allowed");
         if ((this.data.knockout === true) === msg.on) return "none";
         this.data.knockout = msg.on;
+        return "data";
+      case "public":
+        // Only the host opens the room to strangers: a stand-in leader can't.
+        if (!lobby || seat === null || seat !== this.data.host) throw new RoomError("not-allowed");
+        if ((this.data.public === true) === msg.on) return "none";
+        this.data.public = msg.on;
+        this.data.publicBy = conn.ip;
         return "data";
       case "auto": {
         // A player who is out has no turns to play (R16).
@@ -369,17 +472,23 @@ export class Room {
       }
       case "rematch":
         // Back to the lobby with the same seats, where people can join, leave, or be removed.
-        if (game?.phase !== "gameOver" || !this.canLead(seat, live)) {
+        if (lobby) return "none";
+        if (game.phase !== "gameOver" || !this.canLead(seat, live)) {
           throw new RoomError("not-allowed");
         }
         this.data.game = null;
+        // Auto-play lasts a game. The lobby has no switch for it, so a host left on it could never
+        // lead again (BUG-6). A host whose page is closed or asleep is offline, so others lead; one
+        // away from an open page holds the lobby, as in any lobby.
+        for (const s of seats) s.auto = false;
         return "data";
       case "act":
         if (game === null || seat === null) throw new RoomError("not-allowed");
         if (msg.action.type === "nextRound") {
+          if (game.phase !== "roundOver") return "none";
           if (!this.canLead(seat, live)) throw new RoomError("not-allowed");
           // Fresh entropy per round, so reconstructing one round's RNG can't predict the next deal.
-          this.play({ ...game, rng: this.deps.seed() }, msg.action);
+          this.play({ ...game, rng: seedRng(this.deps.seed()) }, msg.action);
         } else {
           this.play(game, { ...msg.action, seat });
         }
@@ -388,8 +497,9 @@ export class Room {
         if (game === null || seat === null || msg.to === seat || !seats[msg.to]) {
           throw new RoomError("not-allowed");
         }
-        // Too soon: the client greys the items out meanwhile, so only a script gets here.
-        if (now - (this.tossed.get(seat) ?? -TOSS_MS) < TOSS_MS) return "none";
+        // At a summary no phone draws a throw (BUG-7): dropped, like a reaction. Too soon: the
+        // client greys the items out meanwhile, so only a script gets here.
+        if (!playing(game) || now - (this.tossed.get(seat) ?? -TOSS_MS) < TOSS_MS) return "none";
         this.tossed.set(seat, now);
         this.toss = { id: now, from: seat, to: msg.to, item: msg.item };
         return "view";
@@ -400,8 +510,8 @@ export class Room {
           throw new RoomError("not-allowed");
         }
         // A tap that arrives as the round ends, or as the turn passes: too late, not an error.
-        const playing = game.phase === "flip" || game.phase === "draw" || game.phase === "place";
-        if (!playing || (msg.kind === "migajero" && at !== lastMover(game, seat))) return "none";
+        if (!playing(game) || (msg.kind === "migajero" && at !== lastMover(game, seat)))
+          return "none";
         // One gag per seat per TOSS_MS, a throw or a reaction.
         if (now - (this.tossed.get(seat) ?? -TOSS_MS) < TOSS_MS) return "none";
         this.tossed.set(seat, now);
@@ -415,11 +525,11 @@ export class Room {
       }
       case "chat": {
         // Too soon: the client greys Send meanwhile. Dropped, never an error or a disconnect.
-        if (this.chatIn(conn, live) > 0) return "none";
+        if (this.chatIn(conn) > 0) return "none";
         for (const [token, whole] of this.chatted) if (whole <= now) this.chatted.delete(token);
         const key = this.chatKey(conn);
         const whole = Math.max(this.chatted.get(key) ?? 0, now);
-        this.chatted.set(key, whole + this.chatRate(conn, live).wait);
+        this.chatted.set(key, whole + CHAT_MS);
         const said: ChatMsg = {
           id: Math.max(now, (this.chat.at(-1)?.id ?? 0) + 1),
           from: seat,
@@ -433,22 +543,6 @@ export class Room {
   }
 
   /**
-   * A sender's chat allowance (M29): CHAT_BURST messages at once and one more every CHAT_MS, alone
-   * on its address. Phones sharing an address (one Wi-Fi) share its message budget, and each
-   * message costs a unit, so there each has one message and waits CHAT_MS per phone: together 20 a
-   * minute, what one phone may alone, and chat can't spend the budget their moves need (the rule
-   * BUG-4 set for throws). A socket gone stale can't chat without showing up again: not counted.
-   */
-  private chatRate(conn: Conn, live: Conn[]): { wait: number; burst: number } {
-    const now = this.deps.now();
-    const near = live.filter(
-      (c) => c.ip !== null && c.ip === conn.ip && c.token !== null && now - c.seenAt < STALE_MS,
-    );
-    const phones = Math.max(1, new Set(near.map((c) => c.token)).size);
-    return { wait: CHAT_MS * phones, burst: phones === 1 ? CHAT_BURST : 1 };
-  }
-
-  /**
    * Whose allowance a message spends: the seat's token, or for a spectator its address, since a
    * new token is free and would be a new allowance each time.
    */
@@ -456,11 +550,14 @@ export class Room {
     return (this.seatOf(conn) === null ? conn.ip : null) ?? conn.token ?? "";
   }
 
-  /** Ms until `conn` may chat again; 0 = now. */
-  private chatIn(conn: Conn, live: Conn[]): number {
-    const { wait, burst } = this.chatRate(conn, live);
+  /**
+   * Ms until `conn` may chat again; 0 = now. A sender has CHAT_BURST messages at once and one more
+   * every CHAT_MS, on any network: phones on one Wi-Fi don't wait for each other (the owner's rule
+   * for throws, BUG-4). What keeps chat off their shared budget is its price (`costs`).
+   */
+  private chatIn(conn: Conn): number {
     const whole = this.chatted.get(this.chatKey(conn)) ?? 0;
-    return Math.max(0, whole - (burst - 1) * wait - this.deps.now());
+    return Math.max(0, whole - (CHAT_BURST - 1) * CHAT_MS - this.deps.now());
   }
 
   /**
@@ -495,7 +592,7 @@ export class Room {
   view(conn: Conn, live: Conn[]): RoomView {
     const you = this.seatOf(conn);
     const now = this.deps.now();
-    const chatIn = this.chatIn(conn, live);
+    const chatIn = this.chatIn(conn);
     return {
       code: this.data.code,
       seats: this.data.seats.map((s, i) => ({
@@ -508,6 +605,10 @@ export class Room {
       lead: this.canLead(you, live),
       clocks: this.clocks(live),
       knockout: this.data.knockout === true,
+      public: this.data.public === true,
+      ...(this.data.game === null &&
+        conn.token !== null &&
+        this.removed(conn.token) && { removed: true }),
       game: this.data.game && toView(this.data.game),
       ...(this.toss && this.deps.now() - this.toss.id < TOSS_SHOW_MS && { toss: this.toss }),
       ...(this.reaction &&
@@ -518,6 +619,55 @@ export class Room {
       }),
       ...(chatIn > 0 && { chatIn }),
     };
+  }
+
+  /**
+   * The room's entry on Home's public list (M24), or null when it isn't to be there: private, in a
+   * game, full, or with nobody seated and connected to welcome a stranger.
+   */
+  listing(live: Conn[]): PublicRoom | null {
+    const { code, seats, host, game } = this.data;
+    const open =
+      this.data.public === true &&
+      game === null &&
+      seats.length < MAX_PLAYERS &&
+      seats.some((_, i) => this.connected(i, live));
+    return open
+      ? {
+          code,
+          host: seats[host].name,
+          players: seats.length,
+          knockout: this.data.knockout === true,
+        }
+      : null;
+  }
+
+  /**
+   * What the public list must be told now: this room's entry, or null to take it off; undefined
+   * when it already knows. A listed room says so again after 12 h, since the list forgets one it
+   * hasn't heard from in 24 h. The adapter tells the list, then calls `told`, then saves the room.
+   */
+  relist(live: Conn[]): PublicRoom | null | undefined {
+    const next = this.listing(live);
+    const was = this.data.listed;
+    const old = was !== undefined && this.deps.now() - was.at >= IDLE_MS / 2;
+    return JSON.stringify(next) === JSON.stringify(was?.room ?? null) && !old ? undefined : next;
+  }
+
+  told(room: PublicRoom | null): void {
+    if (room) this.data.listed = { room, at: this.deps.now() };
+    else delete this.data.listed;
+  }
+
+  /** The list refused the room, its address having 2 there already: it is private again. */
+  refuse(): void {
+    delete this.data.public;
+    delete this.data.listed;
+  }
+
+  /** Whether the host removed this token from the public lobby less than REMOVED_MS ago. */
+  private removed(token: string): boolean {
+    return (this.data.removed?.[token] ?? 0) > this.deps.now();
   }
 
   /** Every seat the table waits on whose clock runs, and when and why the server moves for it. */
@@ -575,6 +725,13 @@ export class Room {
     // If the host goes quiet while the table needs a lead, others must learn they may step in.
     if (this.needsLead() && this.connected(this.data.host, live)) {
       due.push(check(this.lastSeen(this.data.host, live) + STALE_MS));
+    }
+    // A listed room leaves Home's list when its last connected seat turns stale (M24).
+    if (this.listing(live)) {
+      const seen = this.data.seats.flatMap((_, i) =>
+        this.connected(i, live) ? [this.lastSeen(i, live)] : [],
+      );
+      due.push(check(Math.max(...seen) + STALE_MS));
     }
     // A step that came due after this event's tick() (a timer that fired a millisecond early) is
     // checked again at once, not dropped: dropping it stalled the turn until the next check.
@@ -693,6 +850,8 @@ export class Room {
 
   private removeSeat(seat: number): void {
     this.data.seats.splice(seat, 1);
+    // An emptied room is private again (M24): whoever sits down next didn't choose to be listed.
+    if (this.data.seats.length === 0) delete this.data.public;
     // The next seat inherits the host role.
     if (seat < this.data.host) this.data.host--;
     else if (this.data.host >= this.data.seats.length) this.data.host = 0;

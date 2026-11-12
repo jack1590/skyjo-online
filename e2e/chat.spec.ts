@@ -214,7 +214,7 @@ test("M29: with 8 players at 360 px a bubble sits on its sender, follows them as
   await expect.poll(off).toBe(0);
 
   // The summary is a modal over the table: the bubbles are in it, by their senders' rows.
-  const over = toView(roundOver(8, 3));
+  const over = toView(roundOver(8, 344));
   await show(page, { view: over, seat: me, lead: true, said: [say(far, "Well played", 4)] });
   const row = await page.locator(`tr[data-seat="${far}"]`).boundingBox();
   const at = await page.locator("dialog.overlay").getByTestId("bubble").boundingBox();

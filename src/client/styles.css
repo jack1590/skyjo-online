@@ -1,7 +1,16 @@
 :root {
-  --bg: #0d1b2a;
-  --bg-hi: #17344d;
+  --bg: #0a1522;
+  --bg-hi: #2a587c;
   --panel: rgb(255 255 255 / 0.07);
+  /* A raised surface (M27): lit from above, with a soft shadow under it. */
+  --raised: linear-gradient(rgb(255 255 255 / 0.09), rgb(255 255 255 / 0.03));
+  --raised-shadow: inset 0 1px 0 rgb(255 255 255 / 0.12), 0 4px 10px -4px rgb(0 0 0 / 0.5);
+  --gold: linear-gradient(#ffd978, #f2c14e 55%, #d99f2b);
+  /* A lantern's glow where the piles are, over a deep night (M27). */
+  --stage:
+    radial-gradient(95% 34% at 50% 37%, var(--bg-hi) 0%, rgb(29 65 96 / 0.55) 55%, transparent 100%)
+    fixed,
+    linear-gradient(#0f2234, var(--bg)) fixed;
   --line: rgb(255 255 255 / 0.14);
   --text: #f5f1e6;
   --muted: #a8b6c6;
@@ -25,7 +34,8 @@ body,
 }
 
 body {
-  background: radial-gradient(130% 90% at 50% 0%, var(--bg-hi), var(--bg) 70%) fixed;
+  background: var(--stage);
+  background-color: var(--bg);
   color: var(--text);
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior: none;
@@ -48,10 +58,20 @@ button {
   min-height: 48px;
   min-width: 48px;
   padding: 0 20px;
-  border: 1px solid var(--line);
+  border: 0;
   border-radius: 12px;
-  background: var(--panel);
+  background: linear-gradient(#1f4160, #152c42);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.14),
+    inset 0 0 0 1px rgb(255 255 255 / 0.1),
+    0 2px 4px rgb(0 0 0 / 0.4);
   font-weight: 700;
+}
+
+/* Pressed in. A transform, not `translate`: Undo is placed with that (below), and losing it mid-tap
+   moved the button from under the finger, so the tap never landed. */
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
 .btn:disabled {
@@ -60,9 +80,11 @@ button {
 }
 
 .btn.primary {
-  background: var(--accent);
-  border-color: transparent;
+  background: var(--gold);
   color: var(--accent-ink);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.6),
+    0 6px 18px -4px rgb(242 193 78 / 0.55);
 }
 
 .btn.icon {
@@ -71,6 +93,19 @@ button {
   min-width: 44px;
   min-height: 44px;
   font-size: 18px;
+  display: inline-grid;
+  place-items: center;
+}
+
+.btn.icon svg {
+  fill: currentColor;
+}
+
+.btn.icon .line {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
 }
 
 /* A text button for a way out, such as the lobby's Leave seat (UX-13): no fill, same target. */
@@ -78,6 +113,7 @@ button {
   align-self: center;
   border-color: transparent;
   background: none;
+  box-shadow: none;
   color: var(--muted);
   font-weight: 400;
   text-decoration: underline;
@@ -177,8 +213,43 @@ button {
   align-items: center;
   gap: 8px;
   min-height: 40px;
+  padding: 3px 0;
   border-bottom: 1px solid var(--line);
   overflow-wrap: anywhere;
+}
+
+/* M26: the host drags a row by its handle; the page must not scroll under the finger. */
+.grip {
+  touch-action: none;
+  cursor: grab;
+}
+
+.sorting {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Rows the dragged one passes slide aside; let go, it slides into its place. */
+.sorting li {
+  transition: transform 0.15s;
+}
+
+li.dragging,
+li.dropped {
+  position: relative;
+  z-index: 1;
+  background: var(--panel);
+  box-shadow: 0 6px 16px rgb(0 0 0 / 0.4);
+}
+
+li.dragging {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sorting li {
+    transition: none;
+  }
 }
 
 .seats li.away,
@@ -233,13 +304,33 @@ button {
   gap: 10px;
   padding: 16px;
   border-radius: var(--radius);
-  background: var(--panel);
-  border: 1px solid var(--line);
+  background: var(--raised);
+  box-shadow: var(--raised-shadow);
 }
 
 .panel h2 {
   margin: 0;
   font-size: 18px;
+}
+
+/* M24: Home's public rooms: the heading with Refresh beside it, and a row to tap per room. */
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.public-room {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 48px;
+  color: inherit;
+  font-weight: 700;
+  text-decoration: none;
 }
 
 .name-input {
@@ -294,23 +385,44 @@ button {
   gap: 8px;
 }
 
+/* The round, and the way to the looks (M28): a quiet button as wide as the label was. */
 .round {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 70px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
   color: var(--muted);
   font-size: 14px;
-  min-width: 70px;
+  white-space: nowrap;
 }
 
-/* Beside the chat button (M29): "R3", so the pill keeps its width. */
+.round svg {
+  flex: none;
+  fill: currentColor;
+}
+
+/* Beside the chat button (M29): "R3", so the pill keeps its width. Still the way to the looks
+   (M28), so still a 44 px target: the 5 px it lacks on each side come out of the bar's gaps. */
 .round.short {
-  min-width: 0;
+  min-width: 44px;
+  margin-inline: -5px;
+  justify-content: center;
   font-weight: 700;
 }
 
 .turn {
   padding: 6px 14px;
   border-radius: 999px;
-  background: var(--accent);
+  background: var(--gold);
   color: var(--accent-ink);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.6),
+    0 0 0 4px rgb(242 193 78 / 0.16),
+    0 0 22px rgb(242 193 78 / 0.5);
   font-weight: 800;
   white-space: nowrap;
   overflow: hidden;
@@ -352,12 +464,14 @@ button {
 .clock.warn {
   background: #ffa630;
   color: #2a1700;
+  box-shadow: none;
 }
 
 .turn.danger,
 .clock.danger {
   background: #ff5247;
   color: #2a0503;
+  box-shadow: none;
 }
 
 @keyframes pop {
@@ -398,7 +512,8 @@ button {
   width: min(128px, calc((100% - 16px) / 3));
   padding: 5px;
   border-radius: 10px;
-  background: var(--panel);
+  background: var(--raised);
+  box-shadow: var(--raised-shadow);
   border: 2px solid transparent;
   text-align: left;
   scroll-snap-align: center;
@@ -1554,7 +1669,7 @@ dialog.zoom::backdrop {
   }
 }
 
-/* Love: a soft pop, two heartbeats (the first on the sigh's exhale), a slow sway up, and hearts
+/* Love: a soft pop, two heartbeats (the first under the "aww", the second on the "yeah"), a slow sway up, and hearts
    rising from behind. */
 .react[data-kind="love"] .react-art {
   animation:
@@ -1960,51 +2075,61 @@ dialog.zoom::backdrop {
 
 .opp-head {
   display: flex;
-  justify-content: space-between;
+  align-items: center;
   gap: 4px;
   font-size: 12px;
-  margin-bottom: 4px;
 }
 
+/* Stretched over what the clock's seconds leave, so a long name ends in "…" before them. */
 .opp-name {
-  margin-right: auto;
+  flex: 1;
+  min-width: 0;
+  font-weight: 700;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.opp-total {
+/* A number under its caption (M27): "Game" and "Round" on a panel, "Game" and "This round" on
+   your row, so nobody has to learn which is which. */
+.stat {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat small {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.stat b {
+  font-size: 14px;
   font-weight: 800;
+}
+
+/* The round score so far (UX-15) in gold: the number that moves with every card. */
+.sum {
   color: var(--accent);
 }
 
-/* The round score so far (UX-15): quieter than the gold total beside it. */
-.sum {
-  padding: 0 5px;
-  border-radius: 6px;
-  background: rgb(255 255 255 / 0.12);
-  font-size: 12px;
-  font-weight: 700;
-  white-space: nowrap;
+/* The panel's two numbers, on a line of their own under the name. Kept while the round score is
+   missing (before the flip, from the final reveal on), so the strip and your cards never change
+   size with it (UX-12). */
+.opp-scores {
+  display: flex;
+  gap: 4px;
+  margin: 3px 0 4px;
 }
 
-/* The players' strip is too narrow for a name, both numbers and a clock's seconds on one line, so
-   the round score has a line of its own under the total. Kept while empty (before the flip, from
-   the final reveal on), so the strip and your cards never change size with it (UX-12). */
-.opponents:not(.watch) .opp-head {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  grid-template-rows: auto 1.35em;
-  row-gap: 2px;
-}
-
-.opponents:not(.watch) .opp-total {
-  grid-area: 1 / 3;
-}
-
-.opponents:not(.watch) .sum {
-  grid-area: 2 / 1 / 3 / 4;
-  justify-self: end;
+.opp-scores .stat {
+  flex: 1;
 }
 
 .mini {
@@ -2039,6 +2164,19 @@ dialog.zoom::backdrop {
   white-space: nowrap;
 }
 
+/* What you hold and where it can go (M27): the caption of the card you drew stands out, and the
+   discard pile's outline is dashed, a place to drop it, not a card to take. */
+.held .pile-label,
+.drop .pile-label {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.drop .card.hl {
+  outline: 2px dashed rgb(242 193 78 / 0.85);
+  outline-offset: 4px;
+}
+
 .prompt {
   margin: 0;
   min-height: 2.7em;
@@ -2053,7 +2191,34 @@ dialog.zoom::backdrop {
   min-height: min-content;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
+}
+
+/* Your frame (M27): lit on your turn, around your row, your clock and your cards. Drawn in the
+   table's own gaps and padding, so no card changes size with it, and under everything: `.mine` is
+   no stacking context, or a card flying out of your grid couldn't pass over the piles. */
+.mine::before {
+  content: "";
+  position: absolute;
+  inset: -4px -8px -6px;
+  z-index: -1;
+  border: 2px solid transparent;
+  border-radius: 16px;
+  pointer-events: none;
+  transition:
+    border-color 0.2s,
+    background-color 0.2s;
+}
+
+.mine.my-turn::before {
+  border-color: rgb(242 193 78 / 0.75);
+  background: linear-gradient(rgb(242 193 78 / 0.13), rgb(242 193 78 / 0.03) 40%);
+  box-shadow: 0 -12px 36px -14px rgb(242 193 78 / 0.6);
+}
+
+/* Not your turn: a quiet surface, so your cards still sit on something. */
+.mine:not(.my-turn)::before {
+  background: rgb(255 255 255 / 0.03);
 }
 
 /* The row above your grid: name, points and the Auto-play switch; while it's on, a bar holding
@@ -2070,11 +2235,12 @@ dialog.zoom::backdrop {
   font-size: 15px;
 }
 
-/* Your name, points and round score on one line: a long name gives way, never the row's height. */
+/* Your name, the game's total and the round's score so far on one line: a long name gives way,
+   never the row's height. */
 .me {
   display: flex;
-  align-items: baseline;
-  gap: 5px;
+  align-items: center;
+  gap: 8px;
   min-width: 0;
   white-space: nowrap;
 }
@@ -2084,9 +2250,11 @@ dialog.zoom::backdrop {
   text-overflow: ellipsis;
 }
 
-.mine-head .pts {
-  color: var(--accent);
-  font-weight: 800;
+.me .stat {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 8px;
+  background: rgb(0 0 0 / 0.28);
 }
 
 .mine-head.auto-on {
@@ -2202,19 +2370,58 @@ dialog.zoom::backdrop {
   }
 }
 
-/* Your clock (M8): 4px under this row, draining for the whole turn. */
+/* One fixed line between your row and your cards (M27): "Low score wins", and your clock (M8)
+   while it runs, draining for the whole turn, with its seconds. */
+.clock-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 14px;
+  padding: 0 4px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+/* Clear of the reactions button, when it sits at the end of your row above (M23). */
+.mine-head:has(.react-btn.bar) + .clock-row {
+  padding-right: 56px;
+}
+
+.track {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: rgb(255 255 255 / 0.12);
+  overflow: hidden;
+}
+
 .clock {
-  position: absolute;
-  left: 4px;
-  right: 4px;
-  bottom: -4px;
-  height: 4px;
-  border-radius: 2px;
-  background: var(--accent);
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #d99f2b, #ffd978);
   transform-origin: left;
   animation-name: drain;
   animation-timing-function: linear;
   animation-fill-mode: forwards;
+}
+
+.secs {
+  min-width: 4ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.secs.warn {
+  color: #ffa630;
+}
+
+.secs.danger {
+  color: #ff5247;
 }
 
 @keyframes drain {
@@ -2237,11 +2444,11 @@ dialog.zoom::backdrop {
 
 .grid-wrap {
   flex: 1;
-  /* Room above the top row for discard mode's outlines, which reach 5px out: they stay clear of
-     your clock's bar (UX-29). */
-  padding-top: 6px;
+  /* Room above the top row for discard mode's outlines, which reach 5px out: with the 4px under
+     the bar in its line, they stay clear of your clock's bar (UX-29). */
+  padding-top: 4px;
   /* Three rows of 44px-wide cards plus gaps. */
-  min-height: calc(3 * 44px * 7 / 5 + 16px + 6px);
+  min-height: calc(3 * 44px * 7 / 5 + 16px + 4px);
   container-type: size;
 }
 
@@ -2262,7 +2469,33 @@ dialog.zoom::backdrop {
 
 /* Cards */
 
+/* Each band's ink (M27): the outline of its numeral and the pill under it, dark enough for white
+   on the palest art (the 1–4 green, the 0 aqua). */
+.b-neg {
+  --ink: #1b1340;
+}
+
+.b-zero {
+  --ink: #0d4750;
+}
+
+.b-low {
+  --ink: #234f2c;
+}
+
+.b-mid {
+  --ink: #7a4706;
+}
+
+.b-high {
+  --ink: #6a120e;
+}
+
 .card {
+  /* A lit edge, and a shadow that puts the card on the table. */
+  --card-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.28), inset 0 1px 0 rgb(255 255 255 / 0.5),
+    0 1px 2px rgb(0 0 0 / 0.5), 0 8px 12px -5px rgb(0 0 0 / 0.65);
   position: relative;
   aspect-ratio: 5 / 7;
   padding: 0;
@@ -2273,9 +2506,7 @@ dialog.zoom::backdrop {
   background-position: center;
   display: grid;
   place-items: center;
-  box-shadow:
-    0 1px 0 rgb(255 255 255 / 0.25) inset,
-    0 3px 8px rgb(0 0 0 / 0.4);
+  box-shadow: var(--card-shadow);
   /* transform is left to the move animations (motion). A tapped card settles back (UX-3), and a
      thrown one tilts and straightens (UX-19), through the separate translate and rotate. */
   transition:
@@ -2299,7 +2530,9 @@ dialog.zoom::backdrop {
   /* A little squatter than a real card: three rows of opponent cards fit in less height. */
   aspect-ratio: 4 / 5;
   border-radius: 12% / 9%;
-  box-shadow: none;
+  box-shadow:
+    inset 0 0 0 0.5px rgb(255 255 255 / 0.3),
+    0 1px 2px rgb(0 0 0 / 0.5);
 }
 
 .card.gone {
@@ -2308,20 +2541,91 @@ dialog.zoom::backdrop {
   border: 2px dashed var(--line);
 }
 
+/* A face-up card's weight (M27), under its number: a diamond below zero, then 0 to 3 filled dots
+   by band (0, 1–4, 5–8, 9–12), so low-is-good reads without colour. Drawn from the band's class,
+   so the flights' stand-ins (motion.ts) carry it; in the card's flow, so a turning card's back
+   (`::before`) covers it. Not on opponents' small cards, which have no room for it. */
+.card.up:not(.sm)::after {
+  --d: max(4px, calc(var(--w) * 0.075));
+  --on: radial-gradient(closest-side, #fff 82%, #0000 90%);
+  --off: radial-gradient(closest-side, #0000 48%, #fff 56% 82%, #0000 90%);
+  content: "";
+  grid-area: 1 / 1;
+  align-self: end;
+  width: calc(var(--d) * 4.2);
+  height: var(--d);
+  margin-bottom: 7%;
+  /* White on a pill of the band's ink. */
+  padding: calc(var(--d) * 0.45) calc(var(--d) * 0.8);
+  border-radius: 99px;
+  background:
+    var(--m1, var(--off)) 0 / var(--d) 100% no-repeat content-box,
+    var(--m2, var(--off)) 50% / var(--d) 100% no-repeat content-box,
+    var(--m3, var(--off)) 100% / var(--d) 100% no-repeat content-box,
+    var(--ink);
+}
+
+.b-low::after {
+  --m1: var(--on);
+}
+
+.b-mid::after {
+  --m1: var(--on);
+  --m2: var(--on);
+}
+
+.b-high::after {
+  --m1: var(--on);
+  --m2: var(--on);
+  --m3: var(--on);
+}
+
+.card.up.b-neg:not(.sm)::after {
+  --d: max(5px, calc(var(--w) * 0.095));
+  width: var(--d);
+  /* A white square, turned: a diamond, edged in the band's ink. */
+  padding: 0;
+  border-radius: 14%;
+  background: #fff;
+  box-shadow: 0 0 0 calc(var(--d) * 0.32) var(--ink);
+  rotate: 45deg;
+  margin-bottom: calc(7% + var(--d) * 0.4);
+}
+
+/* White numerals outlined in the band's ink (M27): 4.5:1 and more on every band's art, the pale
+   ones too. The stroke is painted under the fill, so it never thins the digit. */
 .num {
-  font-size: calc(var(--w) * 0.44);
+  grid-area: 1 / 1;
+  font-size: calc(var(--w) * 0.5);
   font-weight: 900;
   color: #fff;
-  letter-spacing: -0.03em;
-  text-shadow:
-    0 0 3px rgb(0 0 0 / 0.9),
-    0 2px 6px rgb(0 0 0 / 0.6);
+  letter-spacing: 0.02em;
+  -webkit-text-stroke: 0.11em var(--ink);
+  paint-order: stroke fill;
+  text-shadow: 0 0.06em 0 var(--ink);
+}
+
+/* Up a little, over the mark. */
+.card:not(.sm) .num {
+  translate: 0 -8%;
 }
 
 .card.sm .num {
   /* Readable on 360px phones with 8 players, where 15cqw alone gave 11.5px. */
   font-size: max(12px, 15cqw);
-  text-shadow: 0 0 2px rgb(0 0 0 / 0.95);
+  /* Outlined with shadows, not a stroke: where a browser paints the stroke over the fill (Chrome
+     before 123), it would thin a 12 px digit away. */
+  -webkit-text-stroke-width: 0;
+  text-shadow:
+    1px 0 0 var(--ink),
+    -1px 0 0 var(--ink),
+    0 1px 0 var(--ink),
+    0 -1px 0 var(--ink),
+    1px 1px 0 var(--ink),
+    -1px -1px 0 var(--ink),
+    1px -1px 0 var(--ink),
+    -1px 1px 0 var(--ink),
+    0 0 2px var(--ink);
 }
 
 .card.hl {
@@ -2329,19 +2633,25 @@ dialog.zoom::backdrop {
   outline-offset: 2px;
 }
 
-.grid.active button.card {
-  box-shadow:
-    0 0 0 2px rgb(242 193 78 / 0.55),
-    0 3px 8px rgb(0 0 0 / 0.4);
-}
-
 /* The card you drew, in hand (UX-4). `translate`, not `transform`: it adds to the flights'
    transform, so the draw lands lifted instead of jumping 6px at the end. */
 .held .card {
   translate: 0 -6px;
   box-shadow:
-    0 1px 0 rgb(255 255 255 / 0.25) inset,
-    0 10px 18px rgb(0 0 0 / 0.55);
+    0 0 0 2.5px var(--accent),
+    0 0 26px 4px rgb(242 193 78 / 0.6),
+    0 16px 18px -8px rgb(0 0 0 / 0.8);
+}
+
+/* The deck is a stack. */
+.pile [data-testid="deck"] {
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.28),
+    0 2px 0 #0a1522,
+    0 3px 0 #27496a,
+    0 5px 0 #0a1522,
+    0 6px 0 #27496a,
+    0 12px 12px -4px rgb(0 0 0 / 0.7);
 }
 
 /* The middle slot, kept while nobody holds a card from the deck, so the piles never move (UX-2). */
@@ -2368,8 +2678,9 @@ dialog.zoom::backdrop {
   translate: 0 -16px;
   scale: 1.06;
   box-shadow:
-    0 1px 0 rgb(255 255 255 / 0.25) inset,
-    0 14px 24px rgb(0 0 0 / 0.6);
+    0 0 0 2.5px var(--accent),
+    0 0 26px 4px rgb(242 193 78 / 0.6),
+    0 16px 18px -8px rgb(0 0 0 / 0.8);
 }
 
 /* A card in motion (motion.ts) passes over the table, and one going into a grid over the one
@@ -2415,6 +2726,8 @@ dialog.zoom::backdrop {
   background: #23384f url("./art/back.webp") center / 112%;
   transform: scaleX(-1);
   opacity: 0;
+  /* Over the number and the diamond, which their own translate and rotate would paint above it. */
+  z-index: 1;
 }
 
 /* Discard mode (UX-18): your face-down cards glow past the gold rim of the card back; the others
@@ -2460,8 +2773,8 @@ button.card:active {
 button.card[data-pending] {
   translate: 0 -6px;
   box-shadow:
-    0 1px 0 rgb(255 255 255 / 0.25) inset,
-    0 10px 18px rgb(0 0 0 / 0.55);
+    inset 0 0 0 1px rgb(255 255 255 / 0.28),
+    0 16px 18px -8px rgb(0 0 0 / 0.8);
   transition: none;
 }
 
@@ -2485,7 +2798,9 @@ button.card[data-pending] {
   position: fixed;
   inset: 0;
   z-index: 9;
-  background: rgb(5 12 20 / 0.55);
+  background: rgb(6 13 22 / 0.72);
+  -webkit-backdrop-filter: blur(1.5px);
+  backdrop-filter: blur(1.5px);
 }
 
 dialog.overlay {
@@ -2509,9 +2824,11 @@ dialog.overlay:focus {
   max-height: calc(100dvh - 56px - env(safe-area-inset-top));
   overflow-y: auto;
   padding: 20px 16px max(20px, env(safe-area-inset-bottom));
-  border-radius: 20px 20px 0 0;
-  background: #142a40;
-  border-top: 1px solid var(--line);
+  border-radius: 24px 24px 0 0;
+  background: linear-gradient(#1c3d5a, #12283d 30%, #0d1b2a);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.18),
+    0 -20px 50px rgb(0 0 0 / 0.6);
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -2547,45 +2864,211 @@ dialog.overlay:focus {
   color: #ffb39e;
 }
 
+/* Why the ender's score doubled, or didn't (R12), in a sentence. */
+.sheet .why {
+  margin: -8px 0 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+  text-wrap: balance;
+}
+
+/* The scores (M27): a card a player, in ranking order: their row, and under it their bar toward
+   100. Each is a <tbody> of two rows, so the table stays a table. */
 .scores {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-variant-numeric: tabular-nums;
 }
 
 .scores th,
 .scores td {
-  padding: 8px 6px;
+  padding: 7px 6px 0;
   text-align: right;
-  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
 }
 
-.scores td {
-  overflow-wrap: anywhere;
+.scores th {
+  padding-bottom: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
 
 .scores th:first-child,
 .scores td:first-child {
+  width: 100%;
+  padding-left: 10px;
   text-align: left;
+  white-space: normal;
 }
 
-.scores th {
+.scores :is(th, td):last-child {
+  padding-right: 10px;
+}
+
+.scores tbody td {
+  background: rgb(255 255 255 / 0.05);
+}
+
+.scores tbody tr:first-child td {
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.07);
+}
+
+.scores tbody tr:first-child td:first-child {
+  border-top-left-radius: 12px;
+}
+
+.scores tbody tr:first-child td:last-child {
+  border-top-right-radius: 12px;
+}
+
+.scores tbody tr:last-child td {
+  padding-top: 6px;
+  padding-bottom: 8px;
+  border-radius: 0 0 12px 12px;
+}
+
+/* The gap between two players' cards. */
+.scores tbody + tbody::before {
+  content: "";
+  display: table-row;
+  height: 6px;
+}
+
+/* In front: gold, with a gold line over and under it. */
+.scores .win td {
+  background: rgb(242 193 78 / 0.16);
+}
+
+.scores .win tr:first-child td {
+  box-shadow: inset 0 1.5px 0 rgb(242 193 78 / 0.7);
+}
+
+.scores .win tr:last-child td {
+  box-shadow: inset 0 -1.5px 0 rgb(242 193 78 / 0.7);
+}
+
+.who {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  font-weight: 700;
+}
+
+.who-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.who .tag {
+  margin: 0;
+}
+
+.who::before {
+  content: attr(data-rank);
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 0.1);
   font-size: 12px;
-  color: var(--muted);
-  font-weight: 600;
+  font-weight: 800;
 }
 
-.scores tr.win td {
-  color: var(--accent);
+.win .who::before {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.tot {
+  font-size: 20px;
   font-weight: 800;
+}
+
+.win .tot {
+  color: var(--accent);
+}
+
+.meter {
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  background: rgb(255 255 255 / 0.1);
+  overflow: hidden;
+}
+
+/* `--p` of the way to 100: the part shown of one gradient as wide as the whole bar, from calm to
+   hot. */
+.meter i {
+  display: block;
+  width: calc(var(--p) * 1%);
+  height: 100%;
+  border-radius: 3px;
+  background:
+    linear-gradient(90deg, #3f8f8a, #f2c14e 60%, #d9553f) 0 / calc(10000% / var(--p)) 100%;
+}
+
+/* 6 to 8 players: each row as tall as before M27, its bar the card's bottom edge. */
+.scores.many td {
+  padding-top: 4px;
+}
+
+.scores.many tbody tr:last-child td {
+  padding: 4px 0 0;
+}
+
+.scores.many .meter {
+  height: 4px;
+  border-radius: 0 0 12px 12px;
+}
+
+.scores.many .meter i {
+  border-radius: 0;
+}
+
+.scores.many .who::before {
+  width: 20px;
+  height: 20px;
+  font-size: 11px;
+}
+
+.scores.many .tot {
+  font-size: 17px;
+}
+
+.scores.many tbody + tbody::before {
+  height: 4px;
+}
+
+/* What ends the game and who wins it (R14, R16). */
+.sheet .goal {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 2px 12px;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
 }
 
 .tag {
   white-space: nowrap;
   margin-left: 6px;
-  padding: 1px 6px;
-  border-radius: 6px;
-  font-size: 11px;
-  background: var(--panel);
+  padding: 2px 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: rgb(255 255 255 / 0.12);
   color: var(--muted);
 }
 
@@ -2595,8 +3078,8 @@ dialog.overlay:focus {
 }
 
 .tag.x2 {
-  background: rgb(255 122 89 / 0.25);
-  color: #ffb39e;
+  background: #b3362b;
+  color: #fff;
 }
 
 /* UX-17: a burst from the top of the winner's sheet, out and up, then falling as it fades. */
@@ -2632,6 +3115,23 @@ dialog.overlay:focus {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
+}
+
+/* A phone browser with its bars (iPhone 13: 664 px): closer rows, so your cards get the height the
+   captions and your clock line took (M27). */
+@media (max-height: 700px) {
+  .table {
+    gap: 5px;
+  }
+
+  .opp-scores {
+    margin: 1px 0 3px;
+  }
+
+  .prompt {
+    min-height: 2.5em;
+    line-height: 1.25;
+  }
 }
 
 /* Short screens (iPhone SE with browser bars): tighten everything above your grid. */
@@ -2675,6 +3175,7 @@ dialog.overlay:focus {
   }
 
   .card,
+  .mine::before,
   .switch,
   .switch::after {
     transition: none;
@@ -2851,7 +3352,7 @@ dialog.overlay:focus {
   width: 100%;
   flex-direction: row;
   align-items: center;
-  padding: 8px 10px;
+  padding: 6px 10px;
 }
 
 .opponents.watch .out .opp-head {
@@ -2859,9 +3360,823 @@ dialog.overlay:focus {
   margin: 0;
 }
 
+.opponents.watch .out .opp-scores {
+  margin: 0 0 0 8px;
+}
+
+.opponents.watch .out .opp-name {
+  flex: none;
+}
+
 .opponents.watch .out-note {
   min-height: 0;
   justify-items: end;
+}
+
+/* The looks' switch (M28): two previews, a small card in each look, on Home and in the table's
+   sheet. The previews are drawn here, whatever look is on. */
+.looks {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.looks legend {
+  padding: 0;
+  margin-bottom: 10px;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.look {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 64px;
+  padding: 8px 12px;
+  border: 2px solid var(--line);
+  border-radius: 14px;
+  background: rgb(0 0 0 / 0.2);
+  font-weight: 700;
+  text-align: left;
+}
+
+.look[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: rgb(255 255 255 / 0.1);
+}
+
+.look-card {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 44px;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.look-card.classic {
+  background: url("./art/band-mid.webp") center / 112%;
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.3),
+    0 3px 5px rgb(0 0 0 / 0.5);
+  font-family: system-ui, sans-serif;
+  font-size: 20px;
+  font-weight: 900;
+  -webkit-text-stroke: 2.5px #7a4706;
+  paint-order: stroke fill;
+}
+
+.look-card.casual {
+  margin-bottom: 3px;
+  background: linear-gradient(#ffbf4d, #f28418);
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 0.6),
+    0 3px 0 #b4550a;
+  font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
+  font-weight: 700;
+  font-size: 28px;
+  text-shadow: 0 2px 0 #b4550a;
+}
+
+/* A seat's monogram disc: the Modern look's (below). */
+.av {
+  display: none;
+}
+
+/* ---------------------------------------------------------------------------------------------
+   Modern, "Polished casual" (M28): the default look. Everything above is Classic (M27); this is a
+   second set of tokens and the rules that differ, all under [data-theme="casual"] on <html>.
+   --------------------------------------------------------------------------------------------- */
+
+/* Both SIL OFL 1.1 (public/fonts/OFL-*.txt). Latin Extended loads only for text that needs it. */
+@font-face {
+  font-family: "Barlow Condensed";
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/barlow-condensed-700-latin.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Barlow Condensed";
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/barlow-condensed-700-latin-ext.woff2") format("woff2");
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1D00-1DBF, U+1E00-1E9F,
+    U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: "Nunito Sans";
+  font-weight: 800;
+  font-display: swap;
+  src: url("/fonts/nunito-sans-800-latin.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Nunito Sans";
+  font-weight: 800;
+  font-display: swap;
+  src: url("/fonts/nunito-sans-800-latin-ext.woff2") format("woff2");
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1D00-1DBF, U+1E00-1E9F,
+    U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+:root[data-theme="casual"] {
+  --bg: #100a33;
+  --well: rgb(13 8 48 / 0.55);
+  --panel: rgb(13 8 48 / 0.5);
+  --line: rgb(185 179 230 / 0.3);
+  --text: #fff;
+  --muted: #c4bfee;
+  --accent: #ffd23f;
+  --accent-ink: #3a2a00;
+  --go: #3ee6b0;
+  --go-ink: #06382a;
+  --raised: rgb(13 8 48 / 0.5);
+  --raised-shadow: inset 0 2px 5px rgb(0 0 0 / 0.45), inset 0 -1px 0 rgb(255 255 255 / 0.1);
+  --gold: linear-gradient(#ffe27a, #ffd23f 55%, #ffb81f);
+  --stage:
+    radial-gradient(80% 30% at 50% 37%, #5a45d8 0%, rgb(58 42 150 / 0.5) 60%, transparent 100%)
+    fixed,
+    linear-gradient(#2a1f7a, #160f45 70%, #100a33) fixed;
+  --num: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
+  font-family: "Nunito Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-weight: 800;
+}
+
+/* Long reading text stays in the system's regular weight. */
+[data-theme="casual"] :is(.rules li, .option-help, .link, .version) {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-weight: 400;
+}
+
+/* Buttons you can press: a lip under them that the press pushes in. */
+[data-theme="casual"] .btn {
+  border-radius: 16px;
+  background: linear-gradient(#5a4cd4, #4a3cc4);
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 0.22),
+    0 4px 0 #1c1466;
+  font-weight: 800;
+}
+
+[data-theme="casual"] .btn:active:not(:disabled) {
+  transform: translateY(3px);
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 0.22),
+    0 1px 0 #1c1466;
+}
+
+[data-theme="casual"] .btn.primary {
+  background: var(--gold);
+  color: var(--accent-ink);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 0.7),
+    0 5px 0 #b97a00,
+    0 14px 20px -6px rgb(255 190 31 / 0.5);
+}
+
+[data-theme="casual"] .btn.primary:active:not(:disabled) {
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 0.7),
+    0 2px 0 #b97a00;
+}
+
+[data-theme="casual"] .btn.quiet {
+  background: none;
+  box-shadow: none;
+  font-weight: 800;
+}
+
+/* No lip to push in. */
+[data-theme="casual"] .btn.quiet:active:not(:disabled) {
+  transform: none;
+  box-shadow: none;
+}
+
+[data-theme="casual"] .name-input,
+[data-theme="casual"] .lang {
+  background-color: var(--well);
+  border-radius: 14px;
+}
+
+[data-theme="casual"] .toast {
+  background: #4a3cc4;
+  box-shadow: 0 4px 0 #1c1466;
+  border: 0;
+}
+
+[data-theme="casual"] .toast.error {
+  background: #dc2060;
+  box-shadow: 0 4px 0 #96103e;
+}
+
+[data-theme="casual"] .logo,
+[data-theme="casual"] .room-code,
+[data-theme="casual"] .sheet h2,
+[data-theme="casual"] .panel h2,
+[data-theme="casual"] .looks legend {
+  font-family: var(--num);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+}
+
+[data-theme="casual"] .logo {
+  font-size: 56px;
+  line-height: 1;
+}
+
+[data-theme="casual"] .panel {
+  border-radius: 20px;
+  background: linear-gradient(#3a2ea6, #2c2188);
+  box-shadow:
+    inset 0 3px 0 rgb(255 255 255 / 0.12),
+    0 5px 0 #170f52;
+}
+
+[data-theme="casual"] .panel h2,
+[data-theme="casual"] .looks legend {
+  font-size: 24px;
+}
+
+[data-theme="casual"] .look {
+  background: var(--well);
+  border-color: transparent;
+}
+
+[data-theme="casual"] .look[aria-pressed="true"] {
+  border-color: var(--go);
+  background: rgb(62 230 176 / 0.14);
+}
+
+/* The pill: mint means go. */
+[data-theme="casual"] .turn {
+  background: linear-gradient(#6ff5c8, #3ee6b0);
+  color: var(--go-ink);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 14px;
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 0.6),
+    0 3px 0 #129c78,
+    0 0 26px rgb(62 230 176 / 0.5);
+}
+
+[data-theme="casual"] .turn.final {
+  background: linear-gradient(#ffa27f, #ff7a59);
+  color: #2a0d05;
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 0.5),
+    0 3px 0 #b3401f;
+}
+
+[data-theme="casual"] .turn.idle {
+  background: var(--well);
+  color: var(--text);
+  box-shadow: none;
+}
+
+[data-theme="casual"] .turn.warn {
+  background: #ffa630;
+  color: #2a1700;
+  box-shadow: 0 3px 0 #b36a00;
+}
+
+[data-theme="casual"] .turn.danger {
+  background: #ff5247;
+  color: #2a0503;
+  box-shadow: 0 3px 0 #a81f16;
+}
+
+[data-theme="casual"] .round {
+  color: #d9d4ff;
+}
+
+/* Players: a well a panel, a disc a seat. */
+[data-theme="casual"] .opp {
+  border-radius: 16px;
+}
+
+[data-theme="casual"] .ring {
+  border-radius: 16px;
+}
+
+[data-theme="casual"] .opp.active {
+  border-color: var(--go);
+}
+
+[data-theme="casual"] .opp.timed {
+  border-color: transparent;
+}
+
+/* Mint until the clock's last 10 s: orange and red keep their meaning. */
+[data-theme="casual"] .ring:not(.warn, .danger) {
+  --ring: var(--go);
+}
+
+/* The initial is drawn, like a row's place: a name's text starts with the name. */
+.av::before {
+  content: attr(data-initial);
+}
+
+[data-theme="casual"] .av {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 1.5em;
+  height: 1.5em;
+  margin-right: 0.35em;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px rgb(255 255 255 / 0.9);
+  font-size: 0.8em;
+  font-weight: 800;
+  line-height: 1;
+  vertical-align: 0.1em;
+}
+
+.av-0 {
+  background: #52b6ff;
+  color: #062a4a;
+}
+
+.av-1 {
+  background: #ff8a5b;
+  color: #4a1500;
+}
+
+.av-2 {
+  background: #3ee6b0;
+  color: #053a2a;
+}
+
+.av-3 {
+  background: #ffd23f;
+  color: #4a3500;
+}
+
+.av-4 {
+  background: #ff7ab8;
+  color: #4a0a2a;
+}
+
+.av-5 {
+  background: #b79bff;
+  color: #24104f;
+}
+
+.av-6 {
+  background: #a6e34b;
+  color: #23380a;
+}
+
+.av-7 {
+  background: #e9ecf5;
+  color: #1c1552;
+}
+
+[data-theme="casual"] .opp-name {
+  padding: 2px 0 2px 2px;
+}
+
+[data-theme="casual"] .me .av {
+  margin-right: 0;
+  font-size: 0.75em;
+}
+
+[data-theme="casual"] .who .av {
+  margin-right: 0;
+}
+
+[data-theme="casual"] .sum {
+  color: var(--text);
+}
+
+[data-theme="casual"] .me .sum {
+  color: var(--accent);
+}
+
+/* Cards: drawn, not painted. A glossy face in the band's colour over a lip of its darker shade;
+   the art of the Classic look, set inline by Card.tsx and motion.ts, is overridden. */
+[data-theme="casual"] .b-neg {
+  --c1: #7d70ff;
+  --c2: #4a38dc;
+  --lip: #2a1c9c;
+}
+
+[data-theme="casual"] .b-zero {
+  --c1: #fff;
+  --c2: #cfd6f2;
+  --lip: #8f98c4;
+  --fg: #1c1552;
+  --ink: #1c1552;
+}
+
+[data-theme="casual"] .b-low {
+  --c1: #2be0d2;
+  --c2: #0a9fa8;
+  --lip: #066a75;
+}
+
+[data-theme="casual"] .b-mid {
+  --c1: #ffbf4d;
+  --c2: #f28418;
+  --lip: #b4550a;
+}
+
+[data-theme="casual"] .b-high {
+  --c1: #ff6198;
+  --c2: #dc2060;
+  --lip: #96103e;
+}
+
+[data-theme="casual"] :is(.b-neg, .b-low, .b-mid, .b-high) {
+  --ink: var(--lip);
+}
+
+[data-theme="casual"] .card {
+  --h: max(2px, calc(var(--w, 40px) * 0.06));
+  --card-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 0.6), inset 0 calc(var(--h) * -1) 0 rgb(0 0 0 / 0.14),
+    0 var(--h) 0 var(--lip, #120c40), 0 calc(var(--h) * 2.4) 12px -4px rgb(0 0 0 / 0.55);
+  border-radius: 15% / 11%;
+  background-color: transparent;
+  background-repeat: no-repeat;
+  font-family: var(--num);
+}
+
+[data-theme="casual"] .card.up {
+  background-image:
+    linear-gradient(rgb(255 255 255 / 0.36), rgb(255 255 255 / 0.04)),
+    linear-gradient(var(--c1), var(--c2)) !important;
+  background-size:
+    92% 44%,
+    100% 100%;
+  background-position:
+    50% 3%,
+    0 0;
+  color: var(--fg, #fff);
+}
+
+/* Face down: dark, with a gold ring. Also the far side of a card that turns (motion.ts). */
+[data-theme="casual"] .card.down,
+[data-theme="casual"] .card[data-motion]::before {
+  --lip: #120c40;
+  background-image:
+    radial-gradient(
+      circle closest-side,
+      transparent 0 30%,
+      rgb(255 210 63 / 0.9) 31% 38%,
+      transparent 39%
+    ),
+    repeating-linear-gradient(45deg, rgb(255 255 255 / 0.07) 0 4px, transparent 4px 9px),
+    linear-gradient(#3a3192, #231b66) !important;
+  background-size: 100% 100%;
+  background-position: 0 0;
+}
+
+[data-theme="casual"] .card.sm {
+  --h: 2px;
+  --card-shadow: inset 0 1px 0 rgb(255 255 255 / 0.55), 0 2px 0 var(--lip, #120c40);
+  border-radius: 18% / 14%;
+  box-shadow: var(--card-shadow);
+}
+
+[data-theme="casual"] .card.sm.up {
+  background-size:
+    0 0,
+    100% 100%;
+}
+
+[data-theme="casual"] .card.gone {
+  background-image: none !important;
+  box-shadow: none;
+  border: 1.5px dashed rgb(185 179 230 / 0.4);
+}
+
+/* Condensed and heavy, so a number fills its card. Outlined in the lip's shade: white alone on
+   aqua or tangerine is under 3:1; against the outline it is 4.9:1 or more. */
+[data-theme="casual"] .num {
+  font-family: var(--num);
+  font-weight: 700;
+  font-size: calc(var(--w) * 0.7);
+  letter-spacing: -0.02em;
+  line-height: 1;
+  color: var(--fg, #fff);
+  -webkit-text-stroke: 0.07em var(--ink);
+  text-shadow: 0 0.07em 0 var(--ink);
+}
+
+[data-theme="casual"] .card.sm .num {
+  font-size: max(13px, 19cqw);
+  -webkit-text-stroke-width: 0;
+}
+
+[data-theme="casual"] .b-zero .num {
+  -webkit-text-stroke-width: 0;
+  text-shadow: 0 0.05em 0 #fff;
+}
+
+[data-theme="casual"] .card.sm.b-zero .num {
+  text-shadow: none;
+}
+
+[data-theme="casual"] .card.hl {
+  outline-color: var(--accent);
+}
+
+/* Lifted: the same card, higher, on a white edge and a yellow glow. */
+[data-theme="casual"] .held .card,
+[data-theme="casual"] .stack.taken > .card + .card {
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 0.6),
+    0 var(--h) 0 var(--lip),
+    0 0 0 3px #fff,
+    0 0 30px 6px rgb(255 210 63 / 0.75),
+    0 20px 18px -6px rgb(0 0 0 / 0.6);
+}
+
+[data-theme="casual"] .held .pile-label {
+  padding: 0 9px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+[data-theme="casual"] .drop .card.hl {
+  outline: 2.5px dashed var(--accent);
+  outline-offset: 5px;
+}
+
+[data-theme="casual"] .pile [data-testid="deck"] {
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 0.3),
+    0 3px 0 #120c40,
+    0 4px 0 #4a3fb0,
+    0 7px 0 #120c40;
+}
+
+[data-theme="casual"] button.card[data-pending] {
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 0.6),
+    0 var(--h) 0 var(--lip, #120c40),
+    0 20px 18px -6px rgb(0 0 0 / 0.6);
+}
+
+/* Room under each pile for its card's lip. */
+[data-theme="casual"] .pile {
+  gap: 9px;
+}
+
+/* In the empty slot, a card's box: it keeps the buttons' font, not the numerals'. */
+[data-theme="casual"] .undo {
+  border-radius: 999px;
+  font-family: "Nunito Sans", system-ui, sans-serif;
+  box-shadow: 0 3px 0 #1c1466;
+}
+
+/* Your panel: always there, ringed in mint on your turn. */
+[data-theme="casual"] .mine::before {
+  border-width: 2.5px;
+  border-radius: 22px;
+  background: linear-gradient(#3a2ea6, #261c7c);
+  box-shadow: inset 0 4px 0 rgb(255 255 255 / 0.12);
+}
+
+[data-theme="casual"] .mine.my-turn::before {
+  border-color: var(--go);
+  background: linear-gradient(#3a2ea6, #261c7c);
+  box-shadow:
+    inset 0 4px 0 rgb(255 255 255 / 0.12),
+    0 0 34px -6px rgb(62 230 176 / 0.7);
+}
+
+[data-theme="casual"] .me .stat {
+  background: var(--well);
+  border-radius: 10px;
+}
+
+[data-theme="casual"] .switch {
+  background: rgb(13 8 48 / 0.6);
+}
+
+[data-theme="casual"] .auto-on .switch,
+[data-theme="casual"] .switch:has(input:checked) {
+  background: var(--go);
+}
+
+[data-theme="casual"] .track {
+  height: 8px;
+  border-radius: 4px;
+  background: rgb(13 8 48 / 0.6);
+}
+
+[data-theme="casual"] .clock {
+  background: linear-gradient(#6ff5c8, #3ee6b0);
+}
+
+[data-theme="casual"] .clock.warn {
+  background: #ffa630;
+}
+
+[data-theme="casual"] .clock.danger {
+  background: #ff5247;
+}
+
+[data-theme="casual"] .secs:not(.warn, .danger) {
+  color: var(--go);
+}
+
+/* Reactions: a round pink button with a lip. */
+[data-theme="casual"] .react-btn {
+  border: 0;
+  background: linear-gradient(#ff6198, #dc2060);
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 0.4),
+    0 3px 0 #96103e;
+  color: #fff;
+}
+
+/* Open: a white ring, where Classic's border lights up. */
+[data-theme="casual"] .react-btn[aria-expanded="true"] {
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 0.4),
+    0 3px 0 #96103e,
+    0 0 0 3px #fff;
+}
+
+[data-theme="casual"] .react-item,
+[data-theme="casual"] .tray-item {
+  border: 0;
+  background: linear-gradient(#5a4cd4, #4a3cc4);
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 0.22),
+    0 4px 0 #1c1466;
+}
+
+/* The summary. */
+[data-theme="casual"] .scrim {
+  background: rgb(12 7 45 / 0.78);
+}
+
+[data-theme="casual"] dialog.zoom::backdrop {
+  background: rgb(12 7 45 / 0.7);
+}
+
+[data-theme="casual"] .sheet {
+  border-radius: 28px 28px 0 0;
+  background: linear-gradient(#4234b8, #2a1f7a 35%, #1c1458);
+  box-shadow:
+    inset 0 3px 0 rgb(255 255 255 / 0.22),
+    0 -20px 50px rgb(0 0 0 / 0.55);
+}
+
+[data-theme="casual"] .sheet h2 {
+  font-size: 32px;
+  line-height: 1;
+}
+
+[data-theme="casual"] .scores tbody td {
+  background: #352a9b;
+  box-shadow: none;
+}
+
+[data-theme="casual"] .scores tbody tr:first-child td {
+  box-shadow: inset 0 2px 0 rgb(255 255 255 / 0.14);
+}
+
+/* Each player's card has a lip, so the gap between two is a little wider. */
+[data-theme="casual"] .scores tbody tr:last-child td {
+  box-shadow: 0 4px 0 #170f52;
+}
+
+[data-theme="casual"] .scores tbody + tbody::before {
+  height: 10px;
+}
+
+[data-theme="casual"] .sheet:has(.scores.many) {
+  gap: 8px;
+}
+
+[data-theme="casual"] .sheet:has(.scores.many) .why {
+  margin-top: 0;
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+[data-theme="casual"] .scores.many tbody + tbody::before {
+  height: 3px;
+}
+
+[data-theme="casual"] .scores.many tbody tr:last-child td {
+  box-shadow: 0 2px 0 #170f52;
+}
+
+[data-theme="casual"] .scores .win td {
+  background: #ffd23f;
+  color: var(--accent-ink);
+}
+
+[data-theme="casual"] .scores .win tr:first-child td {
+  box-shadow: inset 0 2px 0 rgb(255 255 255 / 0.7);
+}
+
+[data-theme="casual"] .scores .win tr:last-child td {
+  box-shadow: 0 4px 0 #b97a00;
+}
+
+[data-theme="casual"] .scores.many .win tr:last-child td {
+  box-shadow: 0 2px 0 #b97a00;
+}
+
+[data-theme="casual"] .who::before {
+  background: rgb(13 8 48 / 0.55);
+}
+
+[data-theme="casual"] .win .who::before {
+  background: var(--accent-ink);
+  color: var(--accent);
+}
+
+[data-theme="casual"] .tot {
+  font-family: var(--num);
+  font-weight: 700;
+  font-size: 28px;
+  line-height: 0.9;
+}
+
+[data-theme="casual"] .scores.many .tot {
+  font-size: 19px;
+}
+
+[data-theme="casual"] .win .tot {
+  color: var(--accent-ink);
+}
+
+[data-theme="casual"] .tag {
+  background: rgb(13 8 48 / 0.5);
+  color: #d9d4ff;
+}
+
+[data-theme="casual"] .tag.you {
+  background: rgb(13 8 48 / 0.5);
+  color: var(--go);
+}
+
+[data-theme="casual"] .win .tag {
+  background: rgb(58 42 0 / 0.85);
+  color: #ffe27a;
+}
+
+/* Magenta, not the mockup's lighter pink: white on that is 3.1:1 at this size. */
+[data-theme="casual"] .tag.x2 {
+  background: #dc2060;
+  color: #fff;
+}
+
+[data-theme="casual"] .meter {
+  height: 8px;
+  border-radius: 4px;
+  background: rgb(13 8 48 / 0.55);
+}
+
+[data-theme="casual"] .scores.many .meter {
+  height: 4px;
+  border-radius: 0 0 12px 12px;
+}
+
+[data-theme="casual"] .meter i {
+  background:
+    linear-gradient(90deg, #3ee6b0, #ffbf4d 60%, #ff4f8b) 0 / calc(10000% / var(--p)) 100%;
+}
+
+[data-theme="casual"] .win .meter {
+  background: rgb(58 42 0 / 0.25);
+}
+
+[data-theme="casual"] .win .meter i {
+  background: var(--accent-ink);
+}
+
+[data-theme="casual"] .sheet .sub.out {
+  color: #ffb3c9;
 }
 
 /* Chat (M29). Themed only through custom properties: each --chat-* falls back to the theme's own

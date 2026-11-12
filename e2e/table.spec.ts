@@ -14,6 +14,7 @@ import {
   show,
 } from "./harness";
 import { expectMobileFriendly } from "./helpers";
+import { m27Summary, m27Table, m27View } from "./m27-states";
 
 /** Your turn with 9 s on your clock, the next player on Auto-play. */
 const clockAt9 = (players: number): Shown => {
@@ -396,7 +397,7 @@ test("M8: a seat on Auto-play shows 🤖, the pill reads 'Name · auto', and the
   await expect(
     page.locator('[data-testid="opponent"].active').getByRole("img", { name: "Auto-play" }),
   ).toBeVisible();
-  await show(page, { view: toView(roundOver(2, 11)), seat: 0, lead: true, auto: [false, true] });
+  await show(page, { view: toView(roundOver(2, 344)), seat: 0, lead: true, auto: [false, true] });
   await expect(
     page.getByTestId("round-summary").getByRole("img", { name: "Auto-play" }),
   ).toHaveCount(1);
@@ -588,12 +589,12 @@ test.describe("M12: spectators keep the piles", () => {
 test("round summary: rows, who ended, doubling shown as base ×2 = total; View table hides it", async ({
   page,
 }) => {
-  // Seed 11: round 1 ends below 100 and the ender is doubled.
-  const state = roundOver(2, 11);
+  // Seed 344: round 1 ends below 100 and the ender is doubled.
+  const state = roundOver(2, 344);
   await show(page, { view: toView(state), seat: 0, lead: true });
   const summary = page.getByTestId("round-summary");
   await expect(summary.getByRole("row")).toHaveCount(3);
-  await expect(summary.getByText("ended")).toBeVisible();
+  await expect(summary.getByText("ended", { exact: true })).toBeVisible();
   if (state.doubled) await expect(summary.getByText(/×2 = \d+/)).toBeVisible();
   await page.getByRole("button", { name: "View table" }).click();
   await expect(page.getByRole("table")).toBeHidden();
@@ -602,14 +603,14 @@ test("round summary: rows, who ended, doubling shown as base ×2 = total; View t
 });
 
 /**
- * Seed 1 of a 4-player knockout game (R16): Dani goes out after round 1, Ana and Ben after round 2,
+ * Seed 61 of a 4-player knockout game (R16): Dani goes out after round 1, Ana and Ben after round 2,
  * and Cris, the one left, wins.
  */
 const knockout = () => {
-  const states = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 1);
+  const states = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 61);
   const pick = (test: (s: (typeof states)[number]) => boolean) => {
     const state = states.find(test);
-    if (!state) throw new Error("seed 1 no longer plays out this way");
+    if (!state) throw new Error("seed 61 no longer plays out this way");
     return toView(state);
   };
   return {
@@ -674,15 +675,15 @@ test("M17: a player who is out watches: 'Out · watching' on their seat, the spe
 test("M17: when everyone still in reaches 100 in the same round, the winner went out too but isn't tagged out", async ({
   page,
 }) => {
-  // Seed 2: Dani goes out after round 1; Ana, Ben and Cris all reach 100 in round 2, and Cris,
+  // Seed 53: Dani goes out after round 1; Ana, Ben and Cris all reach 100 in round 2, and Cris,
   // on the lowest total, wins.
-  const over = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 2).at(-1);
+  const over = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 53).at(-1);
   if (!over) throw new Error("no game");
   expect([over.players.map((p) => p.out), over.winners]).toEqual([[2, 2, 2, 1], [2]]);
   await show(page, { view: toView(over), seat: 0 });
-  const rows = page.getByTestId("game-over").locator("tbody tr");
-  await expect(rows.first()).toHaveText(/^Cris/);
-  await expect(rows.first().getByTestId("out-tag")).toHaveCount(0);
+  const rows = page.getByTestId("game-over").getByRole("row");
+  await expect(rows.nth(1)).toHaveText(/^Cris/);
+  await expect(rows.nth(1).getByTestId("out-tag")).toHaveCount(0);
   await expect(page.getByTestId("game-over").getByTestId("out-tag")).toHaveCount(3);
 });
 
@@ -697,12 +698,12 @@ test("M17: the final ranking: the winner first, then by the round they went out,
   ]) {
     await page.addInitScript((l) => localStorage.setItem("skyjo:locale", l), locale);
     await show(page, { view: over, seat: DANI });
-    // Ben (121) and Ana (123) went out in round 2, Dani in round 1.
-    await expect(page.getByTestId("game-over").locator("tbody tr")).toHaveText([
+    // Ben (111) and Ana (210) went out in round 2, Dani in round 1.
+    await expect(page.getByTestId("game-over").locator("tbody tr:first-child")).toHaveText([
       /^Cris/,
       new RegExp(`^Ben.*${out} 2`),
       new RegExp(`^Ana.*${out} 2`),
-      new RegExp(`^Dani.*${out} 1–172$`),
+      new RegExp(`^Dani.*${out} 1–152$`),
     ]);
     await expect(page.getByTestId("game-over").getByTestId("out-tag")).toHaveCount(3);
     await expectMobileFriendly(page);
@@ -716,7 +717,7 @@ const retable = (page: Page, detail: Partial<Shown>) =>
 test("UX-11: the summary is a modal: the first Tab lands inside it and 10 Tabs never leave it; Escape is View table", async ({
   page,
 }) => {
-  await show(page, { view: toView(roundOver(3, 11)), seat: 0, lead: true });
+  await show(page, { view: toView(roundOver(3, 344)), seat: 0, lead: true });
   const summary = page.getByTestId("round-summary");
   await expect(summary).toBeVisible();
   // Which button has focus, or "outside".
@@ -736,7 +737,21 @@ test("UX-11: the summary is a modal: the first Tab lands inside it and 10 Tabs n
   await page.keyboard.press("Escape");
   await expect(summary).toHaveCount(0);
   const showScores = page.getByRole("button", { name: "Show scores" });
-  await expect(showScores).toBeFocused();
+  // What has the focus, and whether a dialog is still open, so a failure says why. 20 s: WebKit's
+  // frames are slow at 4 workers on CI, where 5 s wasn't enough twice (main, run 43117120506).
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const el = document.activeElement;
+          return {
+            focus: el === document.body ? "body" : (el?.textContent ?? null),
+            open: document.querySelectorAll("dialog[open]").length,
+          };
+        }),
+      { timeout: 20_000 },
+    )
+    .toEqual({ focus: "Show scores", open: 0 });
   await showScores.click();
   await expect(summary).toBeVisible();
 });
@@ -744,8 +759,8 @@ test("UX-11: the summary is a modal: the first Tab lands inside it and 10 Tabs n
 test("UX-14: every summary ranks the players as the engine does, lowest total first, and tags your row 'you'", async ({
   page,
 }) => {
-  // Seed 4, 4 players: round 1's totals aren't in seat order.
-  const view = toView(roundOver(4, 4));
+  // Seed 344, 4 players: round 1's totals aren't in seat order.
+  const view = toView(roundOver(4, 344));
   const rank = places(view);
   const expected = view.players
     .map((p, seat) => ({ ...p, seat }))
@@ -754,7 +769,7 @@ test("UX-14: every summary ranks the players as the engine does, lowest total fi
   const totals = expected.map((p) => p.total);
   expect(totals).toEqual([...totals].sort((a, b) => a - b));
   await show(page, { view, seat: 2, lead: true });
-  const rows = page.getByTestId("round-summary").locator("tbody tr");
+  const rows = page.getByTestId("round-summary").locator("tbody tr:first-child");
   await expect(rows).toHaveText(expected.map((p) => new RegExp(`^${p.name}.*${p.total}$`)));
   await expect(rows.locator(".tag.you")).toHaveCount(1);
   await expect(rows.filter({ hasText: "Player 3" }).locator(".tag.you")).toHaveText("you");
@@ -855,7 +870,7 @@ test.describe("small phone (375×548)", () => {
   test("M13: an 8-player summary leaves the top 56 px to the toasts (M10's Reconnecting…)", async ({
     page,
   }) => {
-    await show(page, { view: toView(roundOver(8, 3)), seat: 0, lead: true });
+    await show(page, { view: toView(roundOver(8, 344)), seat: 0, lead: true });
     const sheet = await page.locator("dialog .sheet").boundingBox();
     expect(sheet?.y).toBeGreaterThanOrEqual(56);
   });
@@ -885,10 +900,10 @@ test.describe("small phone (375×548)", () => {
   });
 });
 
-/** A player's round score so far as the table writes it (UX-15): "+14", "−3", "0". */
+/** A player's round score so far as the table writes it (UX-15, M27): "14", "−3", "0". */
 const roundScore = (p: PlayerView) => {
   const n = p.grid.reduce<number>((sum, slot) => sum + (typeof slot === "number" ? slot : 0), 0);
-  return n > 0 ? `+${n}` : n < 0 ? `−${-n}` : "0";
+  return n < 0 ? `−${-n}` : String(n);
 };
 
 test("UX-15: at 2, 5 and 8 seats, everyone's round score so far is by their total: the sum of their face-up cards; none from the final reveal on, and your cards keep their size", async ({
@@ -911,16 +926,25 @@ test("UX-15: at 2, 5 and 8 seats, everyone's round score so far is by their tota
     await retable(page, { view });
     const others = Array.from({ length: players - 1 }, (_, i) => (seat + 1 + i) % players);
     await expect(page.getByTestId("opponent").getByTestId("sum")).toHaveText(
-      others.map((i) => `${roundScore(view.players[i])} this round`),
+      others.map((i) => roundScore(view.players[i])),
     );
     await expect(page.getByTestId("mine-head").getByTestId("sum")).toHaveText(
-      `${roundScore(view.players[seat])} this round`,
+      roundScore(view.players[seat]),
     );
+    // Each number sits under its caption (M27).
+    await expect(page.getByTestId("opponent").first().locator(".stat small")).toHaveText([
+      "Game",
+      "Round",
+    ]);
+    await expect(page.getByTestId("mine-head").locator(".stat small")).toHaveText([
+      "Game",
+      "this round",
+    ]);
     expect(Math.abs((await cardWidth()) - before)).toBeLessThanOrEqual(1);
   }
   // The summary has the round's scores; behind it, the totals hold while the cards are revealed
   // (M9), so no running score either.
-  await show(page, { view: toView(roundOver(4, 3)), seat: 0 });
+  await show(page, { view: toView(roundOver(4, 344)), seat: 0 });
   await page.getByRole("button", { name: "View table" }).click();
   await expect(page.getByTestId("table")).toBeVisible();
   await expect(page.getByTestId("sum")).toHaveCount(0);
@@ -947,6 +971,75 @@ test("UX-15: with a 16-character name in Portuguese, your row stays one line: yo
     expect(Math.abs(sum.middle - pts.middle)).toBeLessThan(3);
     expect(sum.top).toBeGreaterThanOrEqual(row.top);
     expect(sum.bottom).toBeLessThanOrEqual(row.bottom);
+  }
+});
+
+/**
+ * Everyone has a 16-character name, a 3-digit total and Auto-play on, and the next player's clock
+ * shows its last seconds: the most an opponent's panel head ever holds (BUG-3).
+ */
+const longNames = (players: number): Shown => {
+  const state = lastTurnGame(players, 3);
+  state.players.forEach((p, i) => {
+    p.name = "Valentina Rodrig";
+    p.total = 104 + i;
+  });
+  return {
+    view: toView(state),
+    seat: state.current,
+    auto: state.players.map(() => true),
+    wait: [{ seat: (state.current + 1) % players, inMs: 8_950, reason: "timer" }],
+  };
+};
+
+test("BUG-3: a 16-character name never covers an opponent's total: at 2, 4 and 8 seats it gives way to the total and the clock's seconds, on Auto-play too", async ({
+  page,
+}) => {
+  const device = page.viewportSize() ?? { width: 390, height: 664 };
+  for (const players of [2, 4, 8]) {
+    const table = longNames(players);
+    const seat = table.seat ?? 0;
+    for (const size of [device, { width: 360, height: 740 }]) {
+      await page.setViewportSize(size);
+      await show(page, table);
+      await expect(page.locator(".opp-left")).toBeVisible();
+      const heads = await page.getByTestId("opponent").evaluateAll((panels) =>
+        panels.map((panel) => {
+          const box = (selector: string) => panel.querySelector(selector)?.getBoundingClientRect();
+          const [name, total, left] = [box(".opp-name"), box(".opp-total"), box(".opp-left")];
+          return {
+            total: panel.querySelector(".opp-total")?.textContent,
+            // How far the name reaches into the clock's seconds beside it, or out of the panel
+            // (px). Since M27 the total sits under the name, not beside it.
+            over: (name?.right ?? 0) - (left?.left ?? panel.getBoundingClientRect().right),
+            inside: (total?.right ?? 0) <= panel.getBoundingClientRect().right,
+          };
+        }),
+      );
+      expect(heads).toEqual(
+        Array.from({ length: players - 1 }, (_, i) => ({
+          total: String(104 + ((seat + 1 + i) % players)),
+          over: expect.any(Number),
+          inside: true,
+        })),
+      );
+      expect(Math.max(...heads.map((h) => h.over))).toBeLessThanOrEqual(0.5);
+    }
+  }
+});
+
+test("screenshots: BUG-3 long names", async ({ page }, info) => {
+  test.skip(!process.env.SHOTS || info.project.name !== "iphone", "run with SHOTS=1");
+  for (const players of [4, 8]) {
+    await show(page, longNames(players));
+    await expect(page.locator(".opp-left")).toBeVisible();
+    await page.screenshot({
+      path: `docs/screenshots/bug3/after-${players}.jpg`,
+      type: "jpeg",
+      quality: 80,
+      scale: "css",
+      animations: "disabled",
+    });
   }
 });
 
@@ -979,7 +1072,7 @@ test("PO, PR #33: in the opening flip only a player with cards to flip is asked 
   const deal = createGame(["Ana", "Ben", "Cris", "Dani"], [1, 0, 0, 0]);
   const pill = page.getByTestId("pill");
   const gold = () =>
-    pill.evaluate((el) => getComputedStyle(el).backgroundColor === "rgb(242, 193, 78)");
+    pill.evaluate((el) => getComputedStyle(el).backgroundImage.includes("rgb(242, 193, 78)"));
   await show(page, { view: toView(deal), seat: null });
   await expect(pill).toHaveText("Everyone flips 2");
   expect(await gold()).toBe(false);
@@ -989,10 +1082,10 @@ test("PO, PR #33: in the opening flip only a player with cards to flip is asked 
   const done = [0, 1].reduce((s, pos) => apply(s, { type: "flip", seat: 0, pos }), deal);
   await retable(page, { view: toView(done) });
   await expect(pill).toHaveText("Everyone flips 2");
-  const round2 = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 1).find(
+  const round2 = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 61).find(
     (s) => s.round === 2 && s.phase === "flip",
   );
-  if (!round2) throw new Error("seed 1 no longer plays out this way");
+  if (!round2) throw new Error("seed 61 no longer plays out this way");
   await retable(page, { view: toView(round2), seat: DANI });
   await expect(pill).toHaveText("Everyone flips 2");
   expect(await gold()).toBe(false);
@@ -1061,10 +1154,10 @@ test("screenshots: M14 round awareness", async ({ page }, info) => {
     seat: null,
   });
   await shot("07-spectator-everyone-flips");
-  const out = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 1).find(
+  const out = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 61).find(
     (s) => s.round === 2 && s.phase === "flip",
   );
-  if (!out) throw new Error("seed 1 no longer plays out this way");
+  if (!out) throw new Error("seed 61 no longer plays out this way");
   await show(page, { view: toView(out), seat: DANI });
   await shot("08-out-player-everyone-flips");
 });
@@ -1154,7 +1247,7 @@ test.describe("M13 with motion allowed", () => {
       });
     };
     const { firstOut, round2, over } = knockout();
-    await show(page, { view: toView(roundOver(4, 4)), seat: 2, lead: true });
+    await show(page, { view: toView(roundOver(4, 344)), seat: 2, lead: true });
     await shot("01-summary-ranked-with-you");
     await show(page, { view: firstOut, seat: DANI });
     await shot("02-you-are-out");
@@ -1228,11 +1321,265 @@ test.describe("with motion allowed", () => {
     });
     await shot("08-offline");
     await show(page, {
-      view: toView(roundOver(4, 11)),
+      view: toView(roundOver(4, 344)),
       seat: 0,
       lead: true,
       auto: [false, true, false, false],
     });
     await shot("09-summary-bot");
   });
+});
+
+// M27: scores you can read. The states are the design mockup's (e2e/m27-states.ts).
+test("M27: every face-up card of yours and on the piles carries its weight under its number: a diamond below zero, then 0–3 filled dots by band; opponents' small cards carry none", async ({
+  page,
+}) => {
+  await show(page, m27Table());
+  const marks = (selector: string) =>
+    page.locator(selector).evaluateAll((cards) =>
+      cards.map((card) => {
+        const mark = getComputedStyle(card, "::after");
+        const dots = ["--m1", "--m2", "--m3"].filter((v) => mark.getPropertyValue(v)).length;
+        const value = Number(card.textContent?.replace("−", "-"));
+        return [value, mark.content === "none" ? "none" : mark.rotate === "45deg" ? "◆" : dots];
+      }),
+    );
+  expect(await marks('[data-testid="my-grid"] .card.up, .piles .card.up')).toEqual([
+    [2, 1],
+    [8, 2],
+    [4, 1],
+    [0, 0],
+    [9, 3],
+    [4, 1],
+    [12, 3],
+    [-2, "◆"],
+    [5, 2],
+    [1, 1],
+  ]);
+  const small = await marks('[data-testid="opponent"] .card.up');
+  expect(small).toHaveLength(17);
+  expect(new Set(small.map(([, mark]) => mark))).toEqual(new Set(["none"]));
+  // Under the number, inside the card, and at least 4 px tall.
+  const box = await page
+    .getByTestId("my-grid")
+    .locator(".card.up")
+    .first()
+    .evaluate((card) => {
+      const mark = getComputedStyle(card, "::after");
+      const num = card.querySelector(".num")?.getBoundingClientRect();
+      const r = card.getBoundingClientRect();
+      const bottom = r.bottom - Number.parseFloat(mark.marginBottom);
+      const top = bottom - Number.parseFloat(mark.height);
+      return { below: top - (num?.bottom ?? 0), height: bottom - top, inside: bottom < r.bottom };
+    });
+  expect(box.below).toBeGreaterThanOrEqual(0);
+  expect(box.height).toBeGreaterThanOrEqual(4);
+  expect(box.inside).toBe(true);
+});
+
+test("M27: on your turn your row, clock and cards are framed, 'Low score wins' beside the clock; on another's turn the frame is off and your cards keep their size", async ({
+  page,
+}) => {
+  await show(page, m27Table());
+  const frame = () =>
+    page.locator(".mine").evaluate((mine) => {
+      const style = getComputedStyle(mine, "::before");
+      const box = (el: Element | null) => el?.getBoundingClientRect().toJSON() as DOMRect;
+      const m = box(mine);
+      const out = (side: string) => Number.parseFloat(style.getPropertyValue(side));
+      return {
+        lit: style.borderTopColor !== "rgba(0, 0, 0, 0)",
+        // The frame, from `.mine`'s box and the pseudo-element's insets.
+        top: m.top + out("top"),
+        bottom: m.bottom - out("bottom"),
+        left: m.left + out("left"),
+        right: m.right - out("right"),
+        clock: box(document.querySelector('[data-testid="clock"]')),
+        grid: box(document.querySelector('[data-testid="my-grid"]')),
+        card: box(document.querySelector('[data-testid="my-grid"] .card')).width,
+        prompt: box(document.querySelector('[data-testid="prompt"]')).bottom,
+        page: document.documentElement.clientWidth,
+      };
+    });
+  const mine = await frame();
+  expect(mine.lit).toBe(true);
+  expect(mine.clock.top).toBeGreaterThan(mine.top);
+  expect(mine.clock.bottom).toBeLessThan(mine.grid.top);
+  expect(mine.grid.bottom).toBeLessThanOrEqual(mine.bottom);
+  // Around your cards, and inside the page: under the prompt, between the screen's edges.
+  expect(mine.top).toBeGreaterThanOrEqual(mine.prompt);
+  expect(mine.left).toBeGreaterThanOrEqual(0);
+  expect(mine.right).toBeLessThanOrEqual(mine.page);
+  await expect(page.locator(".clock-row")).toContainText("Low score wins");
+  await expectMobileFriendly(page);
+  const view = m27View();
+  await retable(page, {
+    view: { ...view, phase: "draw", current: 1, drawn: null, drawnFrom: null },
+    wait: [],
+  });
+  await expect(page.getByTestId("table")).toHaveAttribute("data-myturn", "false");
+  const theirs = await frame();
+  expect(theirs.lit).toBe(false);
+  expect(Math.abs(theirs.card - mine.card)).toBeLessThanOrEqual(1);
+  await expect(page.locator(".clock-row")).toHaveText("Low score wins");
+});
+
+for (const [locale, drew, here, drawn, discard] of [
+  ["en", "You drew", "Discard here", "Drawn", "Discard"],
+  ["es", "Robaste", "Descarta aquí", "Robada", "Descarte"],
+  ["pt", "Você comprou", "Descarte aqui", "Comprada", "Descarte"],
+]) {
+  test(`M27 (${locale}): the card you drew reads '${drew}' and the discard pile is a dashed drop target, '${here}'; another player's draw reads '${drawn}' beside a plain '${discard}'`, async ({
+    page,
+  }) => {
+    await page.addInitScript((l) => localStorage.setItem("skyjo:locale", l), locale);
+    await show(page, m27Table());
+    const labels = page.locator(".piles .pile-label");
+    await expect(labels.nth(1)).toHaveText(drew);
+    await expect(labels.nth(2)).toHaveText(here);
+    await expect(page.getByTestId("discard")).toHaveCSS("outline-style", "dashed");
+    // One line each: a wrapped caption would move your cards (UX-12).
+    for (const label of await labels.all()) {
+      expect((await label.boundingBox())?.height).toBeLessThan(20);
+    }
+    await expectMobileFriendly(page);
+    // Thrown away (UX-19), the pile is no drop target any more.
+    await page.getByTestId("discard").click();
+    await expect(labels.nth(2)).toHaveText(discard);
+    // Watching Sofi from Leo's seat: nothing of hers to tap.
+    await show(page, { ...m27Table(), seat: 1 });
+    await expect(labels.nth(1)).toHaveText(drawn);
+    await expect(labels.nth(2)).toHaveText(discard);
+    await expect(page.getByTestId("discard")).toHaveCSS("outline-style", "none");
+  });
+}
+
+test("M27: the summary has 'This round' and 'Game' columns, a bar toward 100 a player, the doubling in a sentence, and what ends the game; knockout says its own", async ({
+  page,
+}) => {
+  await show(page, m27Summary());
+  const summary = page.getByTestId("round-summary");
+  await expect(summary.getByRole("columnheader")).toHaveText(["Player", "this round", "Game"]);
+  await expect(summary.getByTestId("summary-why")).toHaveText(
+    "Mamá ended the round, but Leo scored lower, so Mamá's 18 counts double.",
+  );
+  await expect(summary.locator("tbody tr:first-child")).toHaveText([
+    /^Leo1442$/,
+    /^Sofiyou2162$/,
+    /^Mamáended18×2 = 3675$/,
+    /^Abuelo4492$/,
+  ]);
+  // Their place is drawn before the name; the leader's row stands out.
+  expect(
+    await summary
+      .locator(".who")
+      .evaluateAll((els) => els.map((el) => getComputedStyle(el, "::before").content)),
+  ).toEqual(['"1"', '"2"', '"3"', '"4"']);
+  await expect(summary.locator("tbody.win")).toHaveText(/^Leo/);
+  const bars = await summary.locator(".meter").evaluateAll((meters) =>
+    meters.map((meter) => {
+      const fill = meter.firstElementChild?.getBoundingClientRect().width ?? 0;
+      return Math.round((100 * fill) / meter.getBoundingClientRect().width);
+    }),
+  );
+  expect(bars).toEqual([42, 62, 75, 92]);
+  await expect(summary.locator(".goal")).toHaveText("Lowest total winsGame ends at 100");
+  await expect(summary.getByRole("row")).toHaveCount(5); // the bars' rows aren't read out
+  await expectMobileFriendly(page);
+  // Knockout (R16): 100 puts you out, and the last one in wins. A total past 100 fills the bar.
+  const { firstOut, over } = knockout();
+  await retable(page, { view: firstOut });
+  await expect(summary.locator(".goal")).toHaveText("Last one under 100 winsOut at 100");
+  await expect(summary.locator("tbody").last().locator(".meter")).toHaveAttribute(
+    "style",
+    "--p: 100;",
+  );
+  // Game over: nothing left to aim for.
+  await show(page, { view: over, seat: 0 });
+  await expect(page.getByTestId("game-over").locator(".goal")).toHaveCount(0);
+});
+
+test("M27: at 8 seats the summary still fits a small phone: Next round is on screen without scrolling", async ({
+  page,
+}) => {
+  // 8 rows, seen from seat 1. Seat 0 ended this round and was doubled: on its own phone that row
+  // also carries "you", wraps to two lines, and the sheet scrolls 8 px at 360 × 640 (PLAN, M27).
+  const view: GameView = { ...toView(roundOver(8, 344)), phase: "roundOver", winners: [] };
+  for (const size of [
+    { width: 360, height: 640 },
+    { width: 390, height: 664 },
+  ]) {
+    await page.setViewportSize(size);
+    await show(page, { view, seat: 1, lead: true });
+    await expect(page.getByRole("button", { name: "Next round" })).toBeInViewport({ ratio: 1 });
+    await expect(page.getByTestId("round-summary").getByRole("row")).toHaveCount(9);
+    const sheet = page.getByTestId("round-summary").locator(".sheet");
+    expect(await sheet.evaluate((el) => el.scrollHeight - el.clientHeight)).toBeLessThanOrEqual(0);
+    await expectMobileFriendly(page);
+  }
+});
+
+test("screenshots: M27 scores you can read", async ({ page }, info) => {
+  test.skip(!process.env.SHOTS || info.project.name !== "iphone", "run with SHOTS=1");
+  // The mockup's size (docs/screenshots/m27/target-*.jpg), to compare side by side.
+  await page.setViewportSize({ width: 390, height: 844 });
+  const shot = async (name: string) => {
+    await page.waitForLoadState("networkidle"); // the cards' art
+    await page.screenshot({
+      path: `docs/screenshots/m27/${name}.jpg`,
+      type: "jpeg",
+      quality: 85,
+      scale: "css",
+    });
+  };
+  await show(page, m27Table());
+  await shot("01-your-turn");
+  const view = m27View();
+  await show(page, {
+    view: { ...view, phase: "draw", current: 1, drawn: null, drawnFrom: null },
+    seat: 0,
+    wait: [{ seat: 1, inMs: 22_000, reason: "timer" }],
+  });
+  await shot("02-their-turn");
+  await show(page, m27Summary());
+  await shot("03-summary");
+  for (const locale of ["es", "pt"]) {
+    await page.addInitScript((l) => localStorage.setItem("skyjo:locale", l), locale);
+    await show(page, m27Table());
+    await shot(`04-${locale}-your-turn`);
+    await show(page, m27Summary());
+    await shot(`05-${locale}-summary`);
+  }
+  await page.addInitScript(() => localStorage.setItem("skyjo:locale", "en"));
+  const eight = playedRound(8, 344)[30];
+  await page.setViewportSize({ width: 390, height: 664 });
+  await show(page, { view: toView(eight), seat: eight.current });
+  await shot("06-eight-players");
+  await show(page, {
+    view: { ...toView(roundOver(8, 344)), phase: "roundOver", winners: [] },
+    seat: 0,
+    lead: true,
+  });
+  await shot("07-eight-summary");
+});
+
+test("UX-19: a tap on the pile as your turn appears, before the page has settled, still throws the card away", async ({
+  page,
+}) => {
+  const state = firstTurn(2, 5);
+  const me = state.current;
+  // The tap lands right as the pile is added to the page: before React runs the table's effects.
+  await page.addInitScript(() => {
+    const watch = new MutationObserver(() => {
+      const pile = document.querySelector<HTMLElement>('[data-testid="discard"]');
+      if (!pile) return;
+      watch.disconnect();
+      pile.click();
+    });
+    watch.observe(document, { childList: true, subtree: true });
+  });
+  const view = toView(apply(state, { type: "draw", seat: me, source: "deck" }));
+  await show(page, { view, seat: me });
+  await expect(page.locator(".undo")).toBeVisible();
+  await expect(page.getByTestId("discard")).toHaveAttribute("data-tilt", "4");
 });

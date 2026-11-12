@@ -24,6 +24,8 @@ export function roundOver(players: number, seed: number): GameState {
     const legal = legalActions(state);
     state = apply(state, legal[state.phase === "place" ? legal.length - 1 : 0]);
   }
+  // A total of 100 ends the game instead (R14), and a test would show the wrong sheet.
+  if (state.phase !== "roundOver") throw new Error(`seed ${seed} ends the game: pick another`);
   return state;
 }
 
@@ -81,9 +83,16 @@ export interface Shown {
 }
 
 export async function show(page: Page, table: Shown) {
-  await page.addInitScript((t) => {
-    (window as unknown as { __SKYJO_TABLE__: unknown }).__SKYJO_TABLE__ = t;
-  }, table);
+  await page.addInitScript(
+    ([t, look]) => {
+      (window as unknown as { __SKYJO_TABLE__: unknown }).__SKYJO_TABLE__ = t;
+      // The harness's tables wear the Classic look (M27), which most layout and motion checks were
+      // written against, unless a test chose one (e2e/theme.spec.ts covers Modern, M28).
+      // LOOK=casual runs them in Modern, the players' default: not in CI yet (PLAN, M28).
+      if (!localStorage.getItem("skyjo:theme")) localStorage.setItem("skyjo:theme", look);
+    },
+    [table, process.env.LOOK ?? "classic"] as const,
+  );
   await page.goto("/");
   await expect(page.getByTestId("table")).toBeVisible();
 }

@@ -16,6 +16,13 @@ export function art(card: number | "down"): string {
   return card <= 8 ? mid : high;
 }
 
+/**
+ * A face's band, as a class: its weight mark (M27) is drawn from it in styles.css, a diamond below
+ * zero, then 0–3 filled dots, so low-is-good reads without colour.
+ */
+export const band = (card: number) =>
+  card < 0 ? "b-neg" : card === 0 ? "b-zero" : card <= 4 ? "b-low" : card <= 8 ? "b-mid" : "b-high";
+
 /** Real minus sign so "−2" reads clearly at small sizes. */
 export const formatCard = (card: number) => (card < 0 ? `−${-card}` : String(card));
 
@@ -55,7 +62,7 @@ export function Card({
         ? t("faceDown", { label })
         : `${label}: ${formatCard(slot)}`;
   const attrs = {
-    className: `card ${size} ${face}${highlight ? " hl" : ""}`,
+    className: `card ${size} ${face}${typeof slot === "number" ? ` ${band(slot)}` : ""}${highlight ? " hl" : ""}`,
     style: {
       backgroundImage: slot === null ? undefined : `url(${art(slot)})`,
       rotate: tilt ? `${tilt}deg` : undefined,
