@@ -61,6 +61,13 @@ for (const look of LOOKS) {
     await showIn(page, look, { view, seat: 1 });
     await expect(summary.getByRole("heading")).toHaveText("You won round 3!");
     await expect(summary.getByTestId("confetti")).toHaveCount(0);
+
+    // Won the round and went out in it (R16): "You're out", no confetti.
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    const players = view.players.map((p, i) => (i === 1 ? { ...p, out: view.round } : p));
+    await showIn(page, look, { view: { ...view, knockout: true, players }, seat: 1 });
+    await expect(summary.getByTestId("summary-sub")).toHaveText("You're out · watching");
+    await expect(summary.getByTestId("confetti")).toHaveCount(0);
   });
 
   test(`M30 (${look}): at game over every place reads a kind line; a guest asks for a rematch once, and whoever leads reads who asked`, async ({
@@ -74,7 +81,7 @@ for (const look of LOOKS) {
     for (const seat of [0, 1, 2, 3]) {
       await showIn(page, look, { view, seat, lead: seat === winner });
       await expect(over.getByTestId("summary-kind")).toBeVisible();
-      lines.add(await over.getByTestId("summary-kind").textContent());
+      lines.add((await over.getByTestId("summary-kind").textContent()) ?? "");
     }
     expect(lines.size).toBe(4);
 
@@ -109,6 +116,16 @@ for (const look of LOOKS) {
     await expect(over.getByRole("button", { name: "Rematch?" })).toHaveCount(0);
     await expectMobileFriendly(page);
     if (info.project.name === "iphone") await shot(page, `04-game-over-host-${look}`);
+
+    // What the phone saw goes with its game: the next game's game over starts clean.
+    await page.evaluate(
+      (detail) => window.dispatchEvent(new CustomEvent("skyjo:table", { detail })),
+      {
+        view: { ...view, players: view.players.map((p) => ({ ...p, total: p.total + 1 })) },
+        rematch: undefined,
+      },
+    );
+    await expect(over.getByTestId("rematch-asked")).toHaveCount(0);
 
     // Watching: nothing to ask with.
     await showIn(page, look, { view, seat: null });

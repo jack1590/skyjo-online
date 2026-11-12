@@ -74,8 +74,8 @@ interface TableProps {
   onPlayAgain: () => void;
   /** The seats that asked for a rematch at this game over (RoomView.rematch, M30). */
   rematch?: number[];
-  /** Asks for one: a seat that can't lead. */
-  onAskRematch?: () => void;
+  /** Asks for one, a seat that can't lead: false when it couldn't be sent (no connection). */
+  onAskRematch?: () => boolean;
   onExit: () => void;
 }
 
@@ -121,19 +121,25 @@ export function Table(props: TableProps) {
     if (!summary) setPeek(false);
   }, [summary]);
   // Who asked for a rematch (M30). The room forgets it when it sleeps, so this phone keeps what
-  // it saw until the game leaves game over.
+  // it saw while this game's game over lasts: its totals tell it from the next game's.
   const [asked, setAsked] = useState<number[]>([]);
   const { rematch } = props;
+  const finished = phase === "gameOver" ? players.map((p) => p.total).join() : "";
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the dep is a trigger, not an input
+  useEffect(() => setAsked((was) => (was.length ? [] : was)), [finished]);
   useEffect(() => {
+    if (!finished || !rematch) return;
     setAsked((was) => {
-      const all = phase === "gameOver" ? [...new Set([...was, ...(rematch ?? [])])] : [];
+      const all = [...new Set([...was, ...rematch])];
       return all.length === was.length ? was : all;
     });
-  }, [phase, rematch]);
-  // Whoever can start it hears each request.
+  }, [finished, rematch]);
+  // Whoever can start it hears each new request, never their own.
+  const chimed = useRef(0);
   useEffect(() => {
-    if (lead && asked.length > 0) cue("turn");
-  }, [lead, asked.length]);
+    if (lead && asked.length > chimed.current && asked.at(-1) !== props.seat) cue("turn");
+    chimed.current = asked.length;
+  }, [lead, asked, props.seat]);
   // The summary's sheet goes with "View table": a keyboard user's focus moves to "Show scores".
   const showScores = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -838,10 +844,11 @@ export function Table(props: TableProps) {
             onPlayAgain={onPlayAgain}
             asked={asked}
             onAsk={() => {
-              props.onAskRematch?.();
-              // Shown at once: the server's answer only repeats it.
+              // Shown at once when it went out: the server's answer only repeats it. Not sent
+              // (reconnecting): the button stays, to tap again.
               const you = props.seat;
-              if (you !== null) setAsked((was) => (was.includes(you) ? was : [...was, you]));
+              if (you === null || props.onAskRematch?.() === false) return;
+              setAsked((was) => (was.includes(you) ? was : [...was, you]));
             }}
             onExit={exit}
           />
@@ -1055,7 +1062,7 @@ function Summary(props: SummaryProps) {
     const onKey = (e: KeyboardEvent) => {
       // Not while the chat's sheet is open over this one (M29): Tab is that modal's then.
       if (e.key !== "Tab" || !dialog || dialog.querySelector("dialog[open]")) return;
-      const buttons = [...dialog.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")];
+      const buttons = [...dialog.querySelectorAll("button")];
       const i = buttons.indexOf(document.activeElement as HTMLButtonElement);
       e.preventDefault();
       buttons
@@ -1078,7 +1085,8 @@ function Summary(props: SummaryProps) {
   else if (over && you !== null && !won) sub = overTitle(t, locale, view, null);
   const why = endedNote(t, view);
   // The round's winners get the game winner's confetti (M30).
-  const wonRound = !over && you !== null && roundWinners(view).includes(you);
+  // Not for one who went out in it (R16): theirs is the "out" moment, as with the sound.
+  const wonRound = !over && !wentOut && you !== null && roundWinners(view).includes(you);
   // From 6 players on the sheet is full: the doubling sentence, when there is one, takes the line.
   const recap = over || (why && rows.length > 5) ? null : roundHighlight(t, view);
   const kind = over ? kindLine(t, view, you) : null;
@@ -1089,7 +1097,7 @@ function Summary(props: SummaryProps) {
       className="overlay"
       tabIndex={-1}
       aria-labelledby="summary-title"
-      aria-describedby={sub ? "summary-sub" : undefined}
+      aria-describedby={sub || kind ? "summary-lede" : undefined}
       data-testid={over ? "game-over" : "round-summary"}
       onClose={onPeek}
     >
@@ -1106,13 +1114,9 @@ function Summary(props: SummaryProps) {
         {(sub || kind) && (
           // One paragraph: at game over your place's line (M30) follows who won, on its line when
           // there is room, so the sheet grows no taller.
-          <p className="lede">
+          <p id="summary-lede" className="lede">
             {sub && (
-              <span
-                id="summary-sub"
-                className={`sub${wentOut ? " out" : ""}`}
-                data-testid="summary-sub"
-              >
+              <span className={`sub${wentOut ? " out" : ""}`} data-testid="summary-sub">
                 {sub}
               </span>
             )}{" "}
@@ -1232,8 +1236,9 @@ function Summary(props: SummaryProps) {
                 <button
                   type="button"
                   className="btn primary"
-                  disabled={iAsked}
-                  onClick={props.onAsk}
+                  // Not `disabled`: the button you just tapped would drop the focus.
+                  aria-disabled={iAsked}
+                  onClick={iAsked ? undefined : props.onAsk}
                 >
                   {t(iAsked ? "rematchAsked" : "askRematch")}
                 </button>

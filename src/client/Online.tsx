@@ -108,7 +108,7 @@ export function Online({ code }: { code: string }) {
         onAuto={(on) => send({ t: "auto", on })}
         onPlayAgain={() => send({ t: "rematch" })}
         rematch={room.rematch}
-        onAskRematch={() => send({ t: "askRematch" })}
+        onAskRematch={() => send({ t: "askRematch" }) !== null}
         onExit={goHome}
       />
     </>
