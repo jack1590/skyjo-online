@@ -2,6 +2,7 @@ import { type FormEvent, useEffect, useState } from "react";
 import { MAX_PLAYERS } from "../engine/game";
 import { CODE_LENGTH, isRoomCode, type PublicRoom } from "../protocol";
 import { LOCALES, type Locale, useI18n } from "./i18n";
+import { Tutorial } from "./Tutorial";
 import { LookPicker } from "./theme";
 import { useOnline } from "./useOnline";
 
@@ -17,6 +18,17 @@ function shouldShowIosHint(): boolean {
     return ios && !installed && !localStorage.getItem(IOS_HINT_KEY);
   } catch {
     return false;
+  }
+}
+
+const TUTORIAL_KEY = "skyjo:tutorial";
+
+/** The tutorial is offered once (M31): until it is started or turned down on this device. */
+function tutorialOffered(): boolean {
+  try {
+    return localStorage.getItem(TUTORIAL_KEY) !== null;
+  } catch {
+    return true; // no storage to remember the answer in: don't ask on every visit
   }
 }
 
@@ -82,6 +94,18 @@ export function Home() {
       // Shown again next visit; harmless.
     }
   };
+  // The tutorial (M31): offered once, then "on" while it plays and "done" when played through.
+  const [learn, setLearn] = useState<"offer" | "off" | "on" | "done">(() =>
+    tutorialOffered() ? "off" : "offer",
+  );
+  const answer = (next: "off" | "on") => {
+    setLearn(next);
+    try {
+      localStorage.setItem(TUTORIAL_KEY, "1");
+    } catch {
+      // Offered again next visit; harmless.
+    }
+  };
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<"createFailed" | "tooManyRequests" | null>(null);
 
@@ -108,6 +132,9 @@ export function Home() {
     if (isRoomCode(code)) window.location.assign(`/r/${code}`);
   };
 
+  if (learn === "on") {
+    return <Tutorial onDone={() => setLearn("done")} onExit={() => setLearn("off")} />;
+  }
   return (
     <main className="home">
       <select
@@ -138,6 +165,26 @@ export function Home() {
           <button type="button" className="btn" onClick={dismissHint}>
             {t("gotIt")}
           </button>
+        </div>
+      )}
+
+      {learn === "offer" && (
+        <div className="panel offer" data-testid="tutorial-offer">
+          <p>{t("tutorOffer")}</p>
+          <div className="actions">
+            <button type="button" className="btn" onClick={() => answer("off")}>
+              {t("tutorLater")}
+            </button>
+            <button type="button" className="btn primary" onClick={() => answer("on")}>
+              {t("tutorStart")}
+            </button>
+          </div>
+        </div>
+      )}
+      {learn === "done" && (
+        <div className="panel ready" role="status" data-testid="tutorial-ready">
+          <h2>{t("tutorReady")}</h2>
+          <p>{t("tutorReadyNote")}</p>
         </div>
       )}
 
@@ -211,6 +258,9 @@ export function Home() {
         <LookPicker />
       </section>
 
+      <button type="button" className="btn" onClick={() => answer("on")}>
+        {t("learnToPlay")}
+      </button>
       <details className="panel rules">
         <summary>{t("howToPlay")}</summary>
         <ul>

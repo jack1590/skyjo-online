@@ -71,6 +71,8 @@ interface TableProps {
   chat?: ReactNode;
   /** The chat messages to pop as bubbles now. */
   said?: ChatMsg[];
+  /** The tutorial's round summary (M31): its own sentence for why, and its button's name. */
+  ending?: { why: string; next: string };
   onPlayAgain: () => void;
   onExit: () => void;
 }
@@ -815,6 +817,7 @@ export function Table(props: TableProps) {
             auto={auto}
             chat={props.chat}
             said={props.said ?? []}
+            ending={props.ending}
             onPeek={() => setPeek(true)}
             onNext={() => onAction({ type: "nextRound" })}
             onPlayAgain={onPlayAgain}
@@ -951,6 +954,7 @@ interface SummaryProps {
   /** The chat button and the messages to pop (M29): the sheet is modal, so they live inside it. */
   chat?: ReactNode;
   said: ChatMsg[];
+  ending?: TableProps["ending"];
   onPeek: () => void;
   onNext: () => void;
   onPlayAgain: () => void;
@@ -1006,7 +1010,7 @@ function Summary(props: SummaryProps) {
   let sub: string | null = null;
   if (wentOut) sub = t("youreOut");
   else if (over && you !== null && !won) sub = overTitle(t, locale, view, null);
-  const why = endedNote(t, view);
+  const why = props.ending?.why ?? endedNote(t, view);
   return (
     <dialog
       ref={ref}
@@ -1127,7 +1131,7 @@ function Summary(props: SummaryProps) {
         ) : (
           lead && (
             <button type="button" className="btn primary" onClick={onNext}>
-              {t("nextRound")}
+              {props.ending?.next ?? t("nextRound")}
             </button>
           )
         )}

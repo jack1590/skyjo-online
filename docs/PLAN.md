@@ -816,7 +816,8 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 34  | ✅ M27                             | Classic, upgraded: labelled scores, your frame, weight marks, a summary that explains itself, a look with depth (owner) | 2.9.0         | the owner's design round, 2026-11-11: the look to ship to the stores                                             |
 | 35  | ✅ M28                             | Polished casual, the new default look, and a switch between it and Classic (owner)                                      | 2.10.0        | the owner's choice of direction B; stacked on M27                                                                |
 | 36  | ✅ M29                             | Chat: quick phrases, emojis and typed messages, as bubbles by whoever spoke (owner request, 2026-11-11)                 | 2.11.0        | the owner asked for it; after the redesign (M27, M28)                                                            |
-| 37  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
+| 37  | M31                                | Learn to play: a first-game tutorial, one scripted round on the real table (owner-approved, 2026-11-11)                 | 2.13.0        | the product review's idea 4 (K1, K2); tutorial only: the owner plans "Play on one phone" himself                 |
+| 38  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
 
 Deferred: Turnstile (SEC-4) and SEC-12 (until M16). Quick reactions, deferred until now, are M23 (user request, 2026-10-29). Declined: SEC-7. Versions assume this order; a PR that reorders says so.
 
@@ -1735,6 +1736,32 @@ Both carry the same clarity changes, which this milestone builds, so M28 is toke
 - **History survives hibernation only on phones.** A Durable Object asleep for 10 s forgets its 30 messages; each phone keeps what it saw. A phone that joins later misses them. Persisting would cost a row a message.
 - A sound for an incoming message; a countdown on the greyed Send.
 - **PO, PR #56 review: chat follows BUG-4's final rule.** This milestone was built on PR #42's first fix, where phones on one address waited for each other (24 s between messages with 8 phones). The owner rejected that wait for throws, and PR #42 shipped another rule: the wait stays 3 s per sender, and a socket pays one unit for 8 gags. Chat now does the same, on the same per-socket counter. Measured: 8 phones on one address, a tap every 2 s, each chatting every 3 s (656 messages in 4 minutes, where the first rule let 80 through) peak at 74 of 120 units, nobody closed; `holdRooms` "hold, then chat" keeps the 14 h and 18 h bounds. Not measured: that minute with throws, reactions and chat all at the app's limit together; by the price it is about 20 units more than chat alone, so about 94 of 120.
+
+### M31 — Learn to play (owner-approved, 2026-11-11) · v2.13.0
+
+**Problem** (product review § 1, K1 and K2; § 2, idea 4). The rules are 8 paragraphs behind "How to play". A new player, a child above all, never learns from the table that low is good, why two cards are flipped, what a cleared column is, or why a score doubled.
+
+**Scope.** A tutorial only: one scripted round against one scripted rival, client-side. Not a local mode: the owner has his own plan for "Play on one phone" (robots, pass-and-play), and nothing here chooses moves, takes a second player or runs a whole game. No room, no network, nothing on the server.
+
+**What players get.**
+- Home offers it once on a first visit ("New here? Learn the game in one minute." with **Show me** and **Not now**), remembered per device (`skyjo:tutorial`). **Learn to play** on Home replays it any time.
+- The real `Table`, in the player's look and language, with one coach bubble: one instruction of 8 words or fewer, pointing at what to tap, a ring on the target, and **Skip** in every bubble. Each step waits for the player's own tap; any other tap does nothing. The table's own prompt line is hidden, so there is one instruction at a time.
+- The lesson (about a minute): flip two cards (a −2 and a 12); low is good; take the discard's 3 and swap it for the 12; draw an 11 from the deck, throw it away and flip a card; complete a column of three 3s, which clears; a few turns are skipped; turn over your last card. The rival (Leo) plays one more turn and scores lower, so the real round summary shows "9 ×2 = 18" and says why. **Continue** returns to Home under "You're ready!", above Create a room and the room code.
+- Sounds, haptics, mute, the look switch and reduced motion are the table's own.
+
+**How.** `src/client/lesson.ts` holds a stacked deal (a whole 150-card deck in a chosen order, in place of a shuffle) and the steps; every move, the rival's and the skipped turns too, goes through the engine's `apply`. `Tutorial.tsx` renders `Table` with `toView(state)` and refuses (returns `null` from `onAction`, as an unsent tap) whatever the step doesn't ask for. `Table` gains one optional prop, `ending`: the summary's sentence in the second person and its button's name.
+
+**Acceptance.**
+- [x] `lesson.test.ts`: the deal is a whole deck (R1); every step is legal engine play in either order of its taps and conserves the cards; a step accepts only its own taps, and none while the rival plays; the state after each step (R3, R4, R6–R10, R12): −2 and 12 flipped and you start, the 3 replaces the 12, the 11 is thrown and a 3 flipped, the column clears, one card left after the skip, the round ends doubled at 18 to 7; each instruction is 8 words or fewer in en, es and pt.
+- [x] E2E on iPhone, Pixel and desktop, reduced motion: the offer on a first visit; the whole lesson in under 20 s with every bubble's text, on screen, off its target and 44 px; the summary's sentence and "9 ×2 = 18"; "You're ready!" with Create a room and the room code; no request to `/api/rooms`; after a reload no offer, and "Learn to play" replays.
+- [x] E2E: Skip at each of the 11 steps and while Leo plays lands on Home, and the offer never returns; "Not now" is remembered; the table's ✕ leaves too.
+- [x] E2E (Pixel): at 360 px in es and pt, in both looks, every bubble fits and nothing scrolls sideways; with motion on, the round plays through with no page error.
+- [x] Screenshots of every step in both looks: `docs/screenshots/m31/`.
+
+**Not in this PR.**
+- "Play on one phone" (robots, pass-and-play): the owner's own plan.
+- The offer on a first visit by a room link (`/r/CODE`): a friend is waiting there; Home offers it on the next visit.
+- A helper in real games (the review's idea 2c).
 
 ### M16 — Launch in the App Store and Google Play (user decision, 2026-10-24) · last
 
