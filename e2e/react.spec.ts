@@ -355,6 +355,7 @@ test("BUG-14: in your name bar no reaction opens over the Auto-play switch, and 
   page,
   hasTouch,
 }) => {
+  test.setTimeout(90_000);
   // A phone the cards fill (an iPhone's home-screen app): the button is in your name bar.
   await page.setViewportSize({ width: 390, height: 745 });
   for (const look of ["classic", "casual"]) {
@@ -418,6 +419,52 @@ test("BUG-14: in your name bar no reaction opens over the Auto-play switch, and 
     }
     // The check means something: reactions do open over your cards.
     expect(overCard).toBeGreaterThan(0);
+
+    // A double tap on the pigeon feeder, with no tap on the button between, in the place phase
+    // where a tap on your card swaps it: the fan stays up, greyed, and takes the second tap.
+    const game = lastTurnGame(4, 3);
+    const placing = toView(apply(game, { type: "draw", seat: game.current, source: "deck" }));
+    // The page's clock steps the gap exactly: a busy runner can't stretch it past the fan's 400 ms.
+    if (look === "classic") await page.clock.install();
+    for (const reducedMotion of ["reduce", "no-preference"] as const) {
+      await page.emulateMedia({ reducedMotion });
+      for (const gap of [80, 250]) {
+        await show(page, { view: placing, seat: game.current });
+        const ticks = await page.evaluateHandle(() => {
+          const ticks = { n: 0 };
+          document.querySelector(".auto input")?.addEventListener("click", () => ticks.n++);
+          return ticks;
+        });
+        await button.click();
+        const pigeon = page.locator(".react-item[data-kind=migajero]");
+        // Settled where it opens (not still flying out of the button).
+        await expect.poll(async () => (await pigeon.boundingBox())?.width).toBe(48);
+        const spot = await box(page, ".react-item[data-kind=migajero]");
+        await page.clock.pauseAt(await page.evaluate(() => Date.now() + 500));
+        await tap(spot);
+        await page.clock.runFor(gap);
+        // A paused clock holds CSS animations too: move the fan's on by the gap as well.
+        // (evaluateAll: the fan may be gone already, and then there's nothing to wait for.)
+        await pigeon.evaluateAll((els, gap) => {
+          for (const a of els.flatMap((el) => el.getAnimations())) a.currentTime = gap;
+        }, gap);
+        await tap(spot);
+        await page.clock.runFor(1000);
+        await page.clock.resume();
+        const when = `${look}, ${reducedMotion}, ${gap} ms`;
+        await expect(page.getByTestId("react-fan"), when).toHaveCount(0);
+        await expect(page.getByTestId("my-grid").locator("[data-pending]"), when).toHaveCount(0);
+        expect(await ticks.evaluate((t) => t.n), when).toBe(0);
+        // The check means something: the pigeon feeder opens over one of your cards.
+        expect(
+          await page.evaluate(
+            ([x, y]) => !!document.elementFromPoint(x, y)?.closest('[data-testid="my-grid"] .card'),
+            [spot.x + spot.width / 2, spot.y + spot.height / 2],
+          ),
+        ).toBe(true);
+      }
+    }
+    await page.emulateMedia({ reducedMotion: "reduce" });
   }
 });
 

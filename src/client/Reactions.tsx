@@ -340,6 +340,7 @@ export function ReactButton({ place, until, target, reduced, onReact }: ReactBut
     else setClosing(true);
   };
   useFanDismiss(open !== null && !closing, [button, fan], close, () => button.current?.focus());
+  // biome-ignore lint/correctness/useExhaustiveDependencies: closing is the trigger
   useEffect(() => {
     if (!closing) return;
     const id = setTimeout(
@@ -347,14 +348,16 @@ export function ReactButton({ place, until, target, reduced, onReact }: ReactBut
         setOpen(null);
         setClosing(false);
       },
-      120 + 3 * 20,
+      // After a pick it rests: its greyed items take a double tap's second tap.
+      resting ? 400 : 120 + 3 * 20,
     );
     return () => clearTimeout(id);
   }, [closing]);
   // It opens while it rests too, greyed out: a thumb's second tap where a reaction was is taken by
   // the fan, not by your card or the switch under it (BUG-14).
   const toggle = () => {
-    if (open) return close();
+    if (open && !closing) return close();
+    setClosing(false);
     const r = button.current?.getBoundingClientRect();
     if (r) setOpen({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
   };
@@ -388,7 +391,7 @@ export function ReactButton({ place, until, target, reduced, onReact }: ReactBut
         createPortal(
           <div
             ref={fan}
-            className={`react-fan${closing ? " closing" : ""}`}
+            className={`react-fan${closing ? (resting ? " closing resting" : " closing") : ""}`}
             data-testid="react-fan"
             style={{ left: open.x, top: open.y }}
           >
@@ -416,8 +419,7 @@ export function ReactButton({ place, until, target, reduced, onReact }: ReactBut
                   onClick={() => {
                     onReact(kind, kind === "migajero" ? (target ?? undefined) : undefined);
                     navigator.vibrate?.(10);
-                    setOpen(null);
-                    setClosing(false);
+                    setClosing(true);
                     button.current?.focus();
                   }}
                 >
