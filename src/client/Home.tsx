@@ -85,7 +85,6 @@ export function Home() {
   const [code, setCode] = useState("");
   const [iosHint, setIosHint] = useState(shouldShowIosHint);
   const online = useOnline();
-  const [rooms, refresh] = usePublicRooms(online);
   const dismissHint = () => {
     setIosHint(false);
     try {
@@ -106,6 +105,8 @@ export function Home() {
       // Offered again next visit; harmless.
     }
   };
+  // Not while the tutorial plays: it needs no network, and Home's list isn't on screen.
+  const [rooms, refresh] = usePublicRooms(online && learn !== "on");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<"createFailed" | "tooManyRequests" | null>(null);
 

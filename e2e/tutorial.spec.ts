@@ -76,15 +76,18 @@ async function playStep(page: Page, i: number, says?: string[], measure = true) 
 test("M31: Home offers the tutorial once; it plays a whole scripted round on the real table in under 20 s, one instruction and one real tap at a time, explains the doubling at the summary and ends on Home, ready to create or join a room", async ({
   page,
 }) => {
+  // What the tutorial asks the server for while it plays: nothing (Home's own polls stop too).
   const requests: string[] = [];
+  let playing = false;
   page.on("request", (r) => {
-    if (new URL(r.url()).pathname.startsWith("/api/rooms")) requests.push(r.url());
+    if (playing && new URL(r.url()).pathname.startsWith("/api")) requests.push(r.url());
   });
   await page.goto("/");
   await expect(page.getByTestId("tutorial-offer")).toContainText("New here?");
   await expectMobileFriendly(page);
   const started = Date.now();
   await page.getByRole("button", { name: "Show me" }).click();
+  playing = true;
   await expect(page.getByTestId("table")).toHaveAttribute("data-phase", "flip");
   // The table's own names and no dead controls: you, against Leo.
   await expect(page.getByTestId("mine-head")).toContainText("You");
@@ -122,6 +125,7 @@ test("M31: Home offers the tutorial once; it plays a whole scripted round on the
   );
   await expect(summary.locator('tr[data-seat="0"]')).toContainText("9×2 = 18");
   await expect(summary.locator('tr[data-seat="1"]')).toContainText("7");
+  playing = false;
   await summary.getByRole("button", { name: "Continue" }).click();
   expect(Date.now() - started).toBeLessThan(20_000);
 
@@ -130,7 +134,6 @@ test("M31: Home offers the tutorial once; it plays a whole scripted round on the
   await expect(page.getByRole("button", { name: "Create a room" })).toBeEnabled();
   await expect(page.getByRole("textbox", { name: "Room code" })).toBeVisible();
   await expectMobileFriendly(page);
-  // Nothing went to the server.
   expect(requests).toEqual([]);
 
   // Never offered again, and replayable.

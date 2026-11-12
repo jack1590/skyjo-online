@@ -104,6 +104,14 @@ function Coach({ say, versus, onNext, onSkip }: CoachProps) {
   // The table's own mode, read from its grid: the drawn card lies thrown on the pile.
   const [thrown, setThrown] = useState(false);
   const now = (thrown && say.thrown) || say;
+  // In words, for a screen reader: the rings and the bubble's place say it only to the eye.
+  const where = (now.at ?? [])
+    .map((at) =>
+      typeof at === "number"
+        ? t("where", { row: Math.floor(at / 4) + 1, col: (at % 4) + 1 })
+        : t(at === "deck" ? "deck" : "discardPile"),
+    )
+    .join(", ");
   const bubble = useRef<HTMLDivElement>(null);
   const rings = useRef<(HTMLElement | null)[]>([]);
   const place = () => {
@@ -168,7 +176,10 @@ function Coach({ say, versus, onNext, onSkip }: CoachProps) {
       ))}
       <div ref={bubble} className="coach" data-testid="coach">
         {/* One live region for the whole lesson, so a screen reader hears each instruction. */}
-        <p role="status">{t(now.say, { name: RIVAL })}</p>
+        <p role="status">
+          {t(now.say, { name: RIVAL })}
+          {where && <span className="sr-only"> ({where})</span>}
+        </p>
         <button type="button" className="coach-skip" onClick={onSkip}>
           {t("tutorSkip")}
         </button>

@@ -4526,14 +4526,14 @@ dialog.chat .chat-log {
 }
 
 /* Home's offer of the tutorial, and its note once played through. */
-:is(.offer, .ready) p {
+.home :is(.offer, .ready) p {
   margin: 0;
 }
 
-.ready {
+.home .ready {
   outline: 2px solid var(--accent);
 }
 
-.ready h2 {
+.home .ready h2 {
   color: var(--accent);
 }
