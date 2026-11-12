@@ -33,6 +33,11 @@ test("two phones create, join, and play a full game to 100", async ({ browser },
   for (const page of pages) await expect(page.getByTestId("game-over")).toBeVisible();
   // Only the host can rematch.
   await expect(pages[1].getByRole("button", { name: "Play again" })).toHaveCount(0);
+  // The guest asks instead (M30), and the host reads it.
+  await pages[1].getByRole("button", { name: "Rematch?" }).click();
+  for (const page of pages) {
+    await expect(page.getByTestId("rematch-asked")).toHaveText("Ben wants a rematch");
+  }
   // Play again returns everyone to the lobby with the same seats; the host starts.
   await pages[0].getByRole("button", { name: "Play again" }).click();
   await expect(pages[1].getByTestId("seats")).toContainText("Ana");
@@ -671,7 +676,8 @@ test("a round runs to its summary, then the next round (or the game ends)", asyn
   await pages[0].getByRole("button", { name: "Next round" }).click();
   for (const page of pages) {
     await expect(page.getByTestId("table")).toHaveAttribute("data-phase", "flip");
-    await expect(page.getByText("Round 2")).toBeVisible();
+    // The round label is the look button (M28); beside the chat button it reads "R2" (M29).
+    await expect(page.getByRole("button", { name: "Round 2. Look" })).toBeVisible();
   }
 });
 

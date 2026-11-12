@@ -1,8 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { type Action, apply, createGame, type GameState, legalActions } from "../engine/game";
-import { type GameView, toView } from "../engine/view";
+import { type GameView, toView, type ViewSlot } from "../engine/view";
 import { translator } from "./i18n";
-import { endedNote, faceUpSum, overTitle, prompt } from "./Table";
+import {
+  endedNote,
+  faceUpSum,
+  kindLine,
+  overTitle,
+  prompt,
+  roundHighlight,
+  roundTitle,
+} from "./Table";
 
 /** A finished game with these totals and winners (the lowest totals, R14). */
 function over(totals: number[], winners: number[]): GameView {
@@ -259,5 +267,129 @@ describe("endedNote (M27, R12)", () => {
     expect(endedNote(translator("pt"), view)).toBe(
       "Ana encerrou a rodada, mas Ben somou menos: os 18 de Ana contam em dobro.",
     );
+  });
+});
+
+/** Round 2's summary with these round scores; `grids` and `out` (R16) per seat where given. */
+function summary(
+  scores: number[],
+  { grids = [], out = [] }: { grids?: ViewSlot[][]; out?: (number | null)[] } = {},
+): GameView {
+  const view = toView(
+    createGame(["Ana", "Ben", "Cris", "Dani"].slice(0, scores.length), [1, 0, 0, 0]),
+  );
+  return {
+    ...view,
+    round: 2,
+    phase: "roundOver",
+    players: view.players.map((p, i) => ({
+      ...p,
+      grid: grids[i] ?? Array<ViewSlot>(12).fill(3),
+      scores: [20, scores[i]],
+      out: out[i] ?? null,
+    })),
+  };
+}
+
+/** A revealed grid with its first `n` columns removed (R9). */
+const cleared = (n: number): ViewSlot[] =>
+  Array.from({ length: 12 }, (_, pos) => (pos % 4 < n ? null : 3));
+
+describe("roundTitle (M30)", () => {
+  const en = translator("en");
+
+  it("M30: the round's winner reads that they won it, everyone else who did", () => {
+    const view = summary([12, 4, 30]);
+    expect([0, 1, 2, null].map((you) => roundTitle(en, view, you))).toEqual([
+      "Ben won round 2!",
+      "You won round 2!",
+      "Ben won round 2!",
+      "Ben won round 2!",
+    ]);
+  });
+
+  it("M30: equal lowest scores share the round", () => {
+    const view = summary([4, 4, 30]);
+    expect([0, 2].map((you) => roundTitle(en, view, you))).toEqual([
+      "You share round 2!",
+      "Ana & Ben share round 2!",
+    ]);
+  });
+
+  it("M30 (R16): a player out before the round can't win it, whatever their last score was", () => {
+    const view = summary([-5, 9, 30], { out: [1], grids: [[]] });
+    expect(roundTitle(en, view, 0)).toBe("Ben won round 2!");
+  });
+
+  it("M30: in Spanish and Portuguese", () => {
+    const view = summary([12, 4, 4]);
+    expect(roundTitle(translator("es"), view, 1)).toBe("¡Compartes la ronda 2!");
+    expect(roundTitle(translator("es"), view, 0)).toBe("¡Ben & Cris comparten la ronda 2!");
+    expect(roundTitle(translator("pt"), summary([1, 2]), 0)).toBe("Você venceu a rodada 2!");
+    expect(roundTitle(translator("pt"), summary([1, 2]), 1)).toBe("Ana venceu a rodada 2!");
+  });
+});
+
+describe("roundHighlight (M30)", () => {
+  const en = translator("en");
+
+  it("M30: whoever cleared the most columns, from 2 up; a tie goes to the lower round score", () => {
+    expect(roundHighlight(en, summary([12, 4, 30], { grids: [cleared(2)] }))).toBe(
+      "Ana cleared 2 columns.",
+    );
+    const tied = summary([12, 4, 30], { grids: [cleared(2), cleared(1), cleared(2)] });
+    expect(roundHighlight(en, tied)).toBe("Ana cleared 2 columns.");
+    const more = summary([12, 4, 30], { grids: [cleared(2), cleared(1), cleared(3)] });
+    expect(roundHighlight(en, more)).toBe("Cris cleared 3 columns.");
+  });
+
+  it("M30: else the lowest score when it is below zero, with a real minus sign", () => {
+    expect(roundHighlight(en, summary([12, -5, -2]))).toBe("Ben scored −5: below zero.");
+    // Columns come first.
+    expect(roundHighlight(en, summary([12, -5, 30], { grids: [cleared(2)] }))).toBe(
+      "Ana cleared 2 columns.",
+    );
+  });
+
+  it("M30: an ordinary round has none: one column, a score of 0", () => {
+    expect(roundHighlight(en, summary([12, 0, 30], { grids: [cleared(1)] }))).toBeNull();
+  });
+
+  it("M30 (R16): a player out before the round has no cards and no score: never the highlight", () => {
+    const view = summary([-9, 4, 30], { out: [1], grids: [[]] });
+    expect(roundHighlight(en, view)).toBeNull();
+  });
+
+  it("M30: in Spanish and Portuguese", () => {
+    const view = summary([12, 4], { grids: [cleared(2)] });
+    expect(roundHighlight(translator("es"), view)).toBe("Ana eliminó 2 columnas.");
+    expect(roundHighlight(translator("pt"), view)).toBe("Ana eliminou 2 colunas.");
+    expect(roundHighlight(translator("es"), summary([-1, 4]))).toBe("Ana sumó −1: bajo cero.");
+    expect(roundHighlight(translator("pt"), summary([-1, 4]))).toBe("Ana fez −1: abaixo de zero.");
+  });
+});
+
+describe("kindLine (M30)", () => {
+  it("M30: every place has a line of its own: the winner, second, the middle, last; a spectator none", () => {
+    const en = translator("en");
+    const view = over([104, 61, 88, 95], [1]);
+    const lines = [1, 2, 3, 0].map((you) => kindLine(en, view, you));
+    expect(new Set(lines).size).toBe(4);
+    for (const line of lines) expect(line).toBeTruthy();
+    expect(kindLine(en, view, null)).toBeNull();
+    // A shared win has its own; with 2 players the loser is second, not last.
+    const shared = over([70, 104, 70], [0, 2]);
+    expect(kindLine(en, shared, 0)).not.toBe(lines[0]);
+    expect(kindLine(en, over([104, 61], [1]), 0)).toBe(lines[1]);
+    // Two tied behind the winner are both second.
+    expect(kindLine(en, over([50, 101, 101], [0]), 2)).toBe(lines[1]);
+  });
+
+  it("M30: in every language, for every place", () => {
+    const view = over([104, 61, 88, 95], [1]);
+    for (const locale of ["en", "es", "pt"] as const) {
+      const lines = [0, 1, 2, 3].map((you) => kindLine(translator(locale), view, you));
+      expect(new Set(lines).size, locale).toBe(4);
+    }
   });
 });

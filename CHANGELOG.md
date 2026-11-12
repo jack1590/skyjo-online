@@ -15,6 +15,27 @@ Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When
 
 - In the Modern look your character takes the place of the coloured disc with your initial. A friend whose game hasn't updated yet keeps the initial.
 
+## [2.13.0] - 2026-11-11
+
+### Added
+
+- **Learn to play, in about a minute.** The first time you open the game, Home offers a short lesson: one round against Leo, on the real table, with a speech bubble that says one thing at a time and points at what to tap. You flip two cards and see why a −2 is great and a 12 is bad, take a low card from the discard pile, throw away a high one from the deck and flip a card instead, clear a column of three equal cards, and turn over your last card to end the round. The scores then say why ending first doubled yours.
+- Nothing to set up: no room, no name, no connection needed, and it works in English, Spanish and Portuguese, in both looks.
+- **Skip** is in every bubble. The offer shows once; after that, **Learn to play** on Home starts the lesson again whenever you like, for you or for a friend who is new.
+
+## [2.12.0] - 2026-11-11
+
+### Added
+
+- **Every round has a winner.** The round summary now opens with who took the round: "You won round 3!", "Leo won round 3!", or "Ana & Leo share round 3!" when the lowest score is tied. If you won it, your phone throws confetti, plays the win sound and buzzes, as it does for the game's winner. Mute and reduced motion are respected.
+- **A highlight for the round**, when there is one: "Leo cleared 2 columns." or "Ana scored −5: below zero." With 6 or more players the sheet is full, so the sentence about a doubled score takes that line when a round has both.
+- **A kind word for every place.** Game over no longer says only "You placed 3rd": the winner, a shared win, second place, the middle and last place each get their own line, in English, Spanish and Portuguese.
+- **Ask for a rematch.** At game over, if you can't start the next game yourself, a **Rematch?** button tells the table you want one: everyone reads "Sofi wants a rematch", and the phone of whoever can start it chimes. One request each per game.
+
+### Changed
+
+- The round summary's heading is the round's winner instead of "Round 3 over".
+
 ## [2.11.0] - 2026-11-11
 
 ### Added

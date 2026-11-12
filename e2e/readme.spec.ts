@@ -129,6 +129,18 @@ test("README stills", async ({ browser, page }, info) => {
   await shot(page, "knockout-over");
 });
 
+test("README tutorial still", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Show me" }).click();
+  const grid = page.getByTestId("my-grid").locator(".card");
+  await grid.nth(8).click();
+  await grid.nth(9).click();
+  // Leo has flipped too: the lesson about low cards.
+  await expect(page.getByTestId("coach").getByRole("button", { name: "Next" })).toBeVisible();
+  await page.evaluate(() => document.fonts.ready);
+  await shot(page, "tutorial");
+});
+
 /** Few colors and frame-to-frame diffs keep the GIF near 1 MB despite the detailed card art. */
 const PALETTE =
   "[a]palettegen=max_colors=64:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle";

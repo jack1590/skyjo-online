@@ -1,6 +1,7 @@
 // Sound effects: tiny CC0 recordings (Kenney, see README) in public/sfx, decoded once into Web
 // Audio buffers. Which sounds play is derived from consecutive views, like the card flights.
 import { useEffect, useRef, useState } from "react";
+import { roundWinners } from "../engine/game";
 import type { GameView } from "../engine/view";
 import type { Wait } from "../protocol";
 import {
@@ -225,8 +226,10 @@ export function soundsBetween(
     const shows = (timing && reveal ? settled(timing) + SUMMARY_MS : 0) + LATE_MS;
     const won = seat !== null && cur.winners.includes(seat);
     if (cur.phase === "gameOver") add(won ? "win" : "end", shows);
-    else if (cur.phase === "roundOver" && cur.players[seat ?? -1]?.out === cur.round) {
-      add("out", shows);
+    else if (cur.phase === "roundOver") {
+      if (cur.players[seat ?? -1]?.out === cur.round) add("out", shows);
+      // The round's winners hear the win too (M30), unless they just went out.
+      else if (seat !== null && roundWinners(cur).includes(seat)) add("win", shows);
     }
   }
   return out;

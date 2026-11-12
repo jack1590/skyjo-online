@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { type Action, places } from "../engine/game";
+import { type Action, places, roundWinners } from "../engine/game";
 import type { GameView, PlayerView, ViewSlot } from "../engine/view";
 import {
   type ChatMsg,
@@ -35,7 +35,7 @@ import {
   useRevealing,
 } from "./motion";
 import { ReactButton, Reactions } from "./Reactions";
-import { nudge, play, type Sound, useMuted, useSounds } from "./sound";
+import { cue, nudge, play, type Sound, useMuted, useSounds } from "./sound";
 import { type Spot, Tosses, Tray, useThrowsOn } from "./Toss";
 import { LookButton } from "./theme";
 
@@ -74,7 +74,13 @@ interface TableProps {
   chat?: ReactNode;
   /** The chat messages to pop as bubbles now. */
   said?: ChatMsg[];
+  /** The tutorial's round summary (M31): its own sentence for why, and its button's name. */
+  ending?: { why: string; next: string };
   onPlayAgain: () => void;
+  /** The seats that asked for a rematch at this game over (RoomView.rematch, M30). */
+  rematch?: number[];
+  /** Asks for one, a seat that can't lead: false when it couldn't be sent (no connection). */
+  onAskRematch?: () => boolean;
   onExit: () => void;
 }
 
@@ -119,6 +125,26 @@ export function Table(props: TableProps) {
   useEffect(() => {
     if (!summary) setPeek(false);
   }, [summary]);
+  // Who asked for a rematch (M30). The room forgets it when it sleeps, so this phone keeps what
+  // it saw while this game's game over lasts: its totals tell it from the next game's.
+  const [asked, setAsked] = useState<number[]>([]);
+  const { rematch } = props;
+  const finished = phase === "gameOver" ? players.map((p) => p.total).join() : "";
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the dep is a trigger, not an input
+  useEffect(() => setAsked((was) => (was.length ? [] : was)), [finished]);
+  useEffect(() => {
+    if (!finished || !rematch) return;
+    setAsked((was) => {
+      const all = [...new Set([...was, ...rematch])];
+      return all.length === was.length ? was : all;
+    });
+  }, [finished, rematch]);
+  // Whoever can start it hears each new request, never their own.
+  const chimed = useRef(0);
+  useEffect(() => {
+    if (lead && asked.length > chimed.current && asked.at(-1) !== props.seat) cue("turn");
+    chimed.current = asked.length;
+  }, [lead, asked, props.seat]);
   // The summary's sheet goes with "View table": a keyboard user's focus moves to "Show scores".
   const showScores = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -820,9 +846,18 @@ export function Table(props: TableProps) {
             chars={props.chars}
             chat={props.chat}
             said={props.said ?? []}
+            ending={props.ending}
             onPeek={() => setPeek(true)}
             onNext={() => onAction({ type: "nextRound" })}
             onPlayAgain={onPlayAgain}
+            asked={asked}
+            onAsk={() => {
+              // Shown at once when it went out: the server's answer only repeats it. Not sent
+              // (reconnecting): the button stays, to tap again.
+              const you = props.seat;
+              if (you === null || props.onAskRematch?.() === false) return;
+              setAsked((was) => (was.includes(you) ? was : [...was, you]));
+            }}
             onExit={exit}
           />
         </>
@@ -957,10 +992,56 @@ interface SummaryProps {
   /** The chat button and the messages to pop (M29): the sheet is modal, so they live inside it. */
   chat?: ReactNode;
   said: ChatMsg[];
+  ending?: TableProps["ending"];
   onPeek: () => void;
   onNext: () => void;
   onPlayAgain: () => void;
+  /** The seats that asked for a rematch, and your own request (M30). */
+  asked: number[];
+  onAsk: () => void;
   onExit: () => void;
+}
+
+/** A round summary's heading (M30): who took the round, the lowest score in it; ties share it. */
+export function roundTitle(t: T, view: GameView, you: number | null): string {
+  const winners = roundWinners(view);
+  const one = winners.length === 1;
+  if (you !== null && winners.includes(you)) {
+    return t(one ? "roundYouWin" : "roundYouShare", { n: view.round });
+  }
+  const names = winners.map((i) => view.players[i].name).join(" & ");
+  return t(one ? "roundWinsOne" : "roundWinsMany", { names, n: view.round });
+}
+
+/** Columns a revealed grid lost (R9): all three slots of the column removed. */
+const columnsCleared = (grid: ViewSlot[]) =>
+  [0, 1, 2, 3].filter((col) => [0, 4, 8].every((row) => grid[row + col] === null)).length;
+
+/**
+ * One thing worth saying about a finished round (M30), from the view alone, or null: whoever
+ * cleared the most columns, from 2 up, else a round score below zero. Of two who did the same, the
+ * lower round score, then the lower seat.
+ */
+export function roundHighlight(t: T, view: GameView): string | null {
+  const played = view.players
+    .filter((p) => !isOut(p, view.round))
+    .map((p) => ({ name: p.name, score: lastScore(p, view.round), cols: columnsCleared(p.grid) }));
+  const byScore = [...played].sort((a, b) => a.score - b.score);
+  const [most] = [...byScore].sort((a, b) => b.cols - a.cols);
+  if (most && most.cols >= 2) return t("hiColumns", { name: most.name, n: most.cols });
+  const [low] = byScore;
+  return low && low.score < 0
+    ? t("hiNegative", { name: low.name, n: formatCard(low.score) })
+    : null;
+}
+
+/** Game over's line for your place (M30): kind to every one of them. None when watching. */
+export function kindLine(t: T, view: GameView, you: number | null): string | null {
+  if (you === null) return null;
+  if (view.winners.includes(you)) return t(view.winners.length === 1 ? "kindWin" : "kindShare");
+  const place = places(view);
+  if (place[you] === 2) return t("kindSecond");
+  return t(place[you] === Math.max(...place) ? "kindLast" : "kindMiddle");
 }
 
 /** Game over's heading (UX-17): your result when you play, or else who won. */
@@ -977,7 +1058,7 @@ export function overTitle(t: T, locale: Locale, view: GameView, you: number | nu
  * <dialog>, like the zoom, so the table behind it is inert (UX-11); Escape is "View table".
  */
 function Summary(props: SummaryProps) {
-  const { view, you, lead, auto, chars, onPeek, onNext, onPlayAgain, onExit } = props;
+  const { view, you, lead, auto, chars, asked, onPeek, onNext, onPlayAgain, onExit } = props;
   const { t, locale } = useI18n();
   const reduced = useReducedMotion();
   const ref = useRef<HTMLDialogElement>(null);
@@ -1012,30 +1093,53 @@ function Summary(props: SummaryProps) {
   let sub: string | null = null;
   if (wentOut) sub = t("youreOut");
   else if (over && you !== null && !won) sub = overTitle(t, locale, view, null);
-  const why = endedNote(t, view);
+  const why = props.ending?.why ?? endedNote(t, view);
+  // The round's winners get the game winner's confetti (M30).
+  // Not for one who went out in it (R16): theirs is the "out" moment, as with the sound.
+  const wonRound = !over && !wentOut && you !== null && roundWinners(view).includes(you);
+  // From 6 players on the sheet is full: the doubling sentence, when there is one, takes the line.
+  const recap = over || (why && rows.length > 5) ? null : roundHighlight(t, view);
+  const kind = over ? kindLine(t, view, you) : null;
+  const iAsked = you !== null && asked.includes(you);
   return (
     <dialog
       ref={ref}
       className="overlay"
       tabIndex={-1}
       aria-labelledby="summary-title"
-      aria-describedby={sub ? "summary-sub" : undefined}
+      aria-describedby={sub || kind ? "summary-lede" : undefined}
       data-testid={over ? "game-over" : "round-summary"}
       onClose={onPeek}
     >
       <div className="sheet">
         <div className="sheet-head">
           <h2 id="summary-title">
-            {over ? overTitle(t, locale, view, you) : t("roundOver", { n: view.round })}
+            {over ? overTitle(t, locale, view, you) : roundTitle(t, view, you)}
           </h2>
           {props.chat}
           <button type="button" className="btn" onClick={onPeek}>
             {t("viewTable")}
           </button>
         </div>
-        {sub && (
-          <p id="summary-sub" className={`sub${wentOut ? " out" : ""}`} data-testid="summary-sub">
-            {sub}
+        {(sub || kind) && (
+          // One paragraph: at game over your place's line (M30) follows who won, on its line when
+          // there is room, so the sheet grows no taller.
+          <p id="summary-lede" className="lede">
+            {sub && (
+              <span className={`sub${wentOut ? " out" : ""}`} data-testid="summary-sub">
+                {sub}
+              </span>
+            )}{" "}
+            {kind && (
+              <span className="kind" data-testid="summary-kind">
+                {kind}
+              </span>
+            )}
+          </p>
+        )}
+        {recap && (
+          <p className="why recap" data-testid="summary-recap">
+            {recap}
           </p>
         )}
         {why && (
@@ -1118,27 +1222,48 @@ function Summary(props: SummaryProps) {
           </p>
         )}
         {/* Nothing comes after game over unless the host starts a new one. */}
-        {!lead && !wentOut && <p className="prompt">{t(over ? "hostNewGame" : "waitingHost")}</p>}
+        {over && asked.length > 0 ? (
+          // Who wants another game (M30), where a guest read that the host can start one.
+          <p className="prompt" data-testid="rematch-asked">
+            {t(asked.length === 1 ? "wantsOne" : "wantsMany", {
+              names: asked.map((seat) => view.players[seat]?.name).join(" & "),
+            })}
+          </p>
+        ) : (
+          !lead && !wentOut && <p className="prompt">{t(over ? "hostNewGame" : "waitingHost")}</p>
+        )}
         {over ? (
           <div className="actions">
             <button type="button" className="btn" onClick={onExit}>
               {t("home")}
             </button>
-            {lead && (
+            {lead ? (
               <button type="button" className="btn primary" onClick={onPlayAgain}>
                 {t("playAgain")}
               </button>
+            ) : (
+              you !== null && (
+                <button
+                  type="button"
+                  className="btn primary"
+                  // Not `disabled`: the button you just tapped would drop the focus.
+                  aria-disabled={iAsked}
+                  onClick={iAsked ? undefined : props.onAsk}
+                >
+                  {t(iAsked ? "rematchAsked" : "askRematch")}
+                </button>
+              )
             )}
           </div>
         ) : (
           lead && (
             <button type="button" className="btn primary" onClick={onNext}>
-              {t("nextRound")}
+              {props.ending?.next ?? t("nextRound")}
             </button>
           )
         )}
       </div>
-      {won && !reduced && <Confetti />}
+      {(won || wonRound) && !reduced && <Confetti />}
       {/* A bubble points at its sender's row in the scores. */}
       <Bubbles
         inline

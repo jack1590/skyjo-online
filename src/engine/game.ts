@@ -342,3 +342,22 @@ export function places({ players, winners }: Standings): number[] {
   };
   return keys.map((key) => 1 + keys.filter((other) => ahead(other, key)).length);
 }
+
+/**
+ * Who took a finished round (M30): the lowest round score, after the ender's doubling (R12), among
+ * those who played it (R16); equal scores share it. For a GameState or a GameView at a summary:
+ * mid-round, the last scores are still the round before's.
+ */
+export function roundWinners({
+  players,
+  round,
+}: {
+  players: { scores: number[]; out: number | null }[];
+  round: number;
+}): number[] {
+  const scores = players.map((p) =>
+    p.out !== null && p.out < round ? Infinity : (p.scores.at(-1) ?? Infinity),
+  );
+  const best = Math.min(...scores);
+  return scores.flatMap((score, seat) => (score === best && best !== Infinity ? [seat] : []));
+}

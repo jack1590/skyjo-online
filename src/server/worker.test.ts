@@ -290,6 +290,22 @@ describe("RoomDO storage writes", () => {
     expect(t.rows()).toBe(rows);
   });
 
+  it("M30: asking for a rematch writes no row and reaches every socket", async () => {
+    const t = await harness();
+    const [a, b] = await t.seat(2);
+    await t.send(a, { t: "start" });
+    for (let game = t.game(); game && game.phase !== "gameOver"; game = t.game()) {
+      const legal = legalActions(game);
+      const action = legal[game.phase === "place" ? legal.length - 1 : 0] as Action;
+      const seat = "seat" in action ? action.seat : 0;
+      await t.send([a, b][seat], { t: "act", action });
+    }
+    const rows = t.rows();
+    await t.send(b, { t: "askRematch" });
+    expect(t.rows()).toBe(rows);
+    for (const ws of [a, b]) expect(lastView(ws).rematch).toEqual([1]);
+  });
+
   it("SEC-3: rejected and malformed messages write nothing and reach no other socket", async () => {
     const t = await harness();
     const [a, b] = await t.seat(2);

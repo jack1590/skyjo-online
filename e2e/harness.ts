@@ -80,6 +80,8 @@ export interface Shown {
   wait?: Wait[];
   toss?: Toss;
   reaction?: Reaction;
+  /** The seats that asked for a rematch (M30). */
+  rematch?: number[];
   /** Chat messages popping as bubbles (M29). */
   said?: ChatMsg[];
 }
