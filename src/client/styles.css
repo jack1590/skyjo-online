@@ -405,6 +405,15 @@ li.dragging {
   fill: currentColor;
 }
 
+/* Beside the chat button (M29): "R3", so the pill keeps its width. Still the way to the looks
+   (M28), so still a 44 px target: the 5 px it lacks on each side come out of the bar's gaps. */
+.round.short {
+  min-width: 44px;
+  margin-inline: -5px;
+  justify-content: center;
+  font-weight: 700;
+}
+
 .turn {
   padding: 6px 14px;
   border-radius: 999px;
@@ -3306,12 +3315,14 @@ dialog.overlay:focus {
 }
 
 .option .switch:has(input:checked),
-.tray .switch:has(input:checked) {
+.tray .switch:has(input:checked),
+.chat .switch:has(input:checked) {
   background: var(--accent);
 }
 
 .option .switch:has(input:checked)::after,
-.tray .switch:has(input:checked)::after {
+.tray .switch:has(input:checked)::after,
+.chat .switch:has(input:checked)::after {
   transform: translateX(16px);
   background: var(--accent-ink);
 }
@@ -4166,4 +4177,224 @@ dialog.overlay:focus {
 
 [data-theme="casual"] .sheet .sub.out {
   color: #ffb3c9;
+}
+
+/* Chat (M29). Themed only through custom properties: each --chat-* falls back to the theme's own
+   tokens, so a theme restyles it without touching these rules. */
+.chat-btn {
+  position: relative;
+}
+
+/* Chat switched off: the button stays, to switch it back on. */
+.chat-btn.off {
+  opacity: 0.45;
+}
+
+.chat-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--chat-badge, #ff5d73);
+  color: var(--chat-badge-ink, #fff);
+  box-shadow: 0 0 0 2px var(--bg);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 20px;
+  text-align: center;
+}
+
+/* Above the on-screen keyboard (--kb) and no taller than what it leaves (--vh): Chat.tsx sets
+   both from the visual viewport, the only thing phones shrink for the keyboard. */
+dialog.chat {
+  margin-bottom: var(--kb, 0px);
+}
+
+/* Focused on opening (Chat.tsx); the sheet is what shows it. */
+dialog.chat:focus {
+  outline: none;
+}
+
+dialog.chat .sheet {
+  max-height: min(calc(100dvh - 56px - env(safe-area-inset-top)), calc(var(--vh, 100dvh) - 8px));
+  overflow: hidden;
+  gap: 10px;
+  padding-top: 14px;
+}
+
+dialog.chat .sheet > * {
+  flex: none;
+}
+
+/* The switch sits by the title it switches. */
+dialog.chat .auto {
+  margin-right: auto;
+}
+
+/* The only part that gives way when the keyboard takes the room. */
+dialog.chat .chat-log {
+  flex: 0 1 auto;
+  min-height: 44px;
+  max-height: 34dvh;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.chat-msg {
+  align-self: flex-start;
+  max-width: 85%;
+  padding: 6px 12px;
+  border-radius: 14px 14px 14px 4px;
+  background: var(--chat-msg, var(--panel));
+  overflow-wrap: anywhere;
+}
+
+.chat-name {
+  display: block;
+  color: var(--chat-name, var(--muted));
+  font-size: 12px;
+}
+
+/* Yours: on the right, in the action colour, with no name. */
+.chat-msg.mine {
+  align-self: flex-end;
+  border-radius: 14px 14px 4px;
+  background: var(--chat-mine, var(--accent));
+  color: var(--chat-mine-ink, var(--accent-ink));
+}
+
+.chat-msg.mine .chat-name {
+  display: none;
+}
+
+.chat-msg.chat-empty {
+  align-self: center;
+  background: none;
+  color: var(--muted);
+}
+
+/* One line of chips that scrolls sideways inside the sheet: the page itself never does. */
+.chat-row {
+  display: flex;
+  gap: 6px;
+  margin: 0 -16px;
+  padding: 0 16px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.chat-chip {
+  flex: none;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--chat-chip, var(--panel));
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.chat-chip.emoji {
+  padding: 0;
+  font-size: 22px;
+}
+
+.chat-chip:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+.chat-chip:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* A speech bubble: a zero-size box on its sender (Chat.tsx moves it with them), level with the
+   throws (z 8), under the summary's dim. Its tail stays on the sender; the body slides sideways
+   (--shift) to stay on screen. Taps go through it. */
+.bubble {
+  position: fixed;
+  z-index: 8;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  animation:
+    bubble-in 0.22s cubic-bezier(0.2, 1.4, 0.4, 1) both,
+    bubble-out 0.2s ease-in 2.8s forwards;
+}
+
+.bubble::after {
+  content: "";
+  position: absolute;
+  left: -7px;
+  bottom: 10px;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  background: var(--chat-bubble, var(--text));
+  transform: rotate(45deg);
+}
+
+.bubble-body {
+  position: absolute;
+  left: 0;
+  bottom: 16px;
+  width: max-content;
+  max-width: min(240px, calc(100vw - 16px));
+  padding: 8px 12px;
+  border-radius: 16px;
+  background: var(--chat-bubble, var(--text));
+  color: var(--chat-bubble-ink, var(--bg));
+  /* Glossy and chunky: a light rim on top, a darker lip below. */
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 0.6),
+    inset 0 -3px 0 rgb(0 0 0 / 0.12),
+    0 6px 14px rgb(0 0 0 / 0.35);
+  font-weight: 700;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  transform: translateX(calc(-50% + var(--shift, 0px)));
+}
+
+.bubble-name {
+  color: var(--chat-bubble-name, var(--bg-hi));
+  font-size: 12px;
+}
+
+.bubble.below::after {
+  top: 10px;
+  bottom: auto;
+}
+
+.bubble.below .bubble-body {
+  top: 16px;
+  bottom: auto;
+}
+
+@keyframes bubble-in {
+  from {
+    scale: 0.5;
+    opacity: 0;
+  }
+}
+
+@keyframes bubble-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bubble {
+    animation: none;
+  }
 }

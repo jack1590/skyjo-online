@@ -4,6 +4,22 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.11.0] - 2026-11-11
+
+### Added
+
+- **Chat.** A 💬 button in the top bar opens the chat, in the lobby, during the game and over the scores:
+  - **Quick phrases:** "Good luck!", "Nice move!", "Oops!", "Hurry up 😅", "Well played", "Revenge!", "Haha", "Thanks!", "Wow!" and "Sorry!". Each friend reads them in their own language (English, Spanish or Portuguese).
+  - **Emojis:** ten, one tap each.
+  - **Or type** up to 80 characters; it shows as you wrote it.
+- Your message pops up as a speech bubble by your name on every phone for 3 seconds: over your panel on the others' phones, over your name bar on yours, and by your row over the scores. It never gets in the way of a tap. The chat keeps the last 30 messages, and the button counts the ones you haven't read.
+- Players and anyone watching can chat. Up to 3 messages in a row, then one every 3 seconds each, on any network.
+- A **Chat** switch in the chat turns it off on your phone: no bubbles, no count, nothing sent. Your choice carries over.
+
+### Changed
+
+- Beside the chat button, the round shows as **R3** instead of "Round 3", so the turn pill keeps its room.
+
 ## [2.10.0] - 2026-11-11
 
 ### Added

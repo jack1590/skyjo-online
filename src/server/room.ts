@@ -12,6 +12,11 @@ import {
 import { type Seed, seedRng } from "../engine/rng";
 import { toView } from "../engine/view";
 import {
+  CHAT_BURST,
+  CHAT_KEEP,
+  CHAT_MS,
+  CHAT_SHOW_MS,
+  type ChatMsg,
   type ClientMsg,
   CODE_ALPHABET,
   CODE_LENGTH,
@@ -227,11 +232,12 @@ function count(w: Window, now: number, ms: number, max: number): boolean {
 export const allowMessage = (conn: Conn, now: number) => count(conn, now, WINDOW_MS, WINDOW_MAX);
 
 /**
- * Whether this message costs its IP a unit: any message does, but of a socket's gags only the
- * first of every GAGS_PER_UNIT, landed, too soon or refused. Paid ahead, so a new socket gets none free.
+ * Whether this message costs its IP a unit: any message does, but of a socket's gags (throws,
+ * reactions and chat messages, M29: none writes a row) only the first of every GAGS_PER_UNIT,
+ * landed, too soon or refused. Paid ahead, so a new socket gets none free.
  */
 export function costs(conn: Conn, msg: ClientMsg | null): boolean {
-  if (msg?.t !== "toss" && msg?.t !== "react") return true;
+  if (msg?.t !== "toss" && msg?.t !== "react" && msg?.t !== "chat") return true;
   return conn.gags++ % GAGS_PER_UNIT === 0;
 }
 
@@ -308,6 +314,13 @@ export class Room {
   private toss: Toss | null = null;
   private reaction: Reaction | null = null;
   private tossed = new Map<number, number>();
+  /**
+   * The latest messages (M29), in memory only like the throws: a message writes no row, and a room
+   * that slept forgets them (each phone keeps what it saw). `chatted`: per sender (`chatKey`), when its
+   * allowance is whole again.
+   */
+  private chat: ChatMsg[] = [];
+  private chatted = new Map<string, number>();
 
   constructor(
     readonly data: RoomData,
@@ -510,7 +523,41 @@ export class Room {
         };
         return "view";
       }
+      case "chat": {
+        // Too soon: the client greys Send meanwhile. Dropped, never an error or a disconnect.
+        if (this.chatIn(conn) > 0) return "none";
+        for (const [token, whole] of this.chatted) if (whole <= now) this.chatted.delete(token);
+        const key = this.chatKey(conn);
+        const whole = Math.max(this.chatted.get(key) ?? 0, now);
+        this.chatted.set(key, whole + CHAT_MS);
+        const said: ChatMsg = {
+          id: Math.max(now, (this.chat.at(-1)?.id ?? 0) + 1),
+          from: seat,
+          name: seat === null ? "" : seats[seat].name,
+          ...(msg.preset ? { preset: msg.preset } : { text: msg.text }),
+        };
+        this.chat = [...this.chat, said].slice(-CHAT_KEEP);
+        return "view";
+      }
     }
+  }
+
+  /**
+   * Whose allowance a message spends: the seat's token, or for a spectator its address, since a
+   * new token is free and would be a new allowance each time.
+   */
+  private chatKey(conn: Conn): string {
+    return (this.seatOf(conn) === null ? conn.ip : null) ?? conn.token ?? "";
+  }
+
+  /**
+   * Ms until `conn` may chat again; 0 = now. A sender has CHAT_BURST messages at once and one more
+   * every CHAT_MS, on any network: phones on one Wi-Fi don't wait for each other (the owner's rule
+   * for throws, BUG-4). What keeps chat off their shared budget is its price (`costs`).
+   */
+  private chatIn(conn: Conn): number {
+    const whole = this.chatted.get(this.chatKey(conn)) ?? 0;
+    return Math.max(0, whole - (CHAT_BURST - 1) * CHAT_MS - this.deps.now());
   }
 
   /**
@@ -544,6 +591,8 @@ export class Room {
 
   view(conn: Conn, live: Conn[]): RoomView {
     const you = this.seatOf(conn);
+    const now = this.deps.now();
+    const chatIn = this.chatIn(conn);
     return {
       code: this.data.code,
       seats: this.data.seats.map((s, i) => ({
@@ -564,6 +613,11 @@ export class Room {
       ...(this.toss && this.deps.now() - this.toss.id < TOSS_SHOW_MS && { toss: this.toss }),
       ...(this.reaction &&
         this.deps.now() - this.reaction.id < TOSS_SHOW_MS && { reaction: this.reaction }),
+      ...(this.chat.length > 0 && {
+        chat: this.chat,
+        chatFresh: this.chat.filter((m) => now - m.id < CHAT_SHOW_MS).length,
+      }),
+      ...(chatIn > 0 && { chatIn }),
     };
   }
 

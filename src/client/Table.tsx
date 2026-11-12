@@ -11,6 +11,7 @@ import {
 import { type Action, places } from "../engine/game";
 import type { GameView, PlayerView, ViewSlot } from "../engine/view";
 import {
+  type ChatMsg,
   lastMover,
   type Reaction,
   type ReactionKind,
@@ -21,6 +22,7 @@ import {
   type Wait,
 } from "../protocol";
 import { Card, formatCard } from "./Card";
+import { Bubbles } from "./Chat";
 import { type Locale, ordinal, type T, useI18n } from "./i18n";
 import {
   settled,
@@ -65,6 +67,10 @@ interface TableProps {
   reaction?: Reaction;
   /** Sends a reaction; none for spectators. */
   onReact?: (kind: ReactionKind, to?: number) => void;
+  /** The chat button (M29): in the top bar, or in the summary's sheet while that covers the bar. */
+  chat?: ReactNode;
+  /** The chat messages to pop as bubbles now. */
+  said?: ChatMsg[];
   onPlayAgain: () => void;
   onExit: () => void;
 }
@@ -158,6 +164,8 @@ export function Table(props: TableProps) {
     movedAt.current = performance.now();
   }, [shown]);
   const revealing = useRevealing(shown, timing);
+  // The summary's sheet is up: a modal, so the chat's button and bubbles go inside it (M29).
+  const sheet = summary && !peek && !revealing;
   // While the final reveal plays, totals stay as they were, so the cards tell the result first;
   // the summary then counts them up (UX-27).
   const total = (p: PlayerView) => (revealing ? p.total - lastScore(p, view.round) : p.total);
@@ -431,7 +439,11 @@ export function Table(props: TableProps) {
       data-myturn={myTurn}
     >
       <header className="bar">
-        <LookButton label={t("round", { n: view.round })} />
+        {/* Beside the chat button the round is short (M29), so the pill keeps its width. */}
+        <LookButton
+          label={t("round", { n: view.round })}
+          short={props.chat ? t("roundShort", { n: view.round }) : undefined}
+        />
         {summary && peek ? (
           <button
             ref={showScores}
@@ -451,6 +463,7 @@ export function Table(props: TableProps) {
             {pill}
           </span>
         )}
+        {!sheet && props.chat}
         <button
           type="button"
           className="btn icon"
@@ -779,8 +792,19 @@ export function Table(props: TableProps) {
         />
       )}
 
+      {/* Under an opponent's name, over your own (M29). */}
+      {!sheet && (
+        <Bubbles
+          said={props.said ?? []}
+          spot={(i) => {
+            const at = spot(i);
+            return at && { x: at.x, y: at.y, below: i !== props.seat };
+          }}
+        />
+      )}
+
       {/* The summary waits for the final reveal (UX-27). */}
-      {summary && !peek && !revealing && (
+      {sheet && (
         <>
           {/* Its dim: under the toasts (M10's "Reconnecting…"), which a modal's backdrop covers. */}
           <div className="scrim" />
@@ -789,6 +813,8 @@ export function Table(props: TableProps) {
             you={props.seat}
             lead={lead}
             auto={auto}
+            chat={props.chat}
+            said={props.said ?? []}
             onPeek={() => setPeek(true)}
             onNext={() => onAction({ type: "nextRound" })}
             onPlayAgain={onPlayAgain}
@@ -922,6 +948,9 @@ interface SummaryProps {
   you: number | null;
   lead: boolean;
   auto?: boolean[];
+  /** The chat button and the messages to pop (M29): the sheet is modal, so they live inside it. */
+  chat?: ReactNode;
+  said: ChatMsg[];
   onPeek: () => void;
   onNext: () => void;
   onPlayAgain: () => void;
@@ -941,7 +970,8 @@ export function overTitle(t: T, locale: Locale, view: GameView, you: number | nu
  * The round's or the game's scores, ranked by the engine (R14, R16; UX-14). A native modal
  * <dialog>, like the zoom, so the table behind it is inert (UX-11); Escape is "View table".
  */
-function Summary({ view, you, lead, auto, onPeek, onNext, onPlayAgain, onExit }: SummaryProps) {
+function Summary(props: SummaryProps) {
+  const { view, you, lead, auto, onPeek, onNext, onPlayAgain, onExit } = props;
   const { t, locale } = useI18n();
   const reduced = useReducedMotion();
   const ref = useRef<HTMLDialogElement>(null);
@@ -953,7 +983,8 @@ function Summary({ view, you, lead, auto, onPeek, onNext, onPlayAgain, onExit }:
     // Tab goes round the sheet's buttons and never leaves it: a modal still lets it out to the
     // browser after its last button, and WebKit skips buttons.
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Tab" || !dialog) return;
+      // Not while the chat's sheet is open over this one (M29): Tab is that modal's then.
+      if (e.key !== "Tab" || !dialog || dialog.querySelector("dialog[open]")) return;
       const buttons = [...dialog.querySelectorAll("button")];
       const i = buttons.indexOf(document.activeElement as HTMLButtonElement);
       e.preventDefault();
@@ -991,6 +1022,7 @@ function Summary({ view, you, lead, auto, onPeek, onNext, onPlayAgain, onExit }:
           <h2 id="summary-title">
             {over ? overTitle(t, locale, view, you) : t("roundOver", { n: view.round })}
           </h2>
+          {props.chat}
           <button type="button" className="btn" onClick={onPeek}>
             {t("viewTable")}
           </button>
@@ -1023,7 +1055,7 @@ function Summary({ view, you, lead, auto, onPeek, onNext, onPlayAgain, onExit }:
             return (
               // A body a player: their row, and under it their bar.
               <tbody key={p.seat} className={first ? "win" : undefined}>
-                <tr>
+                <tr data-seat={p.seat}>
                   <td>
                     {/* Their place, drawn by CSS: the row's text starts with the name. */}
                     <span className="who" data-rank={place[p.seat]}>
@@ -1101,6 +1133,18 @@ function Summary({ view, you, lead, auto, onPeek, onNext, onPlayAgain, onExit }:
         )}
       </div>
       {won && !reduced && <Confetti />}
+      {/* A bubble points at its sender's row in the scores. */}
+      <Bubbles
+        inline
+        said={props.said}
+        spot={(seat) => {
+          // Not through `ref`: a bubble that comes with the sheet is placed before it is set.
+          const r = document
+            .querySelector(`dialog.overlay tr[data-seat="${seat}"] td`)
+            ?.getBoundingClientRect();
+          return r ? { x: r.left + Math.min(r.width / 2, 120), y: r.top + r.height / 2 } : null;
+        }}
+      />
     </dialog>
   );
 }

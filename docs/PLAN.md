@@ -815,7 +815,8 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 33  | M24                                | Public rooms: a lobby switch and a list on Home (owner request, 2026-11-11)                                             | 2.8.0         | the owner asked for it; ahead of M16, which waits on the owner                                                   |
 | 34  | ✅ M27                             | Classic, upgraded: labelled scores, your frame, weight marks, a summary that explains itself, a look with depth (owner) | 2.9.0         | the owner's design round, 2026-11-11: the look to ship to the stores                                             |
 | 35  | ✅ M28                             | Polished casual, the new default look, and a switch between it and Classic (owner)                                      | 2.10.0        | the owner's choice of direction B; stacked on M27                                                                |
-| 36  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
+| 36  | ✅ M29                             | Chat: quick phrases, emojis and typed messages, as bubbles by whoever spoke (owner request, 2026-11-11)                 | 2.11.0        | the owner asked for it; after the redesign (M27, M28)                                                            |
+| 37  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
 
 Deferred: Turnstile (SEC-4) and SEC-12 (until M16). Quick reactions, deferred until now, are M23 (user request, 2026-10-29). Declined: SEC-7. Versions assume this order; a PR that reorders says so.
 
@@ -1708,6 +1709,32 @@ Both carry the same clarity changes, which this milestone builds, so M28 is toke
 - **Test constants, not defects:** M18's discard-mode outline and PO PR #33's prompt expect Classic's gold (`rgb(242, 193, 78)`; Modern's accent is `rgb(255, 210, 63)`); M23's card floor is 84 px on Pixel and Modern's cards are 83.94.
 - **Open:** UX-23/UX-7 on iPhone, "the two cards cross": in Modern's layout the card leaving and the card going in never overlap by 10 px for the slot the test picks. Its other checks pass (both on top of your cards, the one going in above the one leaving). Not looked into further.
 - **Follow-up:** make those constants read the look's tokens, then add one CI job (or the Pixel job) with `LOOK=casual`, so the default look has motion, throw and reaction coverage. Mind the wall time: M27's run took 4:01.
+
+### M29 — Chat (owner request, 2026-11-11) · v2.11.0
+
+**Request.** "Add a chat feature like Parchís has one, considering the new design." Parchís-style mobile games offer a chat button with quick phrases and emojis, plus typed messages; a message pops up as a speech bubble by its sender and is kept in a short history.
+
+**What players get.**
+- A 44 px chat button in the top bar of the lobby and the table (no card gets smaller; the round label beside it shortens to "R3", so the turn pill keeps its width). It opens a bottom sheet with the last 30 messages, a row of 10 quick phrases, a row of 10 emojis, and a text box (80 characters) with Send.
+- A message shows as a speech bubble over its sender for 3 s on every phone: over an opponent's panel (it follows the panel while the strip scrolls), over your own name bar, beside the sender's name in the lobby. Taps go through it. With the sheet closed, the button counts unread messages.
+- Chat works in the lobby, in the game, at the round summary and at game over. Seated players and spectators send; a spectator has no panel, so their bubble hangs from the chat button, with "Spectator" in it. At the summary, a modal over the table, the button is in the sheet's head and bubbles point at the scores' rows.
+- A quick phrase travels as a key and each phone shows it in its own language. Typed text is shown as typed.
+- A "Chat" switch in the sheet (per device, `skyjo:chat`) hides the bubbles, the badge and the history, and stops sending. The button stays, dimmed, so it can be switched back on.
+
+**Server.** `{ t: "chat", text }` or `{ t: "chat", preset }`, on the throws' path: kept in memory (never in `RoomData`), `"view"`, no row. `RoomView.chat` carries the last 30, `chatFresh` how many of them are under 3 s old (those pop as bubbles; older ones are history, so a reconnect replays nothing), `chatIn` the sender's wait. Limit: 3 messages at once, then one every 3 s, per seat (per address for spectators), on any network. A message too soon is dropped (`"none"`), never an error or a disconnect; the client greys Send for `chatIn`. A chat message is charged like a throw: a socket pays one `MESSAGES` unit for the first of every 8 throws, reactions and chat messages (`costs`, BUG-4).
+
+**Acceptance.**
+- [x] `room.test.ts`: a message reaches every view and nothing is saved; last 30; presets and text; spectators; every phase; the limit drops, and is the same for phones on one address; a socket pays for the first of every 8 gags, chat among them.
+- [x] `protocol`: 80 characters by code point, control and bidi characters stripped (the emoji joiner kept), empty and unknown presets rejected.
+- [x] `worker.test.ts`: a chat message writes no row; 8 phones on one address playing and chatting as fast as the app allows stay under 0.75 of the budget and no socket closes; `holdRooms` keeps its 14 h / 18 h bounds with a chat-spam mode.
+- [x] E2E, 3 phones (es, pt, en), Worker and Node: a quick phrase pops over its sender on the other phones, in each phone's language, and is in the sheet; typed Spanish shows as typed on the Portuguese phone; the badge counts; the switch hides it all. The text box stays visible above an open keyboard (`visualViewport`). No sideways scroll at 360 px with 8 players.
+- [x] Styled only through CSS custom properties (`--chat-*`, falling back to the theme's tokens), so M28's themes restyle it without code.
+
+**Not in this PR (follow-ups).**
+- **Moderation** (owner: "don't waste time on safety yet"): a word filter, mute a player, report. Needed before M16's store review (both stores require a way to block and report user-generated content).
+- **History survives hibernation only on phones.** A Durable Object asleep for 10 s forgets its 30 messages; each phone keeps what it saw. A phone that joins later misses them. Persisting would cost a row a message.
+- A sound for an incoming message; a countdown on the greyed Send.
+- **PO, PR #56 review: chat follows BUG-4's final rule.** This milestone was built on PR #42's first fix, where phones on one address waited for each other (24 s between messages with 8 phones). The owner rejected that wait for throws, and PR #42 shipped another rule: the wait stays 3 s per sender, and a socket pays one unit for 8 gags. Chat now does the same, on the same per-socket counter. Measured: 8 phones on one address, a tap every 2 s, each chatting every 3 s (656 messages in 4 minutes, where the first rule let 80 through) peak at 74 of 120 units, nobody closed; `holdRooms` "hold, then chat" keeps the 14 h and 18 h bounds. Not measured: that minute with throws, reactions and chat all at the app's limit together; by the price it is about 20 units more than chat alone, so about 94 of 120.
 
 ### M16 — Launch in the App Store and Google Play (user decision, 2026-10-24) · last
 

@@ -1,5 +1,14 @@
-import { Component, type ComponentProps, type ReactNode, useLayoutEffect, useState } from "react";
+import {
+  Component,
+  type ComponentProps,
+  type ReactNode,
+  useLayoutEffect,
+  useMemo,
+  useState,
+} from "react";
 import { flushSync } from "react-dom";
+import type { ChatMsg } from "../protocol";
+import { ChatButton, useChat } from "./Chat";
 import { Home } from "./Home";
 import { useI18n } from "./i18n";
 import { Online } from "./Online";
@@ -39,12 +48,19 @@ export function App() {
         onReact={noop}
         onPlayAgain={noop}
         onExit={noop}
+        chat={table.said && <HarnessChat said={table.said} you={table.seat ?? null} />}
         {...table}
         view={table.view}
       />
     );
   }
   return <Recover>{roomCode ? <Online code={roomCode} /> : <Home />}</Recover>;
+}
+
+/** The harness's chat button (M29), when a test gives the table messages: they are its history. */
+function HarnessChat({ said, you }: { said: ChatMsg[]; you: number | null }) {
+  const room = useMemo(() => ({ chat: said, you }), [said, you]);
+  return <ChatButton chat={useChat(room, noop)} />;
 }
 
 /** A render crash shows a way out instead of a blank page. */

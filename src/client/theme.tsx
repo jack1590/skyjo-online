@@ -77,7 +77,7 @@ export function LookPicker() {
  * The table's way to the looks without leaving the game: the header's round label is the button.
  * A native modal <dialog>, like the zoom: Escape and a tap outside close it.
  */
-export function LookButton({ label }: { label: string }) {
+export function LookButton({ label, short }: { label: string; short?: string }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDialogElement>(null);
@@ -96,14 +96,14 @@ export function LookButton({ label }: { label: string }) {
       <button
         ref={opener}
         type="button"
-        className="round"
+        className={short ? "round short" : "round"}
         aria-label={`${label}. ${t("look")}`}
         onClick={() => setOpen(true)}
       >
         <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
           <path d="M12 3a9 9 0 1 0 0 18c1.2 0 2-.9 2-2 0-.5-.2-1-.5-1.3-.3-.4-.5-.8-.5-1.3 0-1.1.9-2 2-2h2.3A3.7 3.7 0 0 0 21 10.700C21 6.400 17 3 12 3zM7 12.500a1.500 1.500 0 1 1 0-3 1.500 1.500 0 0 1 0 3zm3-4a1.500 1.500 0 1 1 0-3 1.500 1.500 0 0 1 0 3zm4 0a1.500 1.500 0 1 1 0-3 1.500 1.500 0 0 1 0 3zm3 4a1.500 1.500 0 1 1 0-3 1.500 1.500 0 0 1 0 3z" />
         </svg>
-        {label}
+        {short ?? label}
       </button>
       {open && (
         // biome-ignore lint/a11y/useKeyWithClickEvents: Escape closes the dialog natively; this only adds tap-outside

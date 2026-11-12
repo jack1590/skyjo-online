@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  type ChatPreset,
   CLOSE_ROOM_FULL,
   CLOSE_TOO_MANY,
   CLOSE_UNKNOWN_ROOM,
@@ -214,6 +215,14 @@ export function useRoom(code: string) {
     }
   }, []);
 
+  /** Says something in the chat (M29), like a throw: without a seq. */
+  const chat = useCallback((said: { preset?: ChatPreset; text?: string }) => {
+    const ws = socket.current;
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ t: "chat", ...said } satisfies ClientMsg));
+    }
+  }, []);
+
   const clearError = useCallback(() => setError(null), []);
-  return { room, status, error, clearError, send, toss, react, waiting, late };
+  return { room, status, error, clearError, send, toss, react, chat, waiting, late };
 }

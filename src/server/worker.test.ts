@@ -1026,6 +1026,73 @@ describe("RoomDO socket cap (SEC-2, SEC-6)", () => {
   });
 });
 
+describe("RoomDO chat (M29)", () => {
+  it("M29: a chat message writes no row and reaches every socket; one too soon reaches nobody else and closes nothing", async () => {
+    const env = { MESSAGES: messageLimiter() };
+    const t = await harness(env);
+    const [a, b] = await t.seat(2);
+    const watcher = await t.connect();
+    await t.send(watcher, { t: "hello", token: token(9) });
+    const [rows, units] = [t.rows(), spent(env, HOME)];
+    await t.send(a, { t: "chat", text: "hola" });
+    await t.send(watcher, { t: "chat", preset: "haha" });
+    expect(t.rows()).toBe(rows);
+    expect(spent(env, HOME)).toBe(units + 2);
+    for (const ws of [a, b, watcher]) {
+      expect(lastView(ws).chat).toMatchObject([
+        { from: 0, name: "P0", text: "hola" },
+        { from: null, name: "", preset: "haha" },
+      ]);
+    }
+    // The first of a socket's 8 gags paid for the rest; after the burst of 3, a wait.
+    await t.send(a, { t: "chat", text: "two" });
+    await t.send(a, { t: "chat", text: "three" });
+    expect(spent(env, HOME)).toBe(units + 2);
+    const toB = b.sent.length;
+    await t.send(a, { t: "chat", text: "too soon" });
+    expect(b.sent.length).toBe(toB);
+    expect(lastView(a).chatIn).toBeGreaterThan(0);
+    expect(t.rows()).toBe(rows);
+    expect([a, b, watcher].map((ws) => ws.closed)).toEqual([null, null, null]);
+    // The room sleeps and forgets them: phones keep what they saw.
+    t.wake();
+    await t.send(b, { t: "hello", token: token(1) });
+    expect(lastView(b).chat).toBeUndefined();
+  });
+
+  it("M29, BUG-4: 8 phones on one address play, a tap every 2 s, and all chat as often as the app lets them: nobody is closed, under 0.75 of the budget", async () => {
+    const env = { MESSAGES: messageLimiter() };
+    const t = await harness(env);
+    const phones = await t.seat(8);
+    await t.send(phones[0], { t: "start" });
+    await flipAll(t, phones);
+    nextMinute();
+    /** The client greys Send until its view's `chatIn` has passed. */
+    const until = new Map<FakeSocket, number>();
+    let said = 0;
+    for (let step = 0; step < 4 * 60 * 2; step++) {
+      await t.advance(500, phones);
+      for (const ws of phones) {
+        if (Date.now() < (until.get(ws) ?? 0)) continue;
+        await t.send(ws, { t: "chat", preset: "haha" });
+        until.set(ws, Date.now() + (lastView(ws).chatIn ?? 0));
+        said++;
+      }
+      const game = t.game();
+      if (step % 4 !== 3 || !game) continue;
+      const legal = legalActions(game);
+      const action = legal[game.phase === "place" ? legal.length - 1 : 0] as Action;
+      await t.send(phones[game.current], { t: "act", action });
+    }
+    expect(phones.map((ws) => ws.closed)).toEqual(phones.map(() => null));
+    // Each phone every 3 s, whoever shares its address: 20 a minute a phone, at 8 a unit.
+    expect(said).toBeGreaterThanOrEqual(4 * 8 * 19);
+    expect(lastView(phones[0]).chat).toHaveLength(30);
+    expect(lastView(phones[0]).seats.map((s) => s.auto)).toEqual(phones.map(() => false));
+    expect(peakMinute(env.MESSAGES.calls, HOME)).toBeLessThanOrEqual(0.75 * IP_MESSAGES_PER_MINUTE);
+  });
+});
+
 describe("RoomDO alarm charges (SEC-11)", () => {
   const AWAY = "198.51.100.1";
 
@@ -1142,6 +1209,7 @@ describe("RoomDO alarm charges (SEC-11)", () => {
     "hold, then gag in lobbies",
     "public loop",
     "list and run",
+    "hold, then chat",
   ] as const)(
     "SEC-11, SEC-13 (%s): one IP at every limit, holding 2-seat rooms open or leaving games mid-turn, and spending the rest of its budget, needs 14 h to use up the rows and 18 h for the DO requests",
     async (how) => {
@@ -1173,6 +1241,7 @@ describe("RoomDO alarm charges (SEC-11)", () => {
  * The gag modes (BUG-4) keep every socket open: each minute, before or after the rest, every seat
  * throws until the budget closes a socket, in a game dealt in every room, or in lobbies, where a
  * throw is refused and costs the same.
+ * "hold, then chat" (M29) spends the rest on chat messages instead: no row each, the same requests.
  * Stops at a day's quota or after `hours`; says how long one IP needs to use up the 100,000 rows
  * and the 100,000 DO requests a day.
  */
@@ -1188,7 +1257,8 @@ async function holdRooms(
     | "gag, then hold"
     | "hold, then gag in lobbies"
     | "public loop"
-    | "list and run",
+    | "list and run"
+    | "hold, then chat",
 ) {
   /** Its sockets leave right after their hello or join. */
   const runs = how === "hit and run" || how === "leave mid-turn" || how === "list and run";
@@ -1278,7 +1348,9 @@ async function holdRooms(
       await tell(h, ws, { t: "public", on: !lastView(ws).public });
     }
     while (spam?.closed === null) {
-      await tell(h, spam, lastView(spam).you === null ? { t: "join", name: "x" } : { t: "leave" });
+      const loop: ClientMsg =
+        lastView(spam).you === null ? { t: "join", name: "x" } : { t: "leave" };
+      await tell(h, spam, how === "hold, then chat" ? { t: "chat", preset: "haha" } : loop);
     }
   };
   /**

@@ -3,6 +3,7 @@
 import { execFileSync } from "node:child_process";
 import { expect, type Page } from "@playwright/test";
 import { toView } from "../src/engine/view";
+import type { ChatMsg } from "../src/protocol";
 import { atTurnStart, knockoutGame, lastTurnGame, roundOver, show } from "./harness";
 import { botStep, seatedRoom, startGame, test } from "./helpers";
 
@@ -44,7 +45,12 @@ test("README stills", async ({ browser, page }, info) => {
 
   // Your turn with 9 s on the clock (M8).
   const four = atTurnStart(4);
-  await show(page, { ...four, wait: [{ seat: four.seat ?? 0, inMs: 9_000, reason: "timer" }] });
+  // `said` (no messages yet) gives the harness the chat button every real table has (M29).
+  await show(page, {
+    ...four,
+    said: [],
+    wait: [{ seat: four.seat ?? 0, inMs: 9_000, reason: "timer" }],
+  });
   await shot(page, "table-4");
   // Waiting on a player whose clock runs, with another on Auto-play.
   const eight = lastTurnGame(8, 3);
@@ -52,6 +58,7 @@ test("README stills", async ({ browser, page }, info) => {
   await show(page, {
     view: toView(eight),
     seat: me,
+    said: [],
     auto: Array.from({ length: 8 }, (_, i) => i === (eight.current + 1) % 8),
     wait: [{ seat: eight.current, inMs: 7_000, reason: "timer" }],
   });
@@ -60,8 +67,26 @@ test("README stills", async ({ browser, page }, info) => {
   await expect(page.getByTestId("zoom")).toBeVisible();
   await shot(page, "zoom");
   // Ranked from the lowest total, your row tagged, and the ender doubled (UX-14).
-  await show(page, { view: toView(roundOver(4, 344)), seat: 2, lead: true });
+  await show(page, { view: toView(roundOver(4, 344)), seat: 2, lead: true, said: [] });
   await shot(page, "summary");
+  // The chat's sheet over the table (M29): the history, quick phrases, emojis and a text box.
+  const says = (from: number, said: Partial<ChatMsg>, id: number): ChatMsg => ({
+    id,
+    from,
+    name: `Player ${from + 1}`,
+    ...said,
+  });
+  const you = four.seat ?? 0;
+  const chat = [
+    says((you + 1) % 4, { preset: "luck" }, 1),
+    says((you + 2) % 4, { text: "Who shuffled this?! 😭" }, 2),
+    says(you, { preset: "haha" }, 3),
+    says((you + 3) % 4, { text: "Last round, I'm coming for you" }, 4),
+  ];
+  await show(page, { ...four, said: chat });
+  await page.getByTestId("chat-button").click();
+  await expect(page.getByTestId("chat-log")).toBeVisible();
+  await shot(page, "chat");
 
   // Play until one is left (R16), seed 61: Dani goes out after round 1; Cris is the one left.
   const knockout = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 61);
