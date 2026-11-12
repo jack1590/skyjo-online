@@ -478,7 +478,7 @@ function JoinForm({
       ? Number(saved)
       : Math.floor(Math.random() * CHARACTERS);
   });
-  // Someone sat down with it meanwhile: the next free one, as the server would give.
+  // Someone sat down with it meanwhile: the next free one, which the server gives too.
   const free = (from: number) => {
     let char = from;
     while (taken.includes(char)) char = (char + 1) % CHARACTERS;
@@ -489,7 +489,8 @@ function JoinForm({
   const join = (e: FormEvent) => {
     e.preventDefault();
     remember(NAME_KEY, name.trim());
-    remember(CHAR_KEY, String(char));
+    // The one you chose, even when this table gave you another.
+    remember(CHAR_KEY, String(wanted));
     send({ t: "join", name, char });
   };
 
@@ -516,7 +517,7 @@ function JoinForm({
           aria-label={t("diceName")}
           onClick={() => {
             // A name and the face that goes with it.
-            const dice = friendlyName(t);
+            const dice = friendlyName(t, Math.random, taken);
             setName(dice.name);
             setWanted(dice.char);
           }}

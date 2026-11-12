@@ -43,14 +43,16 @@ test("README stills", async ({ browser, page }, info) => {
   await guest.goto(`/r/${code}`);
   await guest.getByRole("textbox", { name: "Your name" }).fill("Brave Otter");
   await guest.getByTestId("characters").getByRole("button", { name: "Otter" }).click();
-  await guest.getByTestId("characters").scrollIntoViewIfNeeded();
+  await guest.locator(".join-row").evaluate((el) => el.scrollIntoView({ block: "end" }));
   await guest.waitForLoadState("networkidle");
-  await shot(guest, "characters");
   // Show the live site's address, not the test server's.
-  await pages[0].locator(".link").evaluate((el) => {
-    el.textContent =
-      el.textContent?.replace(location.origin, "https://skyjo-online.jcarl-30.workers.dev") ?? "";
-  });
+  for (const phone of [pages[0], guest]) {
+    await phone.locator(".link").evaluate((el) => {
+      el.textContent =
+        el.textContent?.replace(location.origin, "https://skyjo-online.jcarl-30.workers.dev") ?? "";
+    });
+  }
+  await shot(guest, "characters");
   await pages[0].getByRole("checkbox", { name: "Play until one is left" }).click({ force: true });
   await expect(pages[1].getByRole("checkbox", { name: "Play until one is left" })).toBeChecked();
   // A public room (M24): the switch in the lobby, and the room on Home's list.

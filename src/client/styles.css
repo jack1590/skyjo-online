@@ -4429,9 +4429,11 @@ dialog.chat .chat-log {
   content: none;
 }
 
-/* Your own bar is the tightest row at 360 px: a size that leaves your name some room. */
+/* Your own bar is the tightest row at 360 px: a size that leaves your name some room, the same
+   in both looks. */
 .me .av.char {
   margin-right: -2px;
+  font-size: 0.85em;
 }
 
 .who .av.char {

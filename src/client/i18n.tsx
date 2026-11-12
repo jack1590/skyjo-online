@@ -674,7 +674,7 @@ const pt: Record<Key, string> = {
   char2: "Coruja",
   char3: "Gato",
   char4: "Panda",
-  char5: "Sapo",
+  char5: "Rã",
   char6: "Pinguim",
   char7: "Leão",
   char8: "Coala",

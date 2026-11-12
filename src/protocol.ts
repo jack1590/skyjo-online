@@ -35,7 +35,7 @@ export function cutName(name: string): string {
 
 /**
  * Characters (M32): a seat's sticker is a number under this; the art and colours are the client's
- * (`characters.ts`). More than MAX_PLAYERS, so there is always a free one.
+ * (`Character.tsx`). More than MAX_PLAYERS, so there is always a free one.
  */
 export const CHARACTERS = 16;
 const isCharacter = (v: unknown): v is number =>

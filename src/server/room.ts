@@ -12,6 +12,7 @@ import {
 import { type Seed, seedRng } from "../engine/rng";
 import { toView } from "../engine/view";
 import {
+  CHARACTERS,
   CHAT_BURST,
   CHAT_KEEP,
   CHAT_MS,
@@ -385,11 +386,11 @@ export class Room {
         if (seats.some((s) => s.name.toLowerCase() === name.toLowerCase())) {
           throw new RoomError("name-taken");
         }
-        // Taken by another seat: the first free one instead (there are more than seats).
+        // Taken by another seat: the next free one instead (there are more than seats), as the
+        // join form shows it.
         let char = msg.char;
-        if (char !== undefined && seats.some((s) => s.char === char)) {
-          char = 0;
-          while (seats.some((s) => s.char === char)) char++;
+        while (char !== undefined && seats.some((s) => s.char === char)) {
+          char = (char + 1) % CHARACTERS;
         }
         seats.push({ token: conn.token, name, seenAt: now, ...(char !== undefined && { char }) });
         return "data";

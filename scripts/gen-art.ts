@@ -142,7 +142,7 @@ const STICKERS: Record<string, Sticker> = {
 };
 /**
  * Characters (M32): a head each, cut out of the key colour; the client draws its coloured disc
- * (`characters.ts`), so both looks frame it their own way. Magenta keys the green ones.
+ * (`Character.tsx`), so both looks frame it their own way. Magenta keys the green ones.
  */
 const CHARACTER_STYLE =
   "Character avatar for a card game app played by teens and adults: only the head, front view, " +

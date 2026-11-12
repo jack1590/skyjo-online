@@ -132,19 +132,24 @@ describe("lobby", () => {
     ]);
   });
 
-  it("M32: a join picks a character; a taken one becomes the first free one; views carry it", () => {
+  it("M32: a join picks a character; a taken one becomes the next free one; views carry it", () => {
     const t = setup();
     const [a, b, c, old] = ["a", "b", "c", "o"].map((x) => t.connect(`token-${x}-abcdef`));
     expect(t.send(a, { t: "join", name: "A", char: 3 })).toBe("data");
     t.send(b, { t: "join", name: "B", char: 3 });
-    t.send(c, { t: "join", name: "C", char: 0 });
+    t.send(c, { t: "join", name: "C", char: CHARACTERS - 1 });
     // A tab loaded before 2.14.0 sends no character: it joins and plays, with none.
     t.send(old, { t: "join", name: "Old" });
-    expect(t.room.data.seats.map((s) => s.char)).toEqual([3, 0, 1, undefined]);
+    expect(t.room.data.seats.map((s) => s.char)).toEqual([3, 4, CHARACTERS - 1, undefined]);
+    // Past the last one, the first.
+    const d = t.connect("token-d-abcdef");
+    t.send(d, { t: "join", name: "D", char: CHARACTERS - 1 });
+    expect(t.room.data.seats[4].char).toBe(0);
+    t.send(d, { t: "leave" });
     expect(t.room.view(old, t.live).seats).toEqual([
       { name: "A", connected: true, auto: false, char: 3 },
-      { name: "B", connected: true, auto: false, char: 0 },
-      { name: "C", connected: true, auto: false, char: 1 },
+      { name: "B", connected: true, auto: false, char: 4 },
+      { name: "C", connected: true, auto: false, char: CHARACTERS - 1 },
       { name: "Old", connected: true, auto: false },
     ]);
     t.send(a, { t: "start" });

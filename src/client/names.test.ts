@@ -44,6 +44,15 @@ describe("friendly names (M32)", () => {
     }
   });
 
+  it("only rolls a character nobody at the table holds, so the name and the face agree", () => {
+    const taken = [0, 1, undefined, 5];
+    for (let i = 0; i < 16; i++) {
+      const { char } = friendlyName(translator("en"), () => i / 16, taken);
+      expect(taken).not.toContain(char);
+    }
+    expect(friendlyName(translator("en"), () => 0, taken)).toEqual({ name: "Brave Owl", char: 2 });
+  });
+
   it("names its character, in the language's word order", () => {
     const first = () => 0;
     expect(friendlyName(translator("en"), first)).toEqual({ name: "Brave Fox", char: 0 });

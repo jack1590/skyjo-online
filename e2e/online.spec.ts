@@ -509,9 +509,12 @@ test("UX-13: in the lobby, Start game is the first button under the seats, and L
   };
   const { pages } = await seatedRoom(browser, info, ["Ana", "Ben"]);
   const [ana, ben] = pages;
-  /** The first button after the seat list, in page order. */
+  /** The first button showing after the seat list, in page order (M32's characters are folded away). */
   const below = (page: Page) =>
-    page.locator('[data-testid="seats"] ~ button, [data-testid="seats"] ~ * button').first();
+    page
+      .locator('[data-testid="seats"] ~ button, [data-testid="seats"] ~ * button')
+      .filter({ visible: true })
+      .first();
   const top = async (at: Locator) => (await at.boundingBox())?.y ?? Number.NaN;
   /** `first` (Start for the leader, the wait for the others), then the option, then Leave seat. */
   const expectLobby = async (page: Page, first: string, leave: string) => {
