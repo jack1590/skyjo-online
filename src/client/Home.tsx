@@ -1,5 +1,6 @@
-import { type FormEvent, useState } from "react";
-import { CODE_LENGTH, isRoomCode } from "../protocol";
+import { type FormEvent, useEffect, useState } from "react";
+import { MAX_PLAYERS } from "../engine/game";
+import { CODE_LENGTH, isRoomCode, type PublicRoom } from "../protocol";
 import { LOCALES, type Locale, useI18n } from "./i18n";
 import { LookPicker } from "./theme";
 import { useOnline } from "./useOnline";
@@ -19,11 +20,60 @@ function shouldShowIosHint(): boolean {
   }
 }
 
+/** Home asks for the public list this often while its page is visible... */
+const POLL_MS = 15_000;
+/** ...and this many times (5 min): each one is a Worker request, and a forgotten tab must stop. */
+const POLLS = 20;
+
+/**
+ * The public rooms (M24), null until the first answer, and a way to ask again. Polls only while
+ * the page is visible; coming back to it, or asking again, starts over.
+ */
+function usePublicRooms(online: boolean) {
+  const [rooms, setRooms] = useState<PublicRoom[] | null>(null);
+  const [asked, setAsked] = useState(0);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `asked` restarts the polling
+  useEffect(() => {
+    if (!online) return;
+    let left = 0;
+    /** The current run of polls: a fetch still out when a new run starts answers to nobody. */
+    let run = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const load = async (mine: number) => {
+      if (left-- <= 0 || document.visibilityState !== "visible") return;
+      let rooms: PublicRoom[] | undefined;
+      try {
+        const res = await fetch("/api/public");
+        if (res.ok) rooms = (await res.json()) as PublicRoom[];
+      } catch {
+        // Offline or limited: the last list stays, and the next poll tries again.
+      }
+      if (mine !== run) return;
+      if (rooms) setRooms(rooms);
+      timer = setTimeout(load, POLL_MS, mine);
+    };
+    const start = () => {
+      clearTimeout(timer);
+      left = POLLS;
+      void load(++run);
+    };
+    start();
+    document.addEventListener("visibilitychange", start);
+    return () => {
+      run++;
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", start);
+    };
+  }, [online, asked]);
+  return [rooms, () => setAsked((n) => n + 1)] as const;
+}
+
 export function Home() {
   const { t, locale, setLocale } = useI18n();
   const [code, setCode] = useState("");
   const [iosHint, setIosHint] = useState(shouldShowIosHint);
   const online = useOnline();
+  const [rooms, refresh] = usePublicRooms(online);
   const dismissHint = () => {
     setIosHint(false);
     try {
@@ -77,6 +127,11 @@ export function Home() {
       </h1>
       <p className="tagline">{t("tagline")}</p>
 
+      {new URLSearchParams(window.location.search).has("removed") && (
+        <p className="panel" role="status">
+          {t("removedNote")}
+        </p>
+      )}
       {iosHint && (
         <div className="panel hint" role="note">
           <p>{t("installHint")}</p>
@@ -124,6 +179,33 @@ export function Home() {
           </button>
         </form>
       </section>
+
+      {online && (
+        <section className="panel">
+          <div className="panel-head">
+            <h2>{t("publicRooms")}</h2>
+            <button type="button" className="btn icon" aria-label={t("refresh")} onClick={refresh}>
+              ↻
+            </button>
+          </div>
+          {rooms?.length === 0 && <p className="tagline">{t("publicRoomsNone")}</p>}
+          <ul className="seats" data-testid="public-rooms">
+            {rooms?.map((r) => (
+              <li key={r.code}>
+                <a className="public-room" href={`/r/${r.code}`}>
+                  <span>{t("publicRoomOf", { name: r.host })}</span>
+                  <span className="seat-tags">
+                    {r.knockout && <span className="tag">{t("knockoutTag")}</span>}
+                    <span>
+                      {r.players}/{MAX_PLAYERS} ›
+                    </span>
+                  </span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section className="panel">
         <LookPicker />

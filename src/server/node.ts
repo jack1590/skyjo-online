@@ -15,10 +15,12 @@ import {
   parseClientMsg,
   type ServerMsg,
 } from "../protocol";
+import { Directory } from "./directory";
 import {
   allowIp,
   allowMessage,
   type Conn,
+  costs,
   dead,
   systemDeps as deps,
   newConn,
@@ -54,16 +56,29 @@ interface LiveRoom {
   timer?: NodeJS.Timeout;
 }
 const rooms = new Map<string, LiveRoom>();
+/** Home's public list (M24), in memory like the rooms. */
+const directory = new Directory();
 
 const send = (ws: WebSocket, msg: ServerMsg) => {
   if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg));
 };
 
-/** Sends each socket (or only `only`) its own view and schedules the room's next check (the DO alarm's job). */
+/**
+ * Sends each socket (or only `only`) its own view and schedules the room's next check (the DO
+ * alarm's job). Returns whether the public list refused the room (M24), which is private again.
+ */
 function commit(code: string, only?: WebSocket) {
   const live = rooms.get(code);
-  if (!live) return;
+  if (!live) return false;
   const conns = [...live.sockets.values()];
+  const listing = live.room.relist(conns);
+  const refused =
+    listing !== undefined &&
+    !directory.set(code, listing, Date.now(), live.room.data.publicBy ?? null).ok;
+  if (refused) {
+    live.room.refuse();
+    only = undefined;
+  } else if (listing !== undefined) live.room.told(listing);
   for (const [ws, conn] of live.sockets) {
     // A socket that hasn't said hello gets nothing until it does (SEC-6).
     if (conn.token === null || (only && ws !== only)) continue;
@@ -71,6 +86,7 @@ function commit(code: string, only?: WebSocket) {
   }
   clearTimeout(live.timer);
   live.timer = setTimeout(() => alarm(code), live.room.nextAlarm(conns) - Date.now());
+  return refused;
 }
 
 function alarm(code: string) {
@@ -81,6 +97,7 @@ function alarm(code: string) {
       send(ws, { t: "missing" });
       ws.close(CLOSE_UNKNOWN_ROOM, "Room expired");
     }
+    directory.set(code, null, Date.now());
     rooms.delete(code);
     return;
   }
@@ -123,6 +140,11 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     rooms.set(code, { room: new Room(newRoom(code, Date.now()), deps), sockets: new Map() });
     commit(code);
     res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ code }));
+    return;
+  }
+  if (pathname === "/api/public" && req.method === "GET") {
+    const list = JSON.stringify(directory.list(Date.now()));
+    res.writeHead(200, { "content-type": "application/json" }).end(list);
     return;
   }
   if (pathname.startsWith("/api/")) {
@@ -189,11 +211,12 @@ function onConnection(ws: WebSocket, code: string, ip: string | null) {
       ws.send(PONG);
       return;
     }
-    if (!allowMessage(conn, Date.now()) || (ip && !allowIp(ipWindows, ip, Date.now()))) {
+    const msg = parseClientMsg(raw);
+    const paid = !ip || !costs(conn, msg) || allowIp(ipWindows, ip, Date.now());
+    if (!allowMessage(conn, Date.now()) || !paid) {
       ws.close(CLOSE_TOO_MANY, "Too many messages");
       return;
     }
-    const msg = parseClientMsg(raw);
     if (msg?.t === "hello" && conn.token === null) {
       // SEC-2: turned away, or another socket makes room (a dead one just reconnects if it wakes).
       const out = live.room.admit(conn, msg.token, [...live.sockets.values()]);
@@ -214,7 +237,9 @@ function onConnection(ws: WebSocket, code: string, ip: string | null) {
       if (!msg) throw new RoomError("bad-message");
       let change = live.room.receive(conn, msg, conns);
       if (live.room.tick(conns)) change = "data";
-      commit(code, change === "none" ? ws : undefined);
+      if (commit(code, change === "none" ? ws : undefined)) {
+        send(ws, { t: "error", code: "too-many-public", ack: conn.ack });
+      }
     } catch (e) {
       if (e instanceof RoomError) {
         send(ws, { t: "error", code: e.code, ack: conn.ack });

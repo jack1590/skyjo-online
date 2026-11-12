@@ -9,6 +9,30 @@ export const isRoomCode = (code: string) =>
 
 export const NAME_MAX = 16;
 
+/**
+ * The start of a name that fits `NAME_MAX` code points, cut between clusters (an emoji with its
+ * joiners, a letter with its accents), never inside one (BUG-8). The input cuts as you type and
+ * the server cuts again.
+ */
+export function cutName(name: string): string {
+  // Firefox before 125 has no Intl.Segmenter: there the input cuts by code point.
+  const parts =
+    "Segmenter" in Intl
+      ? Array.from(
+          new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(name),
+          (s) => s.segment,
+        )
+      : [...name];
+  let kept = "";
+  let size = 0;
+  for (const part of parts) {
+    size += [...part].length;
+    if (size > NAME_MAX) break;
+    kept += part;
+  }
+  return kept;
+}
+
 /** Closing code for a room that doesn't exist. Close codes can get lost, so a "missing" message precedes it. */
 export const CLOSE_UNKNOWN_ROOM = 4004;
 /** Closing code (policy violation) for a socket over the per-socket or per-IP message limit. */
@@ -68,11 +92,30 @@ export function lastMover(
   return null;
 }
 
+/** A room on Home's public list (M24): all a stranger needs to pick one, and nothing else. */
+export interface PublicRoom {
+  code: string;
+  /** The host's display name. */
+  host: string;
+  /** Seats taken, 1–7 of MAX_PLAYERS: a full room isn't listed. */
+  players: number;
+  knockout: boolean;
+}
+
 export type ClientMsg = (
   | { t: "hello"; token: string }
   | { t: "join"; name: string }
   | { t: "leave" }
-  | { t: "kick"; seat: number }
+  /**
+   * `name`: the seat as the sender saw it. Its index shifts when an earlier seat leaves, and names
+   * are unique in a room (BUG-13). Tabs loaded before 2.7.7 send only `seat`.
+   */
+  | { t: "kick"; seat: number; name?: string }
+  /**
+   * In the lobby, whoever may lead moves a player to seat `to`: seat order is turn order (M26).
+   * By name, unique in a room: an index is someone else once a seat above it leaves.
+   */
+  | { t: "move"; name: string; to: number }
   | { t: "start" }
   | { t: "act"; action: Action }
   | { t: "rematch" }
@@ -80,6 +123,8 @@ export type ClientMsg = (
   | { t: "auto"; on: boolean }
   /** In the lobby, whoever may lead switches "Play until one is left" (R16) on or off. */
   | { t: "knockout"; on: boolean }
+  /** In the lobby, the host lists the room on Home for anyone to join, or takes it off (M24). */
+  | { t: "public"; on: boolean }
   /** Throws an item at another seat, mid-game (M21). */
   | { t: "toss"; to: number; item: TossItem }
   /** Reacts to a play, mid-game (M23); shares the throws' cooldown. */
@@ -95,7 +140,9 @@ export type ErrorCode =
   | "room-full"
   | "bad-name"
   | "name-taken"
-  | "illegal-move";
+  | "illegal-move"
+  /** The sender's address already lists 2 public rooms (M24): this one stays private. */
+  | "too-many-public";
 
 export interface SeatView {
   name: string;
@@ -129,6 +176,10 @@ export interface RoomView {
   clocks: Wait[];
   /** The lobby's "Play until one is left" option (R16), which the next start deals with. */
   knockout: boolean;
+  /** The lobby's "Public room" switch (M24): the room is on Home's list while it has a free seat. */
+  public: boolean;
+  /** The host removed you from this public lobby (M24): no joining it for a while. */
+  removed?: true;
   game: GameView | null;
   /** The latest throw, in views sent within TOSS_SHOW_MS of it (M21). */
   toss?: Toss;
@@ -178,9 +229,19 @@ function parseBody(msg: Record<string, unknown>): ClientMsg | null {
     case "rematch":
       return { t: msg.t };
     case "kick":
-      return Number.isInteger(msg.seat) ? { t: "kick", seat: msg.seat as number } : null;
+      if (!Number.isInteger(msg.seat)) return null;
+      return {
+        t: "kick",
+        seat: msg.seat as number,
+        ...(typeof msg.name === "string" && { name: msg.name }),
+      };
+    case "move":
+      return typeof msg.name === "string" && Number.isInteger(msg.to)
+        ? { t: "move", name: msg.name, to: msg.to as number }
+        : null;
     case "auto":
     case "knockout":
+    case "public":
       return typeof msg.on === "boolean" ? { t: msg.t, on: msg.on } : null;
     case "toss":
       return Number.isInteger(msg.to) && TOSS_ITEMS.includes(msg.item as TossItem)

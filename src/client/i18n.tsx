@@ -84,6 +84,7 @@ const en = {
   errNameTaken: "That name is taken.",
   errIllegalMove: "That move isn't allowed.",
   removePlayer: "Remove {name}",
+  reorderSeat: "Drag to reorder {name}",
   installHint: "Install it: tap Share, then “Add to Home Screen”.",
   gotIt: "Got it",
   offlineHome: "You're offline. Skyjo Online needs a connection to play.",
@@ -172,6 +173,17 @@ const en = {
   endsAt100: "Game ends at 100",
   lastOneWins: "Last one under 100 wins",
   outAt100: "Out at 100",
+  publicRooms: "Public rooms",
+  publicRoomsNone:
+    "No public rooms right now. Create a room and switch on Public room to open one.",
+  publicRoomOf: "{name}'s room",
+  knockoutTag: "Knockout",
+  refresh: "Refresh",
+  publicRoom: "Public room",
+  publicRoomHelp: "Anyone can find this room on the home screen and join.",
+  errTooManyPublic: "Your network already has 2 public rooms. This one stays private.",
+  removedNote: "The host removed you from that room.",
+  confirmRemove: "Remove {name} from the room? They can't come back for 10 minutes.",
 };
 
 export type Key = keyof typeof en;
@@ -262,6 +274,7 @@ const es: Record<Key, string> = {
   errNameTaken: "Ese nombre ya está en uso.",
   errIllegalMove: "Esa jugada no está permitida.",
   removePlayer: "Quitar a {name}",
+  reorderSeat: "Arrastra para reordenar a {name}",
   installHint: "Instálala: toca Compartir y luego “Agregar a inicio”.",
   gotIt: "Entendido",
   offlineHome: "Estás sin conexión. Skyjo Online necesita conexión para jugar.",
@@ -347,6 +360,17 @@ const es: Record<Key, string> = {
   endsAt100: "La partida termina a los 100",
   lastOneWins: "Gana el último con menos de 100",
   outAt100: "Con 100, quedas fuera",
+  publicRooms: "Salas públicas",
+  publicRoomsNone:
+    "No hay salas públicas ahora. Crea una sala y activa Sala pública para abrir una.",
+  publicRoomOf: "Sala de {name}",
+  knockoutTag: "Eliminación",
+  refresh: "Actualizar",
+  publicRoom: "Sala pública",
+  publicRoomHelp: "Cualquiera puede encontrar esta sala en la pantalla de inicio y unirse.",
+  errTooManyPublic: "Tu red ya tiene 2 salas públicas. Esta sigue privada.",
+  removedNote: "El anfitrión te sacó de esa sala.",
+  confirmRemove: "¿Sacar a {name} de la sala? No podrá volver por 10 minutos.",
 };
 
 /** Brazilian Portuguese. */
@@ -434,6 +458,7 @@ const pt: Record<Key, string> = {
   errNameTaken: "Esse nome já está em uso.",
   errIllegalMove: "Essa jogada não é permitida.",
   removePlayer: "Remover {name}",
+  reorderSeat: "Arraste para reordenar {name}",
   installHint: "Instale: toque em Compartilhar e depois em “Adicionar à Tela de Início”.",
   gotIt: "Entendi",
   offlineHome: "Você está offline. O Skyjo Online precisa de conexão para jogar.",
@@ -519,6 +544,17 @@ const pt: Record<Key, string> = {
   endsAt100: "A partida termina aos 100",
   lastOneWins: "Vence o último abaixo de 100",
   outAt100: "Com 100, você sai",
+  publicRooms: "Salas públicas",
+  publicRoomsNone:
+    "Não há salas públicas agora. Crie uma sala e ative Sala pública para abrir uma.",
+  publicRoomOf: "Sala de {name}",
+  knockoutTag: "Eliminatória",
+  refresh: "Atualizar",
+  publicRoom: "Sala pública",
+  publicRoomHelp: "Qualquer pessoa pode encontrar esta sala na tela inicial e entrar.",
+  errTooManyPublic: "Sua rede já tem 2 salas públicas. Esta continua privada.",
+  removedNote: "O anfitrião removeu você dessa sala.",
+  confirmRemove: "Remover {name} da sala? Não poderá voltar por 10 minutos.",
 };
 
 export const LOCALES = {

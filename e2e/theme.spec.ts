@@ -1,9 +1,17 @@
 // M28: the two looks. Modern ("Polished casual") is the default; Classic (M27) is a tap away, on
 // Home and at the table. The harness (`show`) keeps Classic for the other specs, so these opt in.
 import { expect, type Page } from "@playwright/test";
-import { apply, legalActions } from "../src/engine/game";
+import { apply, type GameState, legalActions } from "../src/engine/game";
 import { toView } from "../src/engine/view";
-import { atTurnStart, firstTurn, lastTurnGame, roundOver, type Shown, show } from "./harness";
+import {
+  atTurnStart,
+  firstTurn,
+  knockoutGame,
+  lastTurnGame,
+  roundOver,
+  type Shown,
+  show,
+} from "./harness";
 import { botStep, expectMobileFriendly, seatedRoom, startGame, test } from "./helpers";
 import { m27Summary, m27Table } from "./m27-states";
 
@@ -123,8 +131,9 @@ test("M28: in Modern, 8 players' summary fits a small phone, and the prompts sta
   await modern(page);
   await page.setViewportSize({ width: 360, height: 640 });
   await showModern(page, {
-    view: { ...toView(roundOver(8, 3)), phase: "roundOver", winners: [] },
-    seat: 0,
+    // From seat 1: on the ender's own phone their doubled row wraps (PLAN, M27's follow-up).
+    view: { ...toView(roundOver(8, 344)), phase: "roundOver", winners: [] },
+    seat: 1,
     lead: true,
   });
   await expect(page.getByRole("button", { name: "Next round" })).toBeInViewport({ ratio: 1 });
@@ -309,7 +318,8 @@ test("screenshots: M28 the two looks", async ({ page }, info) => {
   await shot("05-eight-players");
   await page.getByTestId("opponent").first().click();
   await shot("06-zoom-and-throws");
-  const over = roundOver(8, 3);
+  // A finished game: the knockout one table.spec.ts ranks (seed 53).
+  const over = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 53).at(-1) as GameState;
   await show(page, { view: toView(over), seat: over.winners[0] ?? 0, lead: true });
   await shot("07-game-over");
 });

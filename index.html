@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-theme="casual">
+<html lang="en" translate="no" data-theme="casual">
   <head>
     <meta charset="UTF-8" />
     <!-- A Classic player's look (M28), before the first paint: the app's own code runs too late. -->
@@ -11,6 +11,9 @@
       } catch {}
     </script>
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <!-- The game has its own languages. A page translator swaps the text nodes React updates, so
+         numbers froze on screen (BUG-3). -->
+    <meta name="google" content="notranslate" />
     <title>Skyjo Online</title>
     <meta name="description" content="Flip, swap, and keep your score low. Play with 2–8 friends." />
     <meta name="theme-color" content="#2a1f7a" />

@@ -802,9 +802,20 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 20  | ✅ M21                             | Throws: bombs, beers, donkeys and more at other players (user request, 2026-10-27)                                      | 2.5.0         | the user asked for it; ahead of M16, which waits on the owner                                                    |
 | 21  | ✅ M22                             | Throws, part 2: stickers, choreography, marks, real sounds (user feedback)                                              | 2.5.1         | the owner found v2.5.0 throws not fun                                                                            |
 | 22  | ✅ M23                             | Reactions: laugh, love, anger and the migajero, from a button beside your grid (user request)                           | 2.6.0         | the user asked for it; reuses M21/M22's in-memory throw path and sticker pipeline                                |
-| 23  | ✅ M27                             | Classic, upgraded: labelled scores, your frame, weight marks, a summary that explains itself, a look with depth (owner) | 2.9.0         | the owner's design round, 2026-11-11: the look to ship to the stores                                             |
-| 24  | ✅ M28                             | Polished casual, the new default look, and a switch between it and Classic (owner)                                      | 2.10.0        | the owner's choice of direction B; stacked on M27                                                                |
-| 25  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
+| 23  | ✅ BUG-2                           | Out of a knockout game, your own reaction popped on your row in the strip, far from the button you tapped               | 2.6.2         | a user report from real phones; effort S. The report's "top of the screen" is still open (see § BUG-2)           |
+| 24  | M26                                | Seat order: the host arranges who plays after whom (owner request, 2026-11-11)                                          | 2.7.0         | the owner asked for it; ahead of M16, which waits on the owner                                                   |
+| 25  | ✅ BUG-3                           | No browser translation of the page (it freezes your own points; cause unconfirmed); long names over totals              | 2.7.1         | the owner's report from real phones ("the count of points in some moments doesn't work"); client only, S         |
+| 26  | BUG-4                              | Phones on one Wi-Fi dropped together: throws and reactions spent their shared message budget                            | 2.7.2         | a live report from the owner; hotfix                                                                             |
+| 27  | BUG-9                              | A socket replaced while a tap waited was replaced again 5 s later, taps dropped meanwhile                               | 2.7.3         | a QA read after the owner's disconnect report; proven in a browser                                               |
+| 28  | BUG-10                             | Back from a locked screen, a dead socket that looked open showed a stale table for up to a minute                       | 2.7.4         | BUG-4's open suspicion; the page's side proven in a browser                                                      |
+| 29  | BUG-11                             | A hidden tab, its timers slowed to one a minute, replaced its socket every minute                                       | 2.7.5         | a QA read after the owner's disconnect report; breaks SEC-9's bound                                              |
+| 30  | BUG-12                             | With the host away, a second leader's tap on Next round, Play again or Start game got an error                          | 2.7.6         | a QA read; proven in room.test.ts                                                                                |
+| 31  | BUG-13                             | The lobby's ✕ removed a seat by index, so a seat leaving just before it made it remove someone else                     | 2.7.7         | a QA read; proven in room.test.ts                                                                                |
+| 32  | BUG-5                              | The shuffle, measured (it was fair) and hardened: ChaCha20, unbiased picks, a 256-bit seed per round (owner report)     | 2.7.8         | the owner still finds the deals weak; fairness and cheating come before the launch                               |
+| 33  | M24                                | Public rooms: a lobby switch and a list on Home (owner request, 2026-11-11)                                             | 2.8.0         | the owner asked for it; ahead of M16, which waits on the owner                                                   |
+| 34  | ✅ M27                             | Classic, upgraded: labelled scores, your frame, weight marks, a summary that explains itself, a look with depth (owner) | 2.9.0         | the owner's design round, 2026-11-11: the look to ship to the stores                                             |
+| 35  | ✅ M28                             | Polished casual, the new default look, and a switch between it and Classic (owner)                                      | 2.10.0        | the owner's choice of direction B; stacked on M27                                                                |
+| 36  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
 
 Deferred: Turnstile (SEC-4) and SEC-12 (until M16). Quick reactions, deferred until now, are M23 (user request, 2026-10-29). Declined: SEC-7. Versions assume this order; a PR that reorders says so.
 
@@ -850,6 +861,129 @@ There is a second guard the old rule hid: `autoMove` never flips a seat's last f
 - **The motion test's race → first thing in SEC-9's PR, test only.** `e2e/motion.spec.ts:28` ("an opponent's flip animates") failed 10 of 40 runs on iPhone at 12 local workers and 0 of 20 at 1 worker. It predates BUG-1 and hasn't failed on CI yet, but `failOnFlakyTests` would block a deploy. Ben's reload may not have rendered the dealt table when Ana flips, so his first view already holds the flip and there is nothing to animate; the fixed 400 ms wait is the other half. The fix, which the PO ran 80 of 80 times at 12 workers (both tests in the file): before Ana's tap, wait for Ben's `table` to have `data-phase="flip"`; after it, wait for Ben's `opponent` grid to show one `[data-face="up"]` card instead of waiting 400 ms.
 - **Accepted:** a present player who runs out of time while every other connected seat is on Auto-play goes on Auto-play in the same `tick`, so that very move may turn over their last card and end the round, doubled unless lowest (the PO reproduced it). That is the decision above (at that moment nobody is playing by hand), and the round has to end. Computing `mayEnd` before the due seats switch would spare that one move; revisit if players say so.
 - **M17:** `canStall` only counts seats, so a lone connected spectator keeps nothing running (the PO checked on the injected clock), but no test pins it. M17's out-seat test covers it; see there.
+
+### BUG-6 — A host on Auto-play at game over loses the lobby after Play again (QA, 2026-11-11, `main` 0122f4e) · v2.6.4
+
+**Report.** 3 phones, Pixel 7. The host ticks Auto-play (or runs out of time) and the game is played to game over; a guest taps Play again. In the lobby every phone shows "Start game" and an enabled knockout switch, nobody sees "Waiting for host", and a guest can start.
+
+**Root cause.** `canLead` (`room.ts`) treats a host whose `Seat.auto` is set as away, which is right during a game (M8: one absent phone can't freeze a summary). But `rematch` only set `game = null`, and `auto` was cleared only at `start`. So the flag outlived its game, into a lobby that has no Auto-play switch: the host could not clear it, and stayed "away" while connected. M8's room test even asserted it ("Still away in the lobby").
+
+**Fix.** `rematch` clears every seat's Auto-play, as `start` already did (kept, for lobbies saved before 2.6.4). Nothing else to reset: at game over no seat is waited on, so `stopped` is already empty, and `start` sets `turnSince`. A host whose page is closed or whose phone sleeps (the wake lock is game-only) is offline within 45 s, which `canLead` still reads as away, so the others can start.
+
+**PO to decide (review finding).** A host who walks away from a page that stays open and visible (a desktop tab) keeps pinging, so after Play again the lobby waits for them, and a connected seat can't be removed. That is how every lobby already works before a first game; before this fix a timed-out host's Auto-play happened to cover it after a rematch. If it matters, the fix is a lobby rule of its own (for example, guests may lead when the host has sent nothing but pings for N seconds), not a flag that outlives its game.
+
+**PO decision (PR #52 review).** Accepted as is. It is the rule of every first lobby, the game is phone-first and a sleeping phone goes offline within 45 s, so others then lead. No new lobby rule until a player reports a lobby held by an idle host.
+
+**Test.** `room.test.ts`, "BUG-6": after a guest's Play again nobody is on Auto-play, only the host leads, and a guest's `start` and `knockout` are refused.
+
+### BUG-7 — A throw from "View table" at a summary is accepted but never shown (QA, 2026-11-11, `main` 0122f4e) · v2.6.3
+
+**Report.** Pixel 7. At round over or game over, tap View table, tap an opponent, tap an item. The server broadcasts the throw and the thrower's 3 s rest starts, but no phone draws it.
+
+**Root cause.** Two halves of the client disagreed, and the server sided with neither. `Table.tsx` mounts `Tosses` (and `Reactions`) only when there is no summary, but the `Tray` in an opponent's sheet had no such guard. The server took a `toss` in any phase of a game, while it already dropped a `react` outside flip, draw and place.
+
+**Decision.** Throws follow reactions: only while a round is being played. A summary is a pause between rounds; drawing throws over "View table" would also mean flights over a table whose panels the sheet may cover at any tap of Show scores.
+
+**Fix.** Server: one `playing(game)` check for both `toss` and `react`; a throw outside it returns `"none"` before the cooldown is touched. Client: the sheet at a summary shows the cards without the tray.
+
+**Tests.** `room.test.ts`, "BUG-7" (dropped at `roundOver` and `gameOver`, no cooldown started); `e2e/toss.spec.ts`, "BUG-7" (View table, tap an opponent: sheet, no tray).
+
+### BUG-8 — Emoji names built with joiners break apart (QA, 2026-11-11, `main` 0122f4e) · v2.6.5
+
+**Report.** iPhone 13. Join as 😀👨‍👩‍👧‍👦🏳️‍🌈: the seat list shows 😀👨👩👧👦🏳️. The flags of England, Scotland and Wales turn into a black flag.
+
+**Root cause.** `cleanName` (`room.ts`) stripped all of `\p{C}`, to keep zero-width and bidi characters out of names. That class also holds U+200D, the joiner inside a family or a rainbow flag, and the tag characters (U+E0020–E007F) those three flags are spelled with. Two more cuts could split such an emoji: the server's, at 16 code points, and the name box's `maxLength`, which counts UTF-16 units (16 units is not even two families).
+
+**Fix (a trust boundary: the allowlist is narrow on purpose).** `cleanName` now works one grapheme cluster at a time. A cluster that is, whole, an emoji on Unicode's RGI list (`\p{RGI_Emoji}`) is kept as it is: that covers the joiner of a family, a rainbow flag or a skin-toned couple, and the tags of exactly three flags, England, Scotland and Wales. From every other cluster all of `\p{C}` is stripped, as before: controls, bidi overrides, isolates and marks, zero-width characters, tags, private-use and unassigned code points. So a joiner alone, between letters, beside one emoji, or between two emoji that make no emoji together (😀+😀, which would be a second, identical-looking "😀😀") goes, and so does any tag sequence that could carry hidden text.
+
+**Review finding, fixed before the PR.** The first version kept U+200D by its neighbours: after an `Extended_Pictographic` and before another. That property also holds 1,453 unassigned code points (U+1F02C…), which are `\p{C}` themselves: they vouched for the joiner and were then stripped, leaving a joiner between letters, or a name that was only a joiner. Matching whole clusters against the RGI list has no such hole; the room test has those inputs.
+
+Not changed: invisible characters outside `\p{C}` (variation selectors, blank letters such as U+3164) pass as they did before this PR. A filter for them (`Default_Ignorable_Code_Point`, names with no visible character) is its own item.
+
+The limit stays 16 code points, so a stored name is no bigger than before. `cutName` (`protocol.ts`) cuts between grapheme clusters (`Intl.Segmenter`) and leaves out one that doesn't fit; the server and the name box share it (the box lost `maxLength`, and doesn't cut mid-composition). A single cluster over 16 code points (a letter under 16 accents) is no name at all: `bad-name`.
+
+**PO to decide:** 16 code points, not 16 clusters. Three families (21 code points) are cut to two. Counting clusters would allow 16 of any emoji, but then one cluster needs its own cap (stacked accents have no limit), and a seat's name could grow from 64 bytes to several hundred in every saved row and every broadcast.
+
+**Tests.** `room.test.ts`, "BUG-8": the family, the rainbow flag, a skin-toned kiss, the flags; a lone joiner, one between letters, one beside a single emoji, one between two emoji that don't join, one smuggled in by unassigned code points; tags outside a flag, a split flag, an unknown region; bidi overrides and isolates; the cut before, inside and after a family; 16 accents. `e2e/online.spec.ts`, "BUG-8", on all three devices: the box cuts three families to two, and the reported name is seated whole.
+
+### BUG-9 — A reconnect while a tap waits reconnects again 5 s later (QA read, 2026-11-11) · v2.7.3
+
+**Report.** The owner: "devices disconnect randomly or when another player disconnects" (BUG-4 has the per-IP cause). A QA read of `useRoom.ts` on `main` 0122f4e suspected a second cause on the phone itself.
+
+**Evidence (Pixel project, local workerd, the page's clock stepped by hand).** One phone in a lobby. Its socket goes dead without closing (`routeWebSocket` drops every frame). 57 s later the player taps "Play until one is left"; 3 s after that the 20 s check finds the socket silent for over 45 s and opens a second, working one. On `main`:
+- "Reconnecting…" stays up on the working socket;
+- a second tap sends nothing (the new socket carried only its `hello`);
+- 5 s after the first tap, the page closes the working socket and opens a third.
+
+**Root cause.** `send` remembers the one message waiting for its ack (`awaiting`) and reconnects if none comes in `ACK_MS` (5 s). Only a socket's `onclose` cleared it, and `onclose` ignores a socket that `connect()` has already replaced (`useRoom.ts:113`). So a socket replaced by `check()` or `wake()` left `awaiting` set: `send` dropped every tap, `late` showed "Reconnecting…", and the ack timer replaced the new socket (`useRoom.ts:177-181`). It takes a tap in the 5 s before a silent socket is replaced.
+
+**Fix (v2.7.3).** `connect()` ends the wait itself, since the socket it replaces will never answer. The tap that went into the dead socket is lost, as before: its card drops back and the player taps again.
+
+**Acceptance:** `e2e/online.spec.ts`, "BUG-9": fails on `main` at its first check ("Reconnecting…" still shown) and passes with the fix: 2 sockets, the second tap sent on the second one, still 2 sockets 5 s later.
+
+### BUG-10 — Back from a locked screen, a dead socket that looks open shows a stale table for up to a minute (BUG-4's suspicion, 2026-11-11) · v2.7.4
+
+**Report.** BUG-4 left it "suspected, not proven": a phone back from a locked screen sends its hello into a socket that looks open, and shows a stale table until the next 20 s check, or 5 s after a tap.
+
+**Evidence (Pixel project, local workerd, the page's clock stepped by hand).** One phone in a lobby. Its socket goes dead without closing (`routeWebSocket` drops every frame), the page is hidden for 10 s, then visible again. On `main` 0122f4e the page sent its hello into the dead socket and kept that socket for 50 s more, without a tap. That is longer than BUG-4 guessed: the 20 s check only replaces a socket silent for over `SILENT_MS` (45 s), so a lock of 10 s leaves 35–55 s of stale table.
+
+**Not reproduced: the phone side.** Whether iOS or Android leave a socket open-looking but dead after a short lock was not tested on real phones. `useRoom` already assumes they do ("Phones freeze sockets in the background without closing them"). What is proven is what the page does when one is.
+
+**Root cause.** `wake` (`useRoom.ts:135-144`) replaces a socket at once only when it is closed, or silent for over 45 s. Otherwise it says hello and trusts the socket: nothing waits for the answer.
+
+**Fix (v2.7.4).** The room answers every hello, to its sender at least. `wake` now waits `ACK_MS` (5 s) for anything from the socket after its hello and replaces the socket if nothing came. No wire or server change, and no new message: a working socket costs what it did.
+
+**Acceptance:** `e2e/online.spec.ts`, "BUG-10": fails on `main` (still 1 socket 5 s after the unlock) and passes with the fix; a second lock on the working socket says hello, is answered, and keeps the socket.
+
+### BUG-11 — A hidden tab replaces its socket every minute (QA read, 2026-11-11) · v2.7.5
+
+**Report.** The owner: "devices disconnect randomly" (BUG-4). A QA read suspected that browsers throttle a hidden page's timers to about once a minute, so the 20 s ping misses `STALE_MS` (45 s) and the seat flickers offline, with its host role and clock.
+
+**Evidence.**
+- **The throttle is real, with a socket open.** Playwright's Chromium, headed, window minimized, `IntensiveWakeUpThrottling` with a 10 s grace period, a page with an open WebSocket and a 5 s `setInterval`: it fired 58, 60, 117 and 120 s in. Chrome's default grace period was not measured (documented as 5 min, or 10 s for a loaded page). Safari and Firefox were not measured.
+- **What the page does with it (Pixel project, local workerd, the page's clock stepped by hand).** A hidden page whose timers run once a minute (`page.clock.fastForward(60_000)`, which fires a due timer once): on `main` 0122f4e it opened a new socket and said hello every minute, 5 in 5 minutes, and sent no ping.
+- **What that costs (`RoomDO` on the fake runtime, scratch, not kept).** 2 seated tabs in a lobby that reconnect and say hello every minute: 2,880 rows and 4,608 DO requests a day, and the room never goes idle. SEC-9's figure for 2 forgotten tabs is about 160 of each.
+
+**Root cause.** `check` (`useRoom.ts:128-134`) replaces a socket not heard from for `SILENT_MS` (45 s), and runs from a 20 s interval. At one run a minute, each run comes 60 s after the last pong, so every run reconnects: a close and a hello a minute. A seat's close is broadcast (`webSocketClose` in `worker.ts`; read in the code, what the others then see was not reproduced), and each hello resets SEC-9's quiet and idle clocks. SEC-9 chose that hidden pages leave returning to `wake`, "or a throttled background tab would keep a forgotten room busy"; this path did it anyway.
+
+**Decided: the flicker itself is intended, the reconnect is the bug.** With pings a minute apart, the room sees the seat stale for the last 15 s of each minute, at whatever event re-broadcasts. That is a player whose tab has been hidden for minutes: the table is right to show them away, anyone seated may lead, and their turns go to Auto-play after 30 s either way (M8). Hiding it would take a longer `STALE_MS`, which slows every real drop, or a wire change. Not done. **PO (PR #49 review): agreed.** A tab hidden for minutes is a player who is away; showing them offline for 15 s of each minute is truer than showing them present, and nothing is lost (their seat, score and turn clock are unchanged). Revisit only if a player reports losing the host role while reading another app.
+
+**Fix (v2.7.5).** `check` only replaces a silent socket on a visible page; a hidden one pings. `wake` already replaces a socket silent for over 45 s when the page shows. No wire or server change.
+
+**Acceptance:** `e2e/online.spec.ts`, "BUG-11": fails on `main` (no ping, a new socket) and passes with the fix: 5 throttled minutes, 5 pings answered, 1 socket; then a socket that died while hidden is replaced as the page shows.
+
+**Delivery (PO, PR #49): `holdRooms` is one case per way.** #42 added three gag modes to the single SEC-11/SEC-13 test in `worker.test.ts`. It takes 12.8 s locally, and on a slow runner it passed vitest's 60 s `testTimeout` (PR #48, run 43114515967, attempt 1: the whole `npm test` took 84.6 s; the rerun passed). It is now `it.each` over the 8 ways, each with its own 60 s: the slowest takes 2.3 s locally. If a single way ever nears 60 s on CI, give that case its own timeout rather than raising the global one.
+
+### BUG-12 — A second leader's tap on Next round gets an error (QA read, 2026-11-11) · v2.7.6
+
+**Report.** A QA read of `room.ts` on `main` 0122f4e: with the host away, two stand-ins tap Next round together, and the second gets an "illegal move" toast; `lostToClock` in `Online.tsx` doesn't cover it.
+
+**Evidence (`room.test.ts`, on `main`).** 3 seats at a round summary, the host's socket gone, so both other seats have `lead`. Seat 1's `nextRound` deals round 2. Seat 2's, sent next, throws `illegal-move` ("That move isn't allowed."). The same race on the other two lead actions throws `not-allowed` ("That's not allowed right now."): a second Play again once the room is back in the lobby, and a second Start game once the game is dealt.
+
+**Root cause.** When the host is away, on Auto-play or out, anyone seated may lead (`canLead`), so two phones show the same button. The room handled the later tap as a fresh request: `nextRound` in the flip phase is a `RuleError` in the engine (`room.ts:370-373`), and `rematch` and `start` check the phase with the permission (`room.ts:331`, `room.ts:363`). One phone's own double tap can't do it: `useRoom` sends one message at a time.
+
+**Fix (v2.7.6).** The room answers a lead tap that asks for what already happened with `"none"`, as it does a reaction that arrives late: `start` outside the lobby, `rematch` in the lobby, `nextRound` outside a round summary. Nothing is written and only the sender is answered. A seat that may not lead is still refused where the tap would have done something. Server only, so tabs loaded before 2.7.6 get it too, and no wire change.
+
+**Acceptance:** `room.test.ts`, "BUG-12": fails on `main` (`illegal-move`), passes with the fix: each second tap returns `"none"` and leaves `RoomData` as it was; a seat that may not lead still gets `not-allowed` for all three. `worker.test.ts`'s SEC-3 list of rejected messages loses the lobby `rematch`, now answered with a state, still with no row and nothing sent to anyone else.
+
+### BUG-13 — The lobby's ✕ removes a seat by index, so it can remove the wrong one (QA read, 2026-11-11) · v2.7.7
+
+**Report.** A QA read on `main` 0122f4e: `kick` carries a seat index (`Online.tsx:157`). If an earlier seat leaves in the same instant, it removes a different offline seat.
+
+**Evidence (`room.test.ts`, on `main`).** 4 seats, P2 and P3 offline. The host's lobby shows P2 at index 2. P1 leaves, then the host's `{ t: "kick", seat: 2 }` arrives: the room removes P3 and keeps P2. It takes a seat above the target leaving (or being removed by another leader) between the view the host tapped on and the tap's arrival, and another offline seat below the target; with no such seat the host gets "That's not allowed right now." instead.
+
+**Root cause.** A seat's index is its place in `RoomData.seats`, which `removeSeat` shifts; the message named a place, not a player.
+
+**Fix (v2.7.7).** The client also sends the seat's name as it saw it (`{ t: "kick", seat, name }`); names are unique in a room. The room removes the seat with that name. A name that is no longer seated is a late tap: `"none"`, not an error. The same rules apply by name: never yourself, never someone online, only whoever may lead, only in the lobby.
+- **Old tabs:** a tab loaded before 2.7.7 sends only `seat`, and the room handles that as before, wrong seat included, until the tab reloads. `seat` stays required on the wire for that reason.
+- No new cost: the same one message, one row.
+
+**Acceptance:** `room.test.ts`, "BUG-13": fails on `main`, passes with the fix: the named seat goes although its index moved; a second kick of the same name returns `"none"`; a kick by name of yourself or an online seat is `not-allowed`; an index-only kick still works; a non-string `name` is dropped by `parseClientMsg`.
+
+**Delivery (PO, PR #51): UX-11 was flaky on iPhone, and the iPhone job is short of frames.**
+- **UX-11.** `e2e/table.spec.ts`, "UX-11: the summary is a modal…": after Escape, "Show scores" was not focused within 5 s, twice in a row on `main` (run 43117120506, attempts 1 and 2), which skipped v2.7.5's deploy until a third attempt passed. It passes alone (40 of 40 on iPhone at 14 workers; the M27 author saw it fail in about half of full local runs under load). The cause is not proven. The likely one is M26's: headless WebKit draws about 7 frames a second at 4 workers on CI, and the focus moves only after the dialog's `close` event and a render. The check now waits 20 s and reports what has the focus and whether a dialog is still open. If it fails again with the dialog closed and the focus on the page body, the app lost the focus and that is a real bug (a keyboard user stuck after Escape).
+- **BUG-9's test** (`e2e/online.spec.ts`, Pixel) failed once on this PR (`e2e (pixel)`, run 43120274547): it tapped as soon as the second socket was created, and on a slow runner that socket was still connecting, where `useRoom` sends nothing; the test's clock is paused, so nothing retried. It now waits until the new socket has answered. 30 of 30 on Pixel at 10 workers. The app is unchanged.
+- **PLAN item: the iPhone job at 3 workers.** Two tests have now failed for slow frames at 4 workers (this one and M26's edge scroll, fixed in PR #50). `e2e (iphone)` takes 2:43 at 4 workers (PR #55's run), against the rubric's 3:00, and PR #17's probe measured 62 s for the 2-phone tests at 4 workers. Measure the job at 3 workers: if it stays under 3:00, switch; if not, keep 4 and move the heaviest harness cases to desktop, as M23's follow-up does for Pixel.
 
 ### M17 — Play until one is left (knockout) (user request, 2026-10-24) · v2.2.0 · ✅ shipped (PR #24)
 
@@ -1156,12 +1290,12 @@ The sticker sits centred over the opponent's panel head, or 24 px above your nam
   - two `mark-tear` drops spring sideways from the eyes (±28 px) at 300 and 800 ms and fall 20 px as they fade (600 ms each);
   - the bubble pops at 150;
   - the reactor's panel head hops (−3 px) at 0 and 400 (composite add, like `KNOCK`).
-- **Love** (heart-eyes face; `sigh.mp3` at 0, the exhale peaks at 390):
+- **Love** (heart-eyes face; `aww.mp3` at 0: "aww" from 100, "yeah" from about 870, on the second heartbeat; until v2.6.1 `sigh.mp3`, whose exhale peaked at 390):
   - 0–300: a soft pop (overshoot 1.08);
   - heartbeats (1 → 1.14 → 1, 220 ms) at 420, on the exhale, and at 900;
   - a slow ±6° sway, floating up 10 px over the hold;
   - three `mark-heart` hearts (reused) rise 50 px from behind it, at x −22, 0 and +22, from 350 ms, staggered 150 ms, swaying and gone by 1600.
-- **Anger** (red face with steam; `grumble.mp3` at 0, growling from 50 to 900):
+- **Anger** (red face with steam; `seethe.mp3` at 0, screaming through its teeth from 50 to 1500; until v2.6.1 `grumble.mp3`, growling from 50 to 900):
   - a slam in: from scale 1.4 and transparent to 1 in 120 ms (ease-in), squash 1.1 × 0.9 at 140, settled by 220;
   - 220–1000: a tremble of ±3 px at about 16 Hz, with a red glow disc behind it pulsing in opacity, 0 to 0.5;
   - two `mark-steam` puffs shoot out and up from its sides, ±20 to ±44 px and −30 px, at 250 and 650, growing from 0.6 to 1.2 as they fade (500 ms);
@@ -1177,13 +1311,13 @@ The sticker sits centred over the opponent's panel head, or 24 px above your nam
 
 **Sound** (in `sound.ts`'s `NAMES`). Everyone with Throws on hears them, the reactor included:
 
-| Name      | Length | Peak (`PEAK`, ms)      | Plays                               |
-| --------- | ------ | ---------------------- | ----------------------------------- |
-| `giggle`  | 1.78 s | 1210 (bursts from 10)  | laugh, at 0                         |
-| `sigh`    | 1.15 s | 390                    | love, at 0                          |
-| `grumble` | 1.23 s | 310                    | anger, at 0                         |
-| `flap`    | 0.73 s | 420                    | migajero, at launch and at the exit |
-| `coo`     | 1.44 s | 1010 (first coo at 40) | migajero, at landing − 40           |
+| Name     | Length | Peak (`PEAK`, ms)      | Plays                               |
+| -------- | ------ | ---------------------- | ----------------------------------- |
+| `giggle` | 1.78 s | 1210 (bursts from 10)  | laugh, at 0                         |
+| `aww`    | 1.54 s | 550                    | love, at 0                          |
+| `seethe` | 1.54 s | 240                    | anger, at 0                         |
+| `flap`   | 0.73 s | 420                    | migajero, at launch and at the exit |
+| `coo`    | 1.44 s | 1010 (first coo at 40) | migajero, at landing − 40           |
 
 **Haptics:**
 - the reactor's phone: a 10 ms tap when sending;
@@ -1230,15 +1364,17 @@ The sticker sits centred over the opponent's panel head, or 24 px above your nam
   - `mark-heart.webp` is reused.
 - **Sounds** in `public/sfx/`: freesound.org, every license checked as CC0 1.0 on the sound's own page (2026-10-29). Each was trimmed, given a 5 ms fade-in, a fade-out and a high-pass, made mono at 44.1 kHz, set to −19.4 LUFS integrated (M22's impacts measure −18 to −20) with peaks limited to −1.5 dBFS, and encoded at 96 kb/s like the throws:
 
-  | File          | Source                                                                         | Author       | Cut                           |
-  | ------------- | ------------------------------------------------------------------------------ | ------------ | ----------------------------- |
-  | `giggle.mp3`  | [388407](https://freesound.org/s/388407/) "Baby Giggles.wav"                   | amccoy711    | 7.30 s + 1.75 s, 350 ms fade  |
-  | `sigh.mp3`    | [446788](https://freesound.org/s/446788/) "Suspiro Amor.wav"                   | IanLyanx     | 0 + 1.10 s, 300 ms fade       |
-  | `grumble.mp3` | [713755](https://freesound.org/s/713755/) "Angry Grr"                          | kanyonwyvern | 0.50 s + 1.20 s, 350 ms fade  |
-  | `coo.mp3`     | [735366](https://freesound.org/s/735366/) "Domestic Dove Coo"                  | haulaway     | 11.90 s + 1.40 s, 300 ms fade |
-  | `flap.mp3`    | [689998](https://freesound.org/s/689998/) "Pigeon, Flies Away, Flapping Wings" | Kinoton      | 0.85 s + 0.70 s, 200 ms fade  |
+  | File         | Source                                                                         | Author    | Cut                           |
+  | ------------ | ------------------------------------------------------------------------------ | --------- | ----------------------------- |
+  | `giggle.mp3` | [388407](https://freesound.org/s/388407/) "Baby Giggles.wav"                   | amccoy711 | 7.30 s + 1.75 s, 350 ms fade  |
+  | `aww.mp3`    | [541382](https://freesound.org/s/541382/) "aw yeah (awww yeah aww yeah) 2.wav" | NaBoKaMe  | 0.12 s + 1.50 s, 400 ms fade  |
+  | `seethe.mp3` | [343900](https://freesound.org/s/343900/) "muffled angry screaming.wav"        | Reitanna  | 0 + 1.50 s, 250 ms fade       |
+  | `coo.mp3`    | [735366](https://freesound.org/s/735366/) "Domestic Dove Coo"                  | haulaway  | 11.90 s + 1.40 s, 300 ms fade |
+  | `flap.mp3`   | [689998](https://freesound.org/s/689998/) "Pigeon, Flies Away, Flapping Wings" | Kinoton   | 0.85 s + 0.70 s, 200 ms fade  |
 
   The README credits name the five authors.
+- **`aww.mp3` was picked by the owner, 2026-11-11 (v2.6.1).** It replaces `sigh.mp3` ([446788](https://freesound.org/s/446788/) "Suspiro Amor.wav" by IanLyanx, 0 + 1.10 s). The owner liked none of 10 candidates over two rounds and brought this sound: a man's drawn-out "aww, yeah". The owner's file came from Pixabay ([95782](https://pixabay.com/sound-effects/aw-yeah-awww-yeah-aww-yeah-2-95782/), account "freesound_community", Pixabay Content License, which allows use inside a game but not passing the file on as a standalone sound). It is the same recording as freesound 541382 by NaBoKaMe (called Jekteir when Pixabay copied it; the waveforms correlate at 0.99), which is CC0 1.0 on its own page (checked 2026-11-11). `aww.mp3` is cut from the freesound copy, so it is CC0 like the rest, and the Pixabay license doesn't apply to it. Cut from freesound's HQ preview: 0.12 s + 1.50 s of the 2.67 s take (the "yeah" fades 0.9 s early), two 100 Hz high-passes, −19.4 LUFS integrated, true peak −5.9 dBFS.
+- **`seethe.mp3` was picked by the owner by ear, 2026-11-11 (v2.6.1).** It replaces `grumble.mp3` ([713755](https://freesound.org/s/713755/) "Angry Grr" by kanyonwyvern, 0.50 s + 1.20 s), which the owner found not good enough. The owner heard 4 candidates on a listening page beside the sticker and chose this one: a scream through gritted teeth, as on the sticker, recorded by someone who had just lost a game. CC0 1.0, checked on its own page on 2026-11-11; cut from freesound's HQ preview; two 120 Hz high-passes; −19.4 LUFS integrated, true peak −8.7 dBFS; its onset is at 50 ms, on the slam.
 - **The PO picked the sounds by measurement, not by ear.** It chose them by license, title and description, rating count, and signal-to-noise ratio (39–41 dB after gain, none clipped), and took the loudest window of each. **The implementer listens to all five before wiring them in.** Swap a cut (window or source) that isn't funny, and record the change here.
 
 **Acceptance.**
@@ -1277,12 +1413,237 @@ The sticker sits centred over the opponent's panel head, or 24 px above your nam
 - **Scrolled-out targets** (the PR #39 follow-up below, the lead's call, for throws and reactions): instead of an edge label, the target's panel of a throw or a migajero scrolls into view (smooth, `inline: "nearest"`; instant with reduced motion) once the last move's cards have landed (their stand-ins don't scroll, UX-8), and the flights follow it. Laughs, love and anger don't scroll: at the edge their bubble names the reactor. The server drops a migajero not at the last mover, and reactions at the summary. Under 24 px showing counts as out. A later turn may scroll it away again.
 
 **PO follow-ups (PR #40 review, 2026-10-29).** None blocks; each is one small patch, in this order.
-- **The owner listens.** Nobody has heard `giggle`, `sigh`, `grumble`, `coo` and `flap` yet: the PO measured them again (all −19.4 LUFS integrated, peaks −0.7 to −5.7 dBFS; `giggle` pauses at 0.99–1.19 s and `coo` at 0.40–0.58 s, as the choreography expects) but can't judge funny. The owner plays one reaction of each on the live site, in Spanish, and names any cut to swap. This is the bar the owner rejected v2.5.0's throws on.
-- **Your own reaction when you're out (R16).** An out player's laugh, love or anger shows on every other phone but not on theirs: `spot(you)` finds no name bar. Pop it over the corner button, so the reactor sees what they sent.
+- **The owner listens.** (Done in v2.6.1 for love and anger: `aww.mp3` and `seethe.mp3`, above.) Nobody has heard `giggle`, `sigh`, `grumble`, `coo` and `flap` yet: the PO measured them again (all −19.4 LUFS integrated, peaks −0.7 to −5.7 dBFS; `giggle` pauses at 0.99–1.19 s and `coo` at 0.40–0.58 s, as the choreography expects) but can't judge funny. The owner plays one reaction of each on the live site, in Spanish, and names any cut to swap. This is the bar the owner rejected v2.5.0's throws on.
+- ✅ **Done in BUG-2 (v2.6.2), with the cause corrected: it did show, on their row in the strip.** **Your own reaction when you're out (R16).** An out player's laugh, love or anger shows on every other phone but not on theirs: `spot(you)` finds no name bar. Pop it over the corner button, so the reactor sees what they sent.
 - **Pixel and other narrow phones: confirm the button with the owner.** There it sits at the end of the name bar, above row 1, not where the owner circled (beside row 3). The PO accepts the lead's reason (Pixel 7's cards stay 91 px), but the owner circled the spot on an iPhone. If the owner plays on Android and wants the circle, the asymmetric 56 px right gutter (cards 77 px, grid 28 px off centre) is the fallback measured above.
 - **Delivery: take back the Pixel job's headroom.** `react.spec.ts` adds 43 s of tests to `e2e (pixel)` (2 workers): the job went from 2:33 (PR #39) to 2:56, and PR CI wall time to 3:00, right at the rubric's ceiling and past this milestone's +15 s budget. iPhone (2:18, 4 workers) and desktop (2:09) have room. Run the two heaviest harness cases, "a throw or reaction at a panel scrolled out of the strip…" (7.2 s on Pixel) and "each reaction shows on its seat…" (6.5 s), on iPhone and desktop only (their motion-on Pixel cases stay), and check the Pixel job is back under 2:45.
-- **Delivery: fix the UX-19 flake on iPhone.** "UX-19: thrown away, the drawn card lies on the discard pile…" (`e2e/motion.spec.ts:371`) failed its first try on `e2e (iphone)` in this PR's run 40961612856 (`moving` was below 2: the tap's flight hadn't started), and in runs 40580400974 and 40578482285 before it. `failOnFlakyTests` turns that into a red check, and on `main` a blocked deploy. The test waits one `setTimeout` for React to render the tap; under WebKit's 4-worker CPU contention that isn't enough. Wait for the animations instead (`await expect.poll(() => discard.getAnimations().length)`), then seek them to 300 ms.
+- ✅ **Done in BUG-2's PR (#41, v2.6.2), in the game, not the test.** Root cause: `Table`'s "local modes never outlive the turn" reset (`setDiscarding(false)`) was a passive effect. React runs a pending passive effect just before it renders the next update, so a tap that landed between the table's first commit and that effect queued `true`, then the mount's reset queued `false` after it, and the tap did nothing: no flight, no tilt, `moving` 0. Under WebKit's 4 workers on CI the test's click could land in that gap. The reset of discard mode is now a layout effect, which runs inside the commit, before any tap can (the tapped-card reset beside it stays passive: UX-27's reveal reads it first). New test: `e2e/table.spec.ts`, "UX-19: a tap on the pile as your turn appears, before the page has settled…", which taps from a `MutationObserver` the moment the pile is added; it failed on iPhone and desktop before the fix and passes on all three after. The PO's bounded wait wasn't used: it would have waited 1 s for animations that never start. `--repeat-each=50 --project=iphone --workers=4` on the UX-19 motion test: 50 of 50 (this Mac also passed 50 of 50 and 150 of 150 at 12 workers before the fix, so the new test, not the repeat, is the proof). **Delivery: fix the UX-19 flake on iPhone.** "UX-19: thrown away, the drawn card lies on the discard pile…" (`e2e/motion.spec.ts:371`) failed its first try on `e2e (iphone)` in this PR's run 40961612856 (`moving` was below 2: the tap's flight hadn't started), and in runs 40580400974 and 40578482285 before it. `failOnFlakyTests` turns that into a red check, and on `main` a blocked deploy. The test waits one `setTimeout` for React to render the tap; under WebKit's 4-worker CPU contention that isn't enough. Wait for the animations instead (`await expect.poll(() => discard.getAnimations().length)`), then seek them to 300 ms.
 - **Nit:** `AGENTS.md`'s `src/client/Reactions.tsx` row lists `lastMover`, which lives in `src/protocol.ts`.
+
+### BUG-2 — Your own reaction, away from where you tapped (user report, 2026-11-11) · v2.6.2
+
+**Report.** Playing on real phones: "My own reactions are sometimes placed at the top of the screen."
+
+**What reproduces, and what doesn't** (table harness; iPhone 13, Pixel 7, and 375 × 548 and 320 × 480 viewports).
+- **Seated, a laugh, love or anger: always on your name bar.** 2, 4 and 8 players; your turn, someone else's, the opening flip, a round's first turn, Auto-play on; motion on; read at 200 ms and 1 s. The sticker's centre sat 8–14 px above the name bar's top in 90 of 90 runs. The button's place (beside row 3, or in the name bar) changes nothing, and the table never scrolled.
+- **Out of a knockout game (R16): on your row in the strip, far from the button. This is the bug fixed here.** `Table` sets `seat` to `null` for an out player, so there is no name bar and `others` lists every seat, their own included ("a spectator sees everyone"). `spot(you)` (`Table.tsx`) looks a seat up in the strip first, so `Reactions` popped their laugh on their own "Out · watching" row. That row sits under the players still in (`.opponents.watch .opp.out { order: 1 }`), 297 px (iPhone) or 319 px (Pixel) from the corner button they had just tapped. M23's follow-up above guessed "not shown on theirs"; it was shown, in the wrong place. It is not at the very top, so it may not be all of the report.
+- **Your own migajero: at the top, by design, unchanged.** It lands on the last mover, in the strip, with your name on its sign. It is the only own reaction that shows at the top of the screen for a seated player, 1 of the 4, which fits "sometimes". **PO / owner: if this is what the report means, decide where the reactor should see it** (for example, the sign also over your own name bar); that is a design change, not made here.
+- **Not verifiable here: a real phone.** The stickers are `position: fixed` at `getBoundingClientRect` coordinates, inside `.table` (`overflow-y: auto`). No ancestor has a transform, filter or containment, so the two agree in Playwright's WebKit and Chromium. If the owner sees a laugh, love or anger at the top while still in the game, that is the next suspect, and it needs the phone, its browser (Safari or home-screen app) and a screenshot.
+
+**Fix.** `seatOf` in `Reactions.tsx`: your own laugh, love or anger, when the corner button is on screen (only when you are out), pops just over that button, and follows it. Every other reaction goes to `spot(to ?? from)` as before: other phones still show an out player's reaction on their row, throws at an out player still land on their row, and a migajero from an out player still flies from their row.
+
+**Tests.** `e2e/react.spec.ts`, "BUG-2: out of a knockout game, your own reaction pops over the corner button…" (all three devices; it failed by 297 px on iPhone and 319 px on Pixel before the fix). Screenshot: `docs/screenshots/bug2/out-own-laugh.jpg`.
+
+### M26 — Seat order (owner request, 2026-11-11) · v2.7.0
+
+**Request.** "We play with the family, and to avoid couples sitting together (playing right after each other) we want the host to arrange the participants so couples aren't next to each other."
+
+**Design** (kept small on the owner's word, 2026-11-11: no race-proofing beyond the basics).
+- Seats are turn order (R5), and they only change in the lobby. So in the lobby, whoever may lead (the host, or a stand-in while the host is away, as for Start) gets a drag handle (≡, 44 px) at the right of every seat row. Press it and drag the row up or down: it follows the finger, the rows it passes slide aside (0.15 s; at once with reduced motion), and letting go sends the move. Held within 60 px of the screen's top or bottom, the page scrolls, since 8 seats are taller than a phone. The phone ticks (10 ms vibration, where supported) on pickup and on drop. Everyone else sees the order change live, without handles.
+- The first build had up and down arrow buttons; the owner rejected them the same day ("it's mobile focused, so drag and drop should be fine"). No visible arrows remain. The handle is a focusable button labelled "Drag to reorder Ana" through `t()`, and Arrow Up / Arrow Down on it move the seat one place: the path for keyboards and screen readers.
+- Plain Pointer Events, no dependency: the handle has `touch-action: none` and captures the pointer, so the page doesn't scroll under the finger on iOS Safari or Android Chrome. The dropped row rests where it landed until the server's view arrives, and goes back after 1 s if none does.
+- **Protocol.** `{ t: "move", name, to }`: the player, by name (unique in a room), and the seat index to move to. `parseClientMsg` checks the shape.
+- **Room.** Lobby only and `canLead` only, else `not-allowed`; a move to where the player already sits is `"none"`. It takes the `Seat` object out and puts it in at `to`, so the token, last sign of life and Auto-play go with the person, and `host` is set to wherever the host's `Seat` now is. It returns `"data"`: one row, one `MESSAGES` unit, like any lobby change. Nothing else keyed by seat index lives in the lobby (`stopped`, the game, throws and reactions are mid-game).
+- After Play again the lobby has the last order and can be rearranged again. R4 is unchanged: the highest opening pair starts, ties to the lowest seat.
+- A tab loaded before 2.7.0 gets the same `RoomView` with the seats in another order, which it already handles (a leave reorders them too). It has no handles until it reloads.
+
+**Acceptance.**
+- `room.test.ts`: the host moves a player to the top, past its own seat; the host's own seat moves down and up; a seat moves from below the host to above it; the host is the same person each time; a guest, a spectator and a mid-game move are refused, and so is a move to no seat or of an unknown name; a stand-in leader may; a token finds its person after a reconnect; the next game's players are in the new order (R5); after a rematch the order is kept and can change again. `parseClientMsg` takes `move` only with a name and an integer `to`.
+- E2E (`e2e/online.spec.ts`, also against the Node server): 3 phones, the host drags the last player to the top (with a real touch on Pixel, through CDP; with the mouse on iPhone and desktop, the same pointer events), the passed rows step aside mid-drag, every phone shows the new order and only the host has handles; Arrow Up on a handle moves a seat; the game starts and the turn passes to the lobby's next row. 8 seats with 16-character names at 360 px pass `expectMobileFriendly` in en, es and pt, online and offline (with the ✕), and the last row dragged to the top edge scrolls the lobby and lands first. Screenshots in `docs/screenshots/m26/`.
+- Not covered by a test: a finger on real iOS Safari (WebKit in Playwright has no touch drag). The owner checks it on a phone.
+- CI wall time stays ≤ 3 min: it adds 2 short tests.
+
+**PO follow-up (PR #50 review): the edge-scroll test was flaky on iPhone; fixed in the test.** `e2e/online.spec.ts`, "M26: 8 seats with the longest names…": with the row held at the top edge, the page had not scrolled back to 0 within the poll's 5 s: 9 px short on PR #49 (`e2e (iphone)`, run 43115926087) and 17 px short on PR #50 (run 43117746472), each passing on Playwright's retry. The second run reported the row still dragged, and both stops are 1 px plus a whole number of 8 px steps: the loop was still running, a frame or two from done. It scrolls 8 px a frame, and headless WebKit's frames are slow at 4 workers on CI (about 7 a second here, against 60 locally, where 94 of 94 runs passed). The poll now waits 20 s, since scroll speed isn't what the test checks. The app is unchanged. If a player on a slow phone finds the edge scroll sluggish, scroll by elapsed time instead of by frame.
+
+### BUG-3 — Your own points stop counting; a long name covers an opponent's (user report, 2026-11-11) · v2.7.1
+
+**Report.** The owner, playing on real phones: "The count of points in some moments doesn't work", mainly for the player holding the phone. His screenshot (Android Chrome, live v2.6.0, Spanish, round 1, 5 players): his own row reads "0 pts" and a round score of "0" while his face-up cards are 0, −1 and 10 (it should read +9). The three opponents in view are right (+24, 0, +2).
+
+Two bugs were found. The first matches the screenshot; the second was found on the way.
+
+**1. Your own row freezes when the browser translates the page.**
+- **What the screenshot says.** Your row and the opponents' panels use the same `faceUpSum` on the same view in the same render, and your cards (drawn from the same `me.grid`) are current. So React's output was right and the screen wasn't: the number on screen was no longer the text node React updates. A "0" is what the row shows after flipping the 0 first; if so, two later changes never reached the screen.
+- **Root cause.** `index.html` said `lang="en"` and nothing against translation, and the app sets the real language (`es-419`) only after it starts. A browser set to translate English pages (Chrome offers it when the page's language isn't yours, and "always translate" makes it silent) then translates the table. A translator replaces each text node of a run of text with its own `<font>` element. React keeps updating the node it made, which is no longer in the page, so that text stays as it was translated. Your row is where numbers sit in a run of words: your total is one text node with its unit ("0 pts"), between your name and the round score, so a translator has to replace it. An opponent's total is a digits-only cell of its own, which a translator has no reason to touch (assumed, not measured with a real translator). The markers don't stop an extension that rewrites text anyway.
+- **Reproduced (mechanism).** In the table harness in Spanish at 5 seats, with your row's text nodes wrapped in `<font>` as a translator does, 12 moves later your row still read "+2" for cards worth +6, while every opponent's score was current: the screenshot's pattern. In 9 whole games without that (below), no number was ever wrong.
+- **Not confirmed on the owner's phone.** Nobody has seen its Chrome translate the page: the texts in the screenshot are our own Spanish, which a translation into Spanish leaves as they are. The owner can check: Chrome's ⋮ menu, Translate. If the bug shows on v2.7.1 with translation off, this isn't it, and the next step is a screenshot with the room code.
+- **Fix.** `<html translate="no">` and `<meta name="google" content="notranslate">`. The game has its own English, Spanish and Portuguese; a speaker of another language gets English untranslated, which is the price of numbers that are always right.
+- **Test.** `e2e/i18n.spec.ts`, "BUG-3: the page asks browsers not to translate it", on all 3 devices. Playwright can't run a real translator.
+
+**2. A long name covered an opponent's total.**
+- **What was wrong.** On a seated player's row of opponents, a name too long for its panel was drawn over that player's total, and over their clock's seconds: the gold total couldn't be read (`docs/screenshots/bug3/before-4.jpg`, `before-8.jpg`). It came and went, because the room left for the name shrinks during a game. How many letters of "Valentina Rodrig" fit before it reached the total (iPhone 13, 390 px, 12 px text):
+
+  | Opponents on the row | 1-digit total | 3-digit total | 3 digits and 🤖 (Auto-play) | 3 digits, 🤖 and the clock's last seconds |
+  | -------------------- | ------------- | ------------- | --------------------------- | ----------------------------------------- |
+  | 1–3 (2–4 players)    | 14            | 12            | 9                           | 5                                         |
+  | 4–7 (5–8 players)    | 12            | 9             | 6                           | 3                                         |
+
+  So at a table of 5, "Juan Carlos" covers their total from the moment it reaches 100, and "Santiago" does when that player goes on Auto-play. Tests and the PO's games used "Ana", "Ben" and "P1", which always fit. Spectators and out players (the 2-column layout) were never affected, nor your own row.
+- **Root cause.** M14 (v2.4.0) turned the opponent panel's head into a grid, to give the round score a line of its own (`.opponents:not(.watch) .opp-head` in `styles.css`), and kept `.opp-name`'s `margin-right: auto`, which the old flex row needed to push the numbers right. A grid item with an auto margin isn't stretched over its column: it is as wide as its content, and for `white-space: nowrap` text that is the whole name. Its `overflow: hidden` and "…" then never apply, and the name runs into the next columns.
+- **Fix.** One rule: in that grid the name has no auto margin, so it stretches over its `minmax(0, 1fr)` column and ends in "…" (`after-4.jpg`, `after-8.jpg`).
+- **Test.** `e2e/table.spec.ts`, "BUG-3: a 16-character name never covers an opponent's total", on all 3 devices: at 2, 4 and 8 seats, at the device's width and at 360 px, with 16-character names, 3-digit totals, Auto-play on and a clock showing its seconds. On `main` the name reaches 46–56 px into the seconds and the total on all three engines.
+
+**What was checked and found right** (so the next report about points starts further on):
+- **The engine** (R9–R12, R16), by reading it against the rules table and its tests. In the browser runs below, each summary's round scores were also recomputed from the cards on the table, and the ender's doubling from R12's wording: no difference.
+- **The live sum (UX-15), the held totals (M9) and the summary**, with motion on, for your own seat and the opponents'. Through the table harness, 4 seeded games of 2 rounds each (2–4 players, knockout on and off, as a player and as a spectator, views 0–1.2 s apart, Chromium): every sum and total on screen was read at 0, 60 and 200 ms after each view and again before the next one, and the summary's rows after each round. Online, 5 games of 3 phones (1 on Chromium, 4 on WebKit; 4 ended after one round, one after two) with draws from both piles, throw-aways and swaps: all 3 phones were read before and after every move. No number was wrong. Pending taps (M10) change no number: nothing is applied before the server's view.
+
+**Not changed (PO's call).** While your own Auto-play is on, its bar replaces your name, so your total and round score aren't on your screen at all (M8's design, from before UX-15). If players miss them there, keeping the points in the bar needs a layout pass at 360 px in es and pt.
+
+### BUG-4 — Devices disconnect at random, or when another player disconnects (user report, 2026-11-11) · v2.7.2
+
+**Report.** The owner, playing with friends on real phones: "Some devices get disconnected randomly, or when another player disconnects."
+
+**Evidence.**
+- **The model (`worker.test.ts`, the real `RoomDO` on the fake runtime, on `main` 0122f4e).** Phones on one address, a tap every 2 s, every seat throwing or reacting once per 3 s, which is what the app allowed. The busiest minute of the address's `MESSAGES` budget (120 units):
+
+  | Phones on one address | No gags | A gag per seat every 6 s | Every 3 s (the app's limit)  | Every 3 s, one phone dropped (its seat on Auto-play) |
+  | --------------------- | ------- | ------------------------ | ---------------------------- | ---------------------------------------------------- |
+  | 3                     | 41      | 68                       | 98                           | 94                                                   |
+  | 4                     | 44      | 80                       | 120                          | 110                                                  |
+  | 6                     | 50      | 104                      | over: all 6 closed 37.5 s in | over (145): the 5 left closed 98.5 s in              |
+  | 8                     | 56      | 117, 2 closed 45.5 s in  | over: all 8 closed 27.5 s in | over: the 7 left closed 35 s in                      |
+
+  A dropped phone costs a small table more with no gags at all: 41 → 56 at 3 phones (its Auto-play turns are 4 units each, plus the unit a move pays when it brings the alarm forward).
+- **Two real browsers, no per-IP limit (local workerd, Pixel and iPhone projects).** 3 phones mid-game; one goes offline for 100 s, comes back, then its tab closes. Over 170 s the other two phones' sockets never closed, on either device (on Pixel the offline phone's own socket closed and retried, as it should). So nothing but the per-IP budget drops a phone because another one left.
+
+**Root cause.** M21 and M23 added throws and reactions at one `MESSAGES` unit each and one per seat per `TOSS_MS` (3 s), so 20 a minute per seat, whoever shares the seat's address. SEC-11's budget was sized before them: 8 friends on one router without gags peak at 56 (a tap every 2 s) to 87 (a tap a second). With gags, 6 phones on one Wi-Fi spend all 120 units. Then the next message from any of them closes its socket with 1008 (`handle` in `worker.ts`), and the next alarm closes every socket that address has in the room (`alarm` in `worker.ts`). `useRoom` retries a 1008 only every 20 s, and the limiter's minute must roll over first, so the whole Wi-Fi sits on "Reconnecting…" for 20–60 s while a phone on mobile data plays on. That is "some devices, at random". "When another player disconnects": the dropped seat's Auto-play turns are charged to the same address, so the budget runs out sooner.
+
+**Not the cause** (checked): `Room.admit` only displaces a socket at 20 sockets in the room; `dead` is only read there; a hello with another token only answers that socket; and an exception in an alarm or a broadcast closes no socket (read in the code, not reproduced).
+
+**First fix, rejected (owner, 2026-11-11).** A seat waited `TOSS_MS` for each seated phone on its address (`RoomView.rest`): 6 s with 2 phones, 24 s with 8. It held the budget (72 units at 8 phones), but the owner found the wait too slow: gags must never disconnect anyone, and the wait stays 3 s per seat whatever the network. A QA agent confirmed the cause on its own (8 phones on one address gagging every 3 s: all 8 closed within about 45 s).
+
+**What a gag costs Cloudflare.** A gag returns `"view"`: no `put`, so no row, unless it brings the alarm forward (a row, charged 1 as before). Incoming WebSocket messages are billed as Durable Object requests at 20:1 ("a 20:1 ratio is applied to incoming WebSocket messages", "100 WebSocket incoming messages would be charged as 5 requests"; outgoing messages are free: https://developers.cloudflare.com/durable-objects/platform/pricing/). So a gag is 1/20 of a request, and a unit of `MESSAGES` paid for 20 times that. Elsewhere a unit buys at most half a request (an alarm run is 2 units: a row and a request).
+
+**Fix (v2.7.2): a socket pays 1 unit for every 8 gags** (`GAGS_PER_UNIT`, `costs` in `room.ts`; `handle` in `worker.ts`, and `node.ts`). The first of each 8 pays, so a new socket gets none free. The count is in the socket's attachment and survives hibernation. Gags too soon count like the rest. The wait stays `TOSS_MS` per seat, and `RoomView.rest` is gone.
+- **Why 8.** 8 gags are 0.4 of a request for a unit, under the alarm's 0.5. `holdRooms` has two new modes, where one address deals a game in every room it holds and throws from every seat until its budget closes a socket, after or before the rest of its minute. Holding first, it needs 19.4 h for the rows and 19.2 h for the requests (24 h simulated; 551,000 throws); gagging first, 163.7 h and 30.1 h; throwing in lobbies, where a throw is refused and costs the same, 28.7 h and 19.2 h. CI simulates 1 or 2 h of each, which reads about 2% high. At 10 a unit, holding first took 17.8 h for the requests, under the 18 h bound, so 10 was rejected. The other modes are unchanged: 14.0 h and 18.2 h at the least.
+- **Not free, and not dropped without a charge.** Free gags, or gags dropped silently once the budget is spent, would let one address throw from every seat it holds for nothing: rooms left at a round summary with the host gone run no alarm, so nothing would ever close those sockets, and 700 held seats at 20 gags a minute are 700 requests a minute. So a gag an address can't pay for closes its socket like any message. That needs the address's whole budget spent: a house of 8 gagging every 3 s now spends 20 units a minute on gags, where it spent 160.
+- **PO decision (PR #42 review): accepted.** The owner's "gags must never disconnect anyone" was about shared-Wi-Fi tables being dropped, and the measurements below show that no longer happens (8 phones: 72 of 120 units, none closed). The close stays as the last resort for a script, since a silent drop would be a free message path.
+- **After** (the same model, a tap every 2 s, every seat gagging every 3.25 s, the app's limit with its margin; one run each, the deal is random). Busiest minute of the address's 120 units, and sockets closed:
+
+  | Phones on one address | All there | One phone dropped (its seat on Auto-play) |
+  | --------------------- | --------- | ----------------------------------------- |
+  | 3                     | 47, none  | 62, none                                  |
+  | 4                     | 52, none  | 68, none                                  |
+  | 6                     | 62, none  | 57, none                                  |
+  | 8                     | 72, none  | 59, none                                  |
+
+  8 phones at a tap a second, faster than anyone plays: 102, none closed.
+- `shut` in `worker.ts` now logs `socket shut: 1008 Too many messages` for each socket closed over the budget, so the next report can be checked in Workers Logs.
+
+**Suspected, not proven** (for the owner to check on real phones):
+- **A deploy closes every socket.** Each merge to `main` deploys, and players in a game see "Reconnecting…" for about a second. Compare the time of a drop with the time of a deploy.
+- **A phone back from a locked screen with a dead socket that still looks open** sends its hello into it and only replaces it at the next 20 s check, or 5 s after a tap. It shows a stale table until then.
+- **`API_REQUESTS` (30 a minute per address).** 8 phones on a Wi-Fi that stutters each retry up to every 8 s; `flaky.spec.ts` measured 22 in the busiest minute, not far under.
+
+**Acceptance:**
+- `worker.test.ts`, "RoomDO gags (BUG-4)": 3, 4, 6 and 8 phones on one address gagging every 3 s, with and without a dropped phone, close no socket and stay under 0.75 of the budget; 8 at a tap a second stay under it. Both fail without the fix.
+- A socket's gags cost 1 unit per 8, the first paying, landed, too soon or refused, across hibernation; a gag its address can't pay for closes it, and the ones already paid for don't.
+- `holdRooms`: every mode, the two gag modes included, needs at least 14 h for the rows and 18 h for the requests.
+
+### BUG-5 — "The randomness of the cards is still weak" (owner report, 2026-11-11) · v2.7.8
+
+**Report.** Players feel the deals are not random enough.
+
+**Measured (implementer, on `main` 0122f4e).** 200,000 deals from each source, seeded as the server seeds them (`crypto.getRandomValues`):
+- **Old, round 1:** sfc32 through `seedRng` (15 warm-up steps), as `createGame` did.
+- **Old, rounds 2+:** sfc32 started from the raw seed. `room.ts` put each round's fresh seed straight into `GameState.rng`, so the warm-up never ran.
+- **Reference:** Fisher–Yates on `crypto.getRandomValues` with rejection sampling.
+- **New:** this PR.
+
+Each cell is the statistic and, in brackets, z: how many standard deviations it sits from what a perfect shuffle gives. A fair source lands within ±2 in 19 cells out of 20.
+
+| Check                                                               | Old, round 1    | Old, rounds 2+  | Reference       | New             |
+| ------------------------------------------------------------------- | --------------- | --------------- | --------------- | --------------- |
+| Card value × deck position, chi² (df 2086)                          | 2065 (−0.32)    | 2162 (1.18)     | 2182 (1.49)     | 2128 (0.65)     |
+| Card value × seat, 8 seats, chi² (df 98)                            | 108.1 (0.72)    | 109.4 (0.81)    | 107.1 (0.65)    | 111.7 (0.98)    |
+| Sum of a 12-card hand against the exact distribution, chi² (df 101) | 117.3 (1.14)    | 107.2 (0.44)    | 90.9 (−0.71)    | 97.3 (−0.26)    |
+| Equal neighbours in the deck (exact 9.3333 per deck)                | 9.3221 (−1.71)  | 9.3410 (1.17)   | 9.3293 (−0.61)  | 9.3251 (−1.24)  |
+| Columns dealt as 3 equal cards, 8 seats (expected 23,508)           | 23,545 (0.24)   | 23,233 (−1.79)  | 23,702 (1.26)   | 23,387 (−0.79)  |
+| The card that starts the discard pile, chi² (df 14)                 | 14.1 (0.02)     | 10.4 (−0.69)    | 13.6 (−0.07)    | 18.9 (0.92)     |
+| Next round: correlation of a seat's hand sum with this round's      | 0.0010 (0.47)   | −0.0037 (−1.67) | −0.0004 (−0.18) | −0.0017 (−0.77) |
+| Next round: same value at the same position (exact 0.06889)         | 0.06884 (−1.03) | 0.06882 (−1.53) | 0.06885 (−0.75) | 0.06891 (0.50)  |
+| R13: where a card lands in a reshuffle of 100, chi² (df 99)         | 84.4 (−1.04)    | 110.6 (0.83)    | 104.0 (0.36)    | 84.5 (−1.03)    |
+| The 24 orders of 4 cards, chi² (df 23)                              | 14.6 (−1.24)    | 26.8 (0.56)     | 24.0 (0.14)     | 31.7 (1.29)     |
+
+An earlier run of the same script, without the new generator, gave the old round 1 z 1.96 on the first row and the reference z 1.90 on the R13 row. Neither came back in this run: chance.
+
+**Findings.**
+- **No bias, in any check.** The old shuffle can't be told from the reference. The owner's feeling is not a defect in the deal.
+- **`Math.floor(v * n)` was not a real bias either.** The 2³² inputs fall into the `n` choices with at most one input of difference: 3.5 × 10⁻⁸ at worst, for `n` up to 150. It would take about 10¹⁵ draws to see.
+- **Seeds were fine.** 128 bits from `crypto.getRandomValues` for every game and again for every round, in the Worker and in Node (both use `Room`'s default). Nothing repeats, and no state is reused across rounds or rooms.
+- **One unintended path:** rounds 2+ skipped `seedRng`. With a uniformly random state it measures the same (second column), so it changed no deal.
+- **What players do see is chance.** A fair deck of 150 has 9.3 pairs of equal neighbours on average, and at a table of 4 one deal in 17 holds a column of three equal cards.
+- **The one real weakness is predictability, and it is unproven.** sfc32 is not a cryptographic generator. Late in a round with many players, the cards on the table carry more than its 128 bits of state, so in principle the rest of the deck (and an R13 reshuffle) could be worked out from them. Nobody built that attack, here or in public, and a fresh seed per round limited it to the rest of one round. But nothing ruled it out.
+
+**Decision.** Hardening, not a bug fix, and the CHANGELOG says so. No anti-streak rule and no arranged deck: a deck made to look random is no longer fair.
+
+**Built (v2.7.8).**
+- **The generator is ChaCha20** (`chachaBlock` in `src/engine/rng.ts`, pure TS, checked against RFC 8439's section 2.3.2 block and appendix A.1's first vector). `GameState.rng` is `{ key, used }`: the 256-bit key and the number of keystream words taken. It is plain JSON, and the same seed with the same actions still gives the same game.
+- **Unbiased picks.** `shuffle` takes each index by rejection sampling on 32-bit words; `Math.floor(v * n)` and `nextRandom` are gone.
+- **Fresh entropy.** The server draws 256 bits (8 int32s) for every game and every round, and now keys the generator through `seedRng` on both paths. An R13 reshuffle reads on in the round's keystream, which the visible cards don't give away.
+- **Games running during the deploy.** A room saved before 2.7.8 holds four ints as `rng`. `apply` keys the new generator from them at the first move, so the game carries on; its next round takes a fresh seed like any other. Until then that one round keeps the old 128 bits as its key, so the unproven weakness above lasts to its end (the engine can't draw entropy itself). A rollback has no way back: an old build would fail at an R13 reshuffle on a room saved by 2.7.8. Tested in the engine (a move, R13, R15) and in the room (reloaded from storage).
+- **Tests.** The two RFC vectors; the word stream against the block function; rejection (an `n` just over 2³¹ throws away about half the words); 20,000 deals from a fixed seed within 4 sd on value × position; the 24 orders of 4 cards; determinism and the JSON round trip. The 200,000-deal comparison above is a script, not a test: it needs the old generator and an unseeded reference.
+- **Seeded fixtures moved.** A new generator deals other cards for every seed, so the tests that tell a story chose new seeds: the knockout games 1 → 61 and 2 → 53, the round summaries 11, 4 and 3 → 344. `roundOver` in `e2e/harness.ts` now throws when its seed ends the game instead of the round, which two tests would have missed.
+- **The README's images are not regenerated:** the UI is unchanged. The next `npm run shots:readme` will show other cards.
+- **Delivery.** The engine and room unit suites take 20.3 s with the new generator and 20.9 s without, on the same machine: no cost. The harness specs pass on Pixel and iPhone, the screenshot tests included.
+
+
+### M24 — Public rooms (owner request, 2026-11-11) · v2.8.0
+
+**Request.** Today you join only by room code or link. The owner wants public rooms: strangers can find an open room and join.
+
+**Defaults chosen for the owner** (each is a small change later):
+- In the lobby the host, and only the host, can switch the room to **Public room** (off by default). Everyone in the lobby sees the switch's state, so guests know strangers may join. A private room works exactly as before.
+- Home shows **Public rooms**: each row has the host's display name, seats taken out of 8, and a "Knockout" tag when "Play until one is left" is on. A tap opens the room's lobby, where the player enters a name as today.
+- A room is listed while it is public, in the lobby, has 1–7 seats, and at least one seated player is connected. It leaves the list when its game starts, it fills, the host makes it private, everyone seated leaves or goes offline, or it expires. After "Play again" it is back in the lobby and listed again. Games in progress are never listed.
+- No chat, search, accounts or matchmaking. The list shows the 20 rooms that changed most recently.
+
+**Design.**
+- **Protocol.** `{ t: "public", on }`, parsed like `knockout`. `RoomView.public` tells every phone the switch's state; tabs loaded before 2.8.0 ignore it. `PublicRoom` is `{ code, host, players, knockout }`: nothing else leaves the server, never a token or an address.
+- **Room** (`room.ts`). `RoomData.public` is the switch. `listing(live)` is the room's `PublicRoom`, or null when it must not be listed: the server alone decides membership. `RoomData.listed` is what the directory was last told and when. `relist(live)` returns what to tell it now, or undefined when nothing changed. A listed room also checks presence when its last connected seat would turn stale (SEC-9's cadence), so a host alone in a public lobby whose phone dies leaves the list in about 45 s, or 10 min once the room is quiet.
+- **Directory** (`directory.ts`). A map from code to `PublicRoom` plus the time it was told. `set(code, room | null)`, `list()`. It holds at most 200 rooms (the oldest goes), forgets an entry 24 h after it was last told (a room whose "unlist" was lost), and a listed room tells it again after 12 h.
+- **Cloudflare.** One more Durable Object class, `DirectoryDO`, a single instance, SQLite-backed (migration `v2`; no dashboard step, no paid feature). It keeps the map in memory and one storage row per listed room, read once when it wakes. `RoomDO.commit` calls it when `relist` says so, then saves the room with the new `listed`. `GET /api/public` returns the list. Each Worker isolate reuses its last answer for 10 s. The Cache API would be the real edge cache, but it does nothing on `workers.dev`, where the game lives.
+- **Node.** The same `Directory` in memory, the same route.
+- **Client.** Home fetches `/api/public` when it opens and every 15 s while the page is visible, 20 times (5 min), then stops; coming back to the tab or tapping Refresh starts again. The lobby gets the switch under the knockout option.
+
+**Cost on the free plan** (100,000 Worker requests, 100,000 Durable Object requests and 100,000 rows written a day; SEC-11's rule: whoever causes a row pays for it from their `MESSAGES` budget).
+
+| Event                                                                                                                 | Rows written                                                            | DO requests                             | Charged                                                                                                                                                                                                                                 |
+| --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Telling the directory (list, update, unlist): the switch, a join, leave, kick, the knockout option, start, play again | 1 in the directory (the room's own row is already paid by the message)  | 1                                       | 2 units, to the sender, on top of the message's 1                                                                                                                                                                                       |
+| The same when the last seated player's socket closes, or comes back with a hello                                      | 2: the directory's and the room's (`listed`)                            | 1                                       | 2 units, to that socket's address                                                                                                                                                                                                       |
+| The same at a presence check (the last connected seat went stale), or at the room's expiry                            | 2                                                                       | 1, plus the alarm's own                 | 2 units to every address with a socket in the room, on top of the alarm's 2                                                                                                                                                             |
+| Evicting the oldest of 200, or dropping a 24 h-old entry                                                              | 1 (its second and last: each entry's first told paid 2 units for 1 row) | 0                                       | prepaid                                                                                                                                                                                                                                 |
+| `GET /api/public`                                                                                                     | 0                                                                       | 1, or 0 within 10 s in the same isolate | 2 units per read of the directory; nothing for a cached answer, which costs what a 429 would (a Worker request). Not counted in `API_REQUESTS`: 8 friends on one router waiting on Home would use up its 30 and couldn't create or join |
+
+So every unit still buys at most one row and half a Durable Object request, and SEC-11's bound holds: one address at every limit needs at least 14 h to use up the rows and 18 h for the requests, now also when it flips the switch in a loop or lists rooms and leaves (`holdRooms` in `worker.test.ts`).
+
+Per public room, a typical life (host switches it on, 3 friends or strangers join, the game starts): 5 directory updates = 5 rows and 5 DO requests more than a private room, 10 units spread over 4 phones. A host who backgrounds the phone to share the link and returns: 2 updates more. A public lobby left open with a tab that only pings costs what a 2-seat lobby already does (about 160 rows and requests a day, SEC-9), since its presence checks are the same ones.
+
+Per Home viewer: 1 Worker request when Home opens and 4 a minute while it stays visible, at most 21 per visit until they tap or return (a forgotten visible tab stops after 5 min). Durable Object requests for reads are at most 6 a minute per busy isolate, however many people look. 500 Home visits of a minute each a day: 2,500 Worker requests and at most 2,500 DO requests, 2.5% of each quota. The directory object is awake only while it answers; rows read are at most 200 per cold start, under 1.8 million a day at the worst (the quota is 5 million).
+
+**Owner decisions (2026-11-11), built in the same PR.**
+- **2 public rooms per address.** Before, one address could keep about 45 rooms listed (each open socket's presence checks cost it 2 units every 45 s) and fill the 20-row list with names of its choosing. Now the directory counts listings per address (`ipKey`: IPv4, or the IPv6 /64) and refuses a third: the room stays private and playable by code, and the host reads why in the lobby, in en, es and pt. The address that owns a listing is the host's when it switched Public on (`RoomData.publicBy`), kept through every later update. A refusal costs 3 units and one row (the room's); the directory writes nothing.
+- **The host removes anyone from a public lobby**, online or not, after a confirm. The removed phone goes back to Home with a note and its token can't join that room for 10 min (the room remembers the latest 20). Private rooms keep the old rule: a leader clears offline seats only.
+- **`kick` names the seat by name, not index.** QA found that an index can point at someone else when a seat leaves at the same moment. Names are unique in a room and never sent as secrets, unlike tokens. The message still takes `seat` from tabs loaded before 2.8.0. If another PR fixes the same race for private rooms, the two must agree on this field when the second one rebases.
+- **A host who leaves others behind** hands the next seat a room that stays public (no change). A room emptied of seats turns private.
+
+**Follow-ups.**
+- **Name moderation.** Names on the public list are cleaned (no control characters, 16 code points) but not moderated. To be decided with the kids and store review (M16). No change here.
+- **Duration billing.** In the first week after launch, check the Cloudflare dashboard for `DirectoryDO`'s duration (GB-s). The design assumes an idle object isn't billed; if Home's polling keeps it billed most of the day, raise `LIST_CACHE_MS` or the poll interval.
+- **E2E on iPhone.** M24's three E2E tests run on Pixel and the Node job only: with them, `e2e (iphone)` took 3:01, against 2:35–2:38 before.
+
+**Not bounded by this milestone.**
+- Ratelimit counts are per Cloudflare location: a list read spends in the Worker's location and a room's events in the room object's, so on the real network reads may not trade off against writes. Reads are still at most 60 a minute per address (2 units each), the rate alarms already allow.
+- While the directory can't be reached, each event in a public room retries (a request nobody pays for), and an "unlist" lost at the last close stays on Home until someone opens the room or 24 h pass. Clients can't cause the failure.
+
+**Acceptance.**
+- `room.test.ts`: only the host can switch Public; `listing` is null in a private room, in a game, at 0 or 8 seats, and with nobody seated connected; `relist` reports a change once, and again after 12 h; a listed room schedules a presence check for its last connected seat. `parseClientMsg` takes `public` only with a boolean.
+- `directory.test.ts`: set, update, unlist, newest first, 20 at most, the 200 cap, the 24 h expiry, 2 per address.
+- `room.test.ts` and `worker.test.ts`: the kick by name, the host's kick in a public lobby and its 10 min, the refused third listing and what it costs.
+- `worker.test.ts`: each row of the table above (rows, requests and units counted on the fake runtime); a listing survives hibernation without a second write; a failed directory call is retried at the next event; `holdRooms` with public rooms keeps 14 h and 18 h.
+- `fetch.test.ts`: `GET /api/public` returns the list, reuses its answer for 10 s, charges 2 units a read, refuses past the budget, and leaves `API_REQUESTS` alone.
+- E2E (in `e2e/online.spec.ts`, the suite CI also runs against the Node server): phone A creates a room and makes it public; phone B sees it on Home with "1/8" and joins by tapping it; it leaves the list when the host makes it private, when the game starts, and while its last seated player is away. Home and the lobby pass `expectMobileFriendly` at 360 px in en, es and pt. Screenshots in `docs/screenshots/m24/`.
+- CI wall time stays ≤ 3 min: it adds 2 short tests.
 
 ### M27 — Classic, upgraded: scores you can read (owner's design round, 2026-11-11) · v2.9.0
 
@@ -1319,6 +1680,8 @@ Both carry the same clarity changes, which this milestone builds, so M28 is toke
 
 **Not in scope.** The seconds for the whole turn (the mockup's "22 s"): M8 keeps a calm bar until the last 10 s, and a second timer beside it raced the first under a stepped clock. A tilted drawn card: every swap's flight starts from that card, and the motion tests measure it straight. Player avatars (B only).
 
+**PO follow-up (PR #57 review): at 8 seats, the ender's own doubled row wraps.** When you ended the round, were doubled, and 6 or more play, your summary row carries "you", "ended" and "49 ×2 = 98", wraps to two lines, and the sheet scrolls 8 px at 360 × 640 (seed 344, seat 0). Next round stays fully on screen. Every other row and every other seat fits, which the test checks from seat 1. Not blocking. Fix it in the slim rows without shortening names: for example, drop "ended" on a doubled row, where the sentence above and the ×2 already say it.
+
 ### M28 — Polished casual, and a switch between the two looks (owner's choice, 2026-11-11) · v2.10.0
 
 **What.** Direction B becomes the default look; A ("Classic", M27) stays, chosen per device. Target: `docs/screenshots/m28/target-table.jpg` and `target-summary.jpg`.
@@ -1339,6 +1702,12 @@ Both carry the same clarity changes, which this milestone builds, so M28 is toke
 4. Switching mid-game is tested on iPhone and Pixel: the look changes without a reload, the game goes on, and a reload keeps it. Two phones at one table hold different looks.
 5. Fonts: licence checked, bytes added reported, both in the service worker's precache.
 6. Reduced motion honoured; M27's acceptance still holds in both looks.
+
+**PO review (PR #58): the harness suites in Modern.** The harness defaults to Classic, so `table`, `motion`, `react` and `toss` never ran in the players' default look. `LOOK=casual` now runs them in Modern (`e2e/harness.ts`). On Pixel and iPhone, 180 of 192 passed; the 6 tests that failed:
+- **Fixed here, a real mismatch:** an opponent's completed column waited as stand-ins whose numbers were 4 px smaller than their cards' (UX-26). `motion.ts` repeated Classic's size formula; it now reads the size of a number still in that grid, whatever the look.
+- **Test constants, not defects:** M18's discard-mode outline and PO PR #33's prompt expect Classic's gold (`rgb(242, 193, 78)`; Modern's accent is `rgb(255, 210, 63)`); M23's card floor is 84 px on Pixel and Modern's cards are 83.94.
+- **Open:** UX-23/UX-7 on iPhone, "the two cards cross": in Modern's layout the card leaving and the card going in never overlap by 10 px for the slot the test picks. Its other checks pass (both on top of your cards, the one going in above the one leaving). Not looked into further.
+- **Follow-up:** make those constants read the look's tokens, then add one CI job (or the Pixel job) with `LOOK=casual`, so the default look has motion, throw and reaction coverage. Mind the wall time: M27's run took 4:01.
 
 ### M16 — Launch in the App Store and Google Play (user decision, 2026-10-24) · last
 

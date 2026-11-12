@@ -10,6 +10,14 @@ test("switching language translates the UI and is remembered", async ({ page }) 
   await expect(page.getByText("Cómo jugar")).toBeVisible();
 });
 
+test("BUG-3: the page asks browsers not to translate it: a translator swaps the text nodes React updates, which froze your own points", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(page.locator("html")).toHaveAttribute("translate", "no");
+  await expect(page.locator('meta[name="google"]')).toHaveAttribute("content", "notranslate");
+});
+
 test.describe("browser in Brazilian Portuguese", () => {
   test.use({ locale: "pt-BR" });
 
