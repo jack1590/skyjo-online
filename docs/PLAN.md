@@ -1294,12 +1294,12 @@ The sticker sits centred over the opponent's panel head, or 24 px above your nam
   - two `mark-tear` drops spring sideways from the eyes (±28 px) at 300 and 800 ms and fall 20 px as they fade (600 ms each);
   - the bubble pops at 150;
   - the reactor's panel head hops (−3 px) at 0 and 400 (composite add, like `KNOCK`).
-- **Love** (heart-eyes face; `aww.mp3` at 0: "aww" from 100, "yeah" from about 870, on the second heartbeat; until v2.6.1 `sigh.mp3`, whose exhale peaked at 390):
+- **Love** (heart-eyes face; `sigh.mp3` at 0, the exhale peaks at 390):
   - 0–300: a soft pop (overshoot 1.08);
   - heartbeats (1 → 1.14 → 1, 220 ms) at 420, on the exhale, and at 900;
   - a slow ±6° sway, floating up 10 px over the hold;
   - three `mark-heart` hearts (reused) rise 50 px from behind it, at x −22, 0 and +22, from 350 ms, staggered 150 ms, swaying and gone by 1600.
-- **Anger** (red face with steam; `seethe.mp3` at 0, screaming through its teeth from 50 to 1500; until v2.6.1 `grumble.mp3`, growling from 50 to 900):
+- **Anger** (red face with steam; `grumble.mp3` at 0, growling from 50 to 900):
   - a slam in: from scale 1.4 and transparent to 1 in 120 ms (ease-in), squash 1.1 × 0.9 at 140, settled by 220;
   - 220–1000: a tremble of ±3 px at about 16 Hz, with a red glow disc behind it pulsing in opacity, 0 to 0.5;
   - two `mark-steam` puffs shoot out and up from its sides, ±20 to ±44 px and −30 px, at 250 and 650, growing from 0.6 to 1.2 as they fade (500 ms);
@@ -1315,13 +1315,13 @@ The sticker sits centred over the opponent's panel head, or 24 px above your nam
 
 **Sound** (in `sound.ts`'s `NAMES`). Everyone with Throws on hears them, the reactor included:
 
-| Name     | Length | Peak (`PEAK`, ms)      | Plays                               |
-| -------- | ------ | ---------------------- | ----------------------------------- |
-| `giggle` | 1.78 s | 1210 (bursts from 10)  | laugh, at 0                         |
-| `aww`    | 1.54 s | 550                    | love, at 0                          |
-| `seethe` | 1.54 s | 240                    | anger, at 0                         |
-| `flap`   | 0.73 s | 420                    | migajero, at launch and at the exit |
-| `coo`    | 1.44 s | 1010 (first coo at 40) | migajero, at landing − 40           |
+| Name      | Length | Peak (`PEAK`, ms)      | Plays                               |
+| --------- | ------ | ---------------------- | ----------------------------------- |
+| `giggle`  | 1.78 s | 1210 (bursts from 10)  | laugh, at 0                         |
+| `sigh`    | 1.15 s | 390                    | love, at 0                          |
+| `grumble` | 1.23 s | 310                    | anger, at 0                         |
+| `flap`    | 0.73 s | 420                    | migajero, at launch and at the exit |
+| `coo`     | 1.44 s | 1010 (first coo at 40) | migajero, at landing − 40           |
 
 **Haptics:**
 - the reactor's phone: a 10 ms tap when sending;
@@ -1368,17 +1368,16 @@ The sticker sits centred over the opponent's panel head, or 24 px above your nam
   - `mark-heart.webp` is reused.
 - **Sounds** in `public/sfx/`: freesound.org, every license checked as CC0 1.0 on the sound's own page (2026-10-29). Each was trimmed, given a 5 ms fade-in, a fade-out and a high-pass, made mono at 44.1 kHz, set to −19.4 LUFS integrated (M22's impacts measure −18 to −20) with peaks limited to −1.5 dBFS, and encoded at 96 kb/s like the throws:
 
-  | File         | Source                                                                         | Author    | Cut                           |
-  | ------------ | ------------------------------------------------------------------------------ | --------- | ----------------------------- |
-  | `giggle.mp3` | [388407](https://freesound.org/s/388407/) "Baby Giggles.wav"                   | amccoy711 | 7.30 s + 1.75 s, 350 ms fade  |
-  | `aww.mp3`    | [541382](https://freesound.org/s/541382/) "aw yeah (awww yeah aww yeah) 2.wav" | NaBoKaMe  | 0.12 s + 1.50 s, 400 ms fade  |
-  | `seethe.mp3` | [343900](https://freesound.org/s/343900/) "muffled angry screaming.wav"        | Reitanna  | 0 + 1.50 s, 250 ms fade       |
-  | `coo.mp3`    | [735366](https://freesound.org/s/735366/) "Domestic Dove Coo"                  | haulaway  | 11.90 s + 1.40 s, 300 ms fade |
-  | `flap.mp3`   | [689998](https://freesound.org/s/689998/) "Pigeon, Flies Away, Flapping Wings" | Kinoton   | 0.85 s + 0.70 s, 200 ms fade  |
+  | File          | Source                                                                         | Author       | Cut                           |
+  | ------------- | ------------------------------------------------------------------------------ | ------------ | ----------------------------- |
+  | `giggle.mp3`  | [388407](https://freesound.org/s/388407/) "Baby Giggles.wav"                   | amccoy711    | 7.30 s + 1.75 s, 350 ms fade  |
+  | `sigh.mp3`    | [446788](https://freesound.org/s/446788/) "Suspiro Amor.wav"                   | IanLyanx     | 0 + 1.10 s, 300 ms fade       |
+  | `grumble.mp3` | [713755](https://freesound.org/s/713755/) "Angry Grr"                          | kanyonwyvern | 0.50 s + 1.20 s, 350 ms fade  |
+  | `coo.mp3`     | [735366](https://freesound.org/s/735366/) "Domestic Dove Coo"                  | haulaway     | 11.90 s + 1.40 s, 300 ms fade |
+  | `flap.mp3`    | [689998](https://freesound.org/s/689998/) "Pigeon, Flies Away, Flapping Wings" | Kinoton      | 0.85 s + 0.70 s, 200 ms fade  |
 
   The README credits name the five authors.
-- **`aww.mp3` was picked by the owner, 2026-11-11 (v2.6.1).** It replaces `sigh.mp3` ([446788](https://freesound.org/s/446788/) "Suspiro Amor.wav" by IanLyanx, 0 + 1.10 s). The owner liked none of 10 candidates over two rounds and brought this sound: a man's drawn-out "aww, yeah". The owner's file came from Pixabay ([95782](https://pixabay.com/sound-effects/aw-yeah-awww-yeah-aww-yeah-2-95782/), account "freesound_community", Pixabay Content License, which allows use inside a game but not passing the file on as a standalone sound). It is the same recording as freesound 541382 by NaBoKaMe (called Jekteir when Pixabay copied it; the waveforms correlate at 0.99), which is CC0 1.0 on its own page (checked 2026-11-11). `aww.mp3` is cut from the freesound copy, so it is CC0 like the rest, and the Pixabay license doesn't apply to it. Cut from freesound's HQ preview: 0.12 s + 1.50 s of the 2.67 s take (the "yeah" fades 0.9 s early), two 100 Hz high-passes, −19.4 LUFS integrated, true peak −5.9 dBFS.
-- **`seethe.mp3` was picked by the owner by ear, 2026-11-11 (v2.6.1).** It replaces `grumble.mp3` ([713755](https://freesound.org/s/713755/) "Angry Grr" by kanyonwyvern, 0.50 s + 1.20 s), which the owner found not good enough. The owner heard 4 candidates on a listening page beside the sticker and chose this one: a scream through gritted teeth, as on the sticker, recorded by someone who had just lost a game. CC0 1.0, checked on its own page on 2026-11-11; cut from freesound's HQ preview; two 120 Hz high-passes; −19.4 LUFS integrated, true peak −8.7 dBFS; its onset is at 50 ms, on the slam.
+- **2026-11-12: the owner played both and preferred the original sigh and grumble; restored** (v2.14.1, the files byte-identical to v2.6.0's). From v2.6.1 to v2.14.0, love played `aww.mp3` (freesound [541382](https://freesound.org/s/541382/) "aw yeah (awww yeah aww yeah) 2.wav" by NaBoKaMe, CC0) and anger played `seethe.mp3` (freesound [343900](https://freesound.org/s/343900/) "muffled angry screaming.wav" by Reitanna, CC0), both picked by the owner on 2026-11-11; both files are deleted.
 - **The PO picked the sounds by measurement, not by ear.** It chose them by license, title and description, rating count, and signal-to-noise ratio (39–41 dB after gain, none clipped), and took the loudest window of each. **The implementer listens to all five before wiring them in.** Swap a cut (window or source) that isn't funny, and record the change here.
 
 **Acceptance.**
@@ -1417,7 +1416,7 @@ The sticker sits centred over the opponent's panel head, or 24 px above your nam
 - **Scrolled-out targets** (the PR #39 follow-up below, the lead's call, for throws and reactions): instead of an edge label, the target's panel of a throw or a migajero scrolls into view (smooth, `inline: "nearest"`; instant with reduced motion) once the last move's cards have landed (their stand-ins don't scroll, UX-8), and the flights follow it. Laughs, love and anger don't scroll: at the edge their bubble names the reactor. The server drops a migajero not at the last mover, and reactions at the summary. Under 24 px showing counts as out. A later turn may scroll it away again.
 
 **PO follow-ups (PR #40 review, 2026-10-29).** None blocks; each is one small patch, in this order.
-- **The owner listens.** (Done in v2.6.1 for love and anger: `aww.mp3` and `seethe.mp3`, above.) Nobody has heard `giggle`, `sigh`, `grumble`, `coo` and `flap` yet: the PO measured them again (all −19.4 LUFS integrated, peaks −0.7 to −5.7 dBFS; `giggle` pauses at 0.99–1.19 s and `coo` at 0.40–0.58 s, as the choreography expects) but can't judge funny. The owner plays one reaction of each on the live site, in Spanish, and names any cut to swap. This is the bar the owner rejected v2.5.0's throws on.
+- **The owner listens.** (Done for love and anger: the owner tried `aww.mp3` and `seethe.mp3` in v2.6.1, then on 2026-11-12 preferred the original `sigh` and `grumble`, restored in v2.14.1; above.) Nobody has heard `giggle`, `sigh`, `grumble`, `coo` and `flap` yet: the PO measured them again (all −19.4 LUFS integrated, peaks −0.7 to −5.7 dBFS; `giggle` pauses at 0.99–1.19 s and `coo` at 0.40–0.58 s, as the choreography expects) but can't judge funny. The owner plays one reaction of each on the live site, in Spanish, and names any cut to swap. This is the bar the owner rejected v2.5.0's throws on.
 - ✅ **Done in BUG-2 (v2.6.2), with the cause corrected: it did show, on their row in the strip.** **Your own reaction when you're out (R16).** An out player's laugh, love or anger shows on every other phone but not on theirs: `spot(you)` finds no name bar. Pop it over the corner button, so the reactor sees what they sent.
 - **Pixel and other narrow phones: confirm the button with the owner.** There it sits at the end of the name bar, above row 1, not where the owner circled (beside row 3). The PO accepts the lead's reason (Pixel 7's cards stay 91 px), but the owner circled the spot on an iPhone. If the owner plays on Android and wants the circle, the asymmetric 56 px right gutter (cards 77 px, grid 28 px off centre) is the fallback measured above.
 - **Delivery: take back the Pixel job's headroom.** `react.spec.ts` adds 43 s of tests to `e2e (pixel)` (2 workers): the job went from 2:33 (PR #39) to 2:56, and PR CI wall time to 3:00, right at the rubric's ceiling and past this milestone's +15 s budget. iPhone (2:18, 4 workers) and desktop (2:09) have room. Run the two heaviest harness cases, "a throw or reaction at a panel scrolled out of the strip…" (7.2 s on Pixel) and "each reaction shows on its seat…" (6.5 s), on iPhone and desktop only (their motion-on Pixel cases stay), and check the Pixel job is back under 2:45.

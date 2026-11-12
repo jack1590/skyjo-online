@@ -98,8 +98,8 @@ export function Reactions(props: ReactionsProps) {
       next,
     ]);
     if (kind === "laugh") play("giggle");
-    else if (kind === "love") play("aww");
-    else if (kind === "anger") play("seethe");
+    else if (kind === "love") play("sigh");
+    else if (kind === "anger") play("grumble");
     else {
       if (!reduced) play("flap");
       play("coo", reduced ? 0 : LAND - COO_ONSET);
