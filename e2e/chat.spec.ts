@@ -34,7 +34,7 @@ test("M29: a quick phrase pops by its sender on every phone, each in its own lan
     // By class: each phone labels the form in its own language.
     if (page !== ana) await page.goto(`/r/${code}`);
     await page.locator(".name-input").fill(name);
-    await page.locator(".join-row button").click();
+    await page.locator(".join-row .primary").click();
     await expect(page.getByTestId("seats")).toContainText(name);
   }
 

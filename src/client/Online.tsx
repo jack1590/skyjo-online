@@ -1,8 +1,17 @@
 import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { MAX_PLAYERS } from "../engine/game";
-import { type ChatMsg, type ClientMsg, cutName, type ErrorCode, type RoomView } from "../protocol";
+import {
+  CHARACTERS,
+  type ChatMsg,
+  type ClientMsg,
+  cutName,
+  type ErrorCode,
+  type RoomView,
+} from "../protocol";
+import { Avatar, CharacterPicker } from "./Character";
 import { Bubbles, ChatButton, useChat } from "./Chat";
 import { type Key, useI18n } from "./i18n";
+import { friendlyName } from "./names";
 import { Table } from "./Table";
 import { useOnline } from "./useOnline";
 import { useRoom } from "./useRoom";
@@ -96,6 +105,7 @@ export function Online({ code }: { code: string }) {
         lead={room.lead}
         connected={room.seats.map((s) => s.connected)}
         auto={room.seats.map((s) => s.auto)}
+        chars={room.seats.map((s) => s.char)}
         wait={room.clocks}
         toss={room.toss}
         onToss={toss}
@@ -131,6 +141,7 @@ function Lobby({ room, send, chat, said }: LobbyProps) {
   };
   const [copied, setCopied] = useState(false);
   const link = `${window.location.origin}/r/${room.code}`;
+  const chars = room.seats.map((s) => s.char);
 
   const share = async () => {
     if (navigator.share) {
@@ -170,7 +181,7 @@ function Lobby({ room, send, chat, said }: LobbyProps) {
         <Seats room={room} send={send} />
         {room.you === null ? (
           room.seats.length < MAX_PLAYERS ? (
-            <JoinForm send={send} />
+            <JoinForm send={send} taken={chars} />
           ) : (
             <p className="tagline">{t("roomFull")}</p>
           )
@@ -227,6 +238,20 @@ function Lobby({ room, send, chat, said }: LobbyProps) {
             />
           </span>
         </label>
+        {/* Folded away: the lobby is for starting, and most keep the face they joined with. */}
+        {room.you !== null && (
+          <details className="option-more">
+            <summary>{t("changeCharacter")}</summary>
+            <CharacterPicker
+              value={chars[room.you]}
+              taken={chars}
+              onPick={(char) => {
+                remember(CHAR_KEY, String(char));
+                send({ t: "char", char });
+              }}
+            />
+          </details>
+        )}
         {/* Last and quiet, away from Start: a mistaken tap made the next seat host (UX-13). */}
         {room.you !== null && (
           <button type="button" className="btn quiet" onClick={() => send({ t: "leave" })}>
@@ -348,7 +373,10 @@ function Seats({ room, send }: { room: RoomView; send: (msg: ClientMsg) => void 
             .join(" ")}
           style={drag ? { transform: `translateY(${shift(i)}px)` } : undefined}
         >
-          <span>{s.name}</span>
+          <span className="seat-name">
+            <Avatar seat={i} name={s.name} char={s.char} />
+            {s.name}
+          </span>
           <span className="seat-tags">
             {i === room.host && <span className="tag">{t("host")}</span>}
             {i === room.you && <span className="tag">{t("you")}</span>}
@@ -415,45 +443,90 @@ function Seats({ room, send }: { room: RoomView; send: (msg: ClientMsg) => void 
 }
 
 const NAME_KEY = "skyjo:name";
+const CHAR_KEY = "skyjo:char";
 
-function JoinForm({ send }: { send: (msg: ClientMsg) => void }) {
+function recall(key: string): string {
+  try {
+    return localStorage.getItem(key) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function remember(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Not remembered next time; joining still works.
+  }
+}
+
+/** The name, with a dice that suggests one, and the character to join as (M32). */
+function JoinForm({
+  send,
+  taken,
+}: {
+  send: (msg: ClientMsg) => void;
+  taken: (number | undefined)[];
+}) {
   const { t } = useI18n();
-  const [name, setName] = useState(() => {
-    try {
-      return localStorage.getItem(NAME_KEY) ?? "";
-    } catch {
-      return "";
-    }
+  const [name, setName] = useState(() => recall(NAME_KEY));
+  // The one from last time, or any: a first visit still gets a face.
+  const [wanted, setWanted] = useState(() => {
+    const saved = recall(CHAR_KEY);
+    return /^\d+$/.test(saved) && Number(saved) < CHARACTERS
+      ? Number(saved)
+      : Math.floor(Math.random() * CHARACTERS);
   });
+  // Someone sat down with it meanwhile: the next free one, as the server would give.
+  const free = (from: number) => {
+    let char = from;
+    while (taken.includes(char)) char = (char + 1) % CHARACTERS;
+    return char;
+  };
+  const char = free(wanted);
 
   const join = (e: FormEvent) => {
     e.preventDefault();
-    try {
-      localStorage.setItem(NAME_KEY, name.trim());
-    } catch {
-      // Not remembered next time; joining still works.
-    }
-    send({ t: "join", name });
+    remember(NAME_KEY, name.trim());
+    remember(CHAR_KEY, String(char));
+    send({ t: "join", name, char });
   };
 
   return (
-    <form className="join-row" onSubmit={join}>
-      <input
-        className="name-input"
-        value={name}
-        required
-        enterKeyHint="go"
-        aria-label={t("yourName")}
-        placeholder={t("yourName")}
-        // Not mid-composition (an IME, a dead key): rewriting the text under it cancels it. The
-        // server cuts again.
-        onChange={({ target, nativeEvent }) =>
-          setName((nativeEvent as InputEvent).isComposing ? target.value : cutName(target.value))
-        }
-      />
-      <button type="submit" className="btn primary">
-        {t("join")}
-      </button>
+    <form className="join" onSubmit={join}>
+      <CharacterPicker value={char} taken={taken} onPick={setWanted} />
+      <div className="join-row">
+        <input
+          className="name-input"
+          value={name}
+          required
+          enterKeyHint="go"
+          aria-label={t("yourName")}
+          placeholder={t("yourName")}
+          // Not mid-composition (an IME, a dead key): rewriting the text under it cancels it. The
+          // server cuts again.
+          onChange={({ target, nativeEvent }) =>
+            setName((nativeEvent as InputEvent).isComposing ? target.value : cutName(target.value))
+          }
+        />
+        <button
+          type="button"
+          className="btn icon"
+          aria-label={t("diceName")}
+          onClick={() => {
+            // A name and the face that goes with it.
+            const dice = friendlyName(t);
+            setName(dice.name);
+            setWanted(dice.char);
+          }}
+        >
+          🎲
+        </button>
+        <button type="submit" className="btn primary">
+          {t("join")}
+        </button>
+      </div>
     </form>
   );
 }

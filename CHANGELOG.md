@@ -4,6 +4,17 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.14.0] - 2026-11-11
+
+### Added
+
+- **Pick your character.** When you join a room you choose one of 16 faces: a fox, an otter, an owl, a cat, a panda, a frog, a penguin, a lion, a koala, an axolotl, a raccoon, a wolf, a toucan, an octopus, a bear or a rabbit, each on its own colour. It shows by your name everywhere: in the lobby, over your cards, on your panel on your friends' phones, in the scores, and on the pigeon feeder's sign. Nobody else at the table can take yours. In the lobby, **Change character** lets you swap it. Your phone remembers it for next time.
+- **A dice for your name.** Out of ideas? Tap 🎲 by the name field for a two-word name in your language, such as "Brave Otter", "Nutria Valiente" or "Lontra Valente", with the matching character. Tap again for another, or type your own as always.
+
+### Changed
+
+- In the Modern look your character takes the place of the coloured disc with your initial. A friend whose game hasn't updated yet keeps the initial.
+
 ## [2.11.0] - 2026-11-11
 
 ### Added

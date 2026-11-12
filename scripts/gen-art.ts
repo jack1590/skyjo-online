@@ -140,6 +140,50 @@ const STICKERS: Record<string, Sticker> = {
     true,
   ],
 };
+/**
+ * Characters (M32): a head each, cut out of the key colour; the client draws its coloured disc
+ * (`characters.ts`), so both looks frame it their own way. Magenta keys the green ones.
+ */
+const CHARACTER_STYLE =
+  "Character avatar for a card game app played by teens and adults: only the head, front view, " +
+  "looking at the viewer, centered, filling about 88% of a square frame, modern flat vector " +
+  "illustration built from bold simple geometric shapes with two or three crisp layered " +
+  "paper-cut shadows and one soft highlight, saturated colours, a confident friendly expression " +
+  "with a slight smirk, medium-sized eyes with a small highlight, readable at a very small size. " +
+  "Stylish and witty, not a toddler mascot: no baby proportions, no oversized sparkly eyes, no " +
+  "blush cheeks. The head is one compact rounded shape that ends at the chin, with nothing " +
+  "below it: no body, no neck, no shoulders, no hands, no props. No border, no frame, no " +
+  "sticker outline, no shadow under it. Background: one perfectly flat, uniform colour KEY with no gradient and no " +
+  "texture. No text, no letters.";
+const CHARACTERS: Record<string, [animal: string, key: "green" | "magenta"]> = {
+  fox: ["a red fox with a white muzzle and dark ear tips", "green"],
+  otter: ["a brown river otter with a cream muzzle and small round ears", "green"],
+  owl: ["a tawny owl with cream face discs, amber eyes and small ear tufts", "green"],
+  cat: ["a black cat with yellow eyes and one notched ear", "green"],
+  panda: ["a giant panda", "green"],
+  frog: ["a bright green tree frog with orange eyes", "magenta"],
+  penguin: ["a penguin with a yellow-orange beak and a small tuft of head feathers", "green"],
+  lion: ["a lion with a big golden-brown mane", "green"],
+  koala: ["a grey koala with big fluffy ears and a large dark nose", "green"],
+  axolotl: ["a pink axolotl with six feathery coral gills", "green"],
+  raccoon: ["a raccoon with its black eye mask and grey fur", "green"],
+  wolf: ["a blue-grey wolf with pointed ears and a white muzzle", "green"],
+  toucan: [
+    "a toucan in three-quarter view: round black head, white cheek, a big orange-yellow beak",
+    "green",
+  ],
+  octopus: ["a purple octopus, its round head with the tips of a few curled arms below", "green"],
+  bear: ["a brown bear with a tan muzzle and small round ears", "green"],
+  rabbit: [
+    "a white rabbit with soft light-grey shading, long upright ears with pink insides, one ear " +
+      "bent at the tip, a small pink nose, half-lidded eyes and a sly grin",
+    "green",
+  ],
+};
+for (const [name, [animal, keyColour]] of Object.entries(CHARACTERS)) {
+  STICKERS[`char-${name}`] = [`The head of ${animal}`, keyColour, "256:256"];
+}
+
 const KEYS = {
   green: ["pure chroma green #00FF00", "0x00FF00"],
   magenta: ["pure magenta #FF00FF", "0xFF00FF"],
@@ -172,9 +216,10 @@ async function generate(prompt: string, key: string, aspectRatio = "2:3"): Promi
   return Buffer.from(image, "base64");
 }
 
-process.loadEnvFile(".env");
+// Or pass GEMINI_API_KEY in the environment (a worktree has no .env).
+if (existsSync(".env")) process.loadEnvFile(".env");
 const key = process.env.GEMINI_API_KEY;
-if (!key) throw new Error("GEMINI_API_KEY missing from .env");
+if (!key) throw new Error("GEMINI_API_KEY missing: set it in .env or the environment");
 const requested = process.argv.slice(2);
 const tmp = mkdtempSync(join(tmpdir(), "art-"));
 
@@ -206,7 +251,8 @@ for (const [name, [object, keyColour, size, mark, ratio]] of Object.entries(STIC
   const png = join(tmp, `${name}.png`);
   const [described, hex] = KEYS[keyColour];
   // The model now and then answers with no image; a retry usually gets one.
-  const prompt = `${object}. ${(mark ? MARK_STYLE : STICKER_STYLE).replace("KEY", described)}`;
+  const style = name.startsWith("char-") ? CHARACTER_STYLE : mark ? MARK_STYLE : STICKER_STYLE;
+  const prompt = `${object}. ${style.replace("KEY", described)}`;
   const ask = () => generate(prompt, key, ratio ?? "1:1");
   writeFileSync(png, await ask().catch(ask));
   // Key out the background, pull the key colour's spill off the edges, keep alpha in the WebP.

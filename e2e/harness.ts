@@ -75,6 +75,8 @@ export interface Shown {
   lead?: boolean;
   connected?: boolean[];
   auto?: boolean[];
+  /** Per seat, its character (M32). */
+  chars?: (number | undefined)[];
   wait?: Wait[];
   toss?: Toss;
   reaction?: Reaction;
