@@ -813,7 +813,9 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 31  | BUG-13                             | The lobby's ✕ removed a seat by index, so a seat leaving just before it made it remove someone else                     | 2.7.7         | a QA read; proven in room.test.ts                                                                                |
 | 32  | BUG-5                              | The shuffle, measured (it was fair) and hardened: ChaCha20, unbiased picks, a 256-bit seed per round (owner report)     | 2.7.8         | the owner still finds the deals weak; fairness and cheating come before the launch                               |
 | 33  | M24                                | Public rooms: a lobby switch and a list on Home (owner request, 2026-11-11)                                             | 2.8.0         | the owner asked for it; ahead of M16, which waits on the owner                                                   |
-| 34  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
+| 34  | M27                                | Classic, upgraded: labelled scores, your frame, weight marks, a summary that explains itself, a look with depth (owner) | 2.9.0         | the owner's design round, 2026-11-11: the look to ship to the stores                                             |
+| 35  | M28                                | Polished casual, the new default look, and a switch between it and Classic (owner)                                      | 2.10.0        | the owner's choice of direction B; stacked on M27                                                                |
+| 36  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
 
 Deferred: Turnstile (SEC-4) and SEC-12 (until M16). Quick reactions, deferred until now, are M23 (user request, 2026-10-29). Declined: SEC-7. Versions assume this order; a PR that reorders says so.
 
@@ -1642,6 +1644,64 @@ Per Home viewer: 1 Worker request when Home opens and 4 a minute while it stays 
 - `fetch.test.ts`: `GET /api/public` returns the list, reuses its answer for 10 s, charges 2 units a read, refuses past the budget, and leaves `API_REQUESTS` alone.
 - E2E (in `e2e/online.spec.ts`, the suite CI also runs against the Node server): phone A creates a room and makes it public; phone B sees it on Home with "1/8" and joins by tapping it; it leaves the list when the host makes it private, when the game starts, and while its last seated player is away. Home and the lobby pass `expectMobileFriendly` at 360 px in en, es and pt. Screenshots in `docs/screenshots/m24/`.
 - CI wall time stays ≤ 3 min: it adds 2 short tests.
+
+### M27 — Classic, upgraded: scores you can read (owner's design round, 2026-11-11) · v2.9.0
+
+**Why.** The game ships to the App Store and Google Play later (M16), and the owner asked for a look worth shipping. A design round on 2026-11-11 produced three directions as mockups of the same game state (a table on your turn and a round summary, 390 × 844). The owner rejected an earlier childish proposal (a mascot, faces on cards) and chose two looks for players to switch between:
+- **A, "Classic, upgraded"** (this milestone): today's navy, paper-cut card art and gold, with light, depth and outlined numerals. It replaces today's look, which is retired.
+- **B, "Polished casual"** (M28): a new default look, added beside A.
+
+Both carry the same clarity changes, which this milestone builds, so M28 is tokens and card rules only.
+
+**Target.** `docs/screenshots/m27/target-table.jpg` and `target-summary.jpg` (the mockups). The PR's own screenshots, `01-your-turn.jpg` and `03-summary.jpg` in the same folder, are the same state at the same size.
+
+**Scores you can read** (shared by both looks):
+- **Labelled scores.** Every number sits under a caption: "Game" and "Round" on an opponent's panel, "Game" and "This round" on your row. The round score so far is the gold one: it moves with every card. Before M27 a total and a "+14" sat side by side unlabelled.
+- **"Low score wins"** on a line of its own between your row and your cards. Your clock's bar shares that line while it runs, with its seconds in the last 10.
+- **Your frame.** On your turn a gold frame is lit around your row, the clock line and your cards. It is drawn in the table's own gaps and padding, so no card changes size when it lights (UX-12).
+- **What you hold and where it goes.** The card you drew glows, captioned "You drew" ("Drawn" when it is another player's). While you hold it the discard pile has a dashed outline and reads "Discard here": a place to drop, not a card to take.
+- **A weight mark on every face-up card** of yours, on the piles and in an opponent's zoomed grid: a diamond below zero, then 0, 1, 2 or 3 filled dots for 0, 1–4, 5–8 and 9–12. Low-is-good reads without colour. Opponents' small cards (18–28 px wide) have no room for it and carry none.
+- **The round summary.** One card a player, in ranking order: their place, "This round" and "Game" columns, and a bar toward 100. One sentence says why the ender's score is what it is (R12): "Mamá ended the round, but Leo scored lower, so Mamá's 18 counts double." (or "scored the same", or "ended the round with the lowest score"). Under the rows: "Lowest total wins · Game ends at 100", or in knockout (R16) "Last one under 100 wins · Out at 100". Every number comes from the view (`faceUpSum`, `scores`, `places`); the protocol doesn't change.
+
+**The look** (A):
+- A lantern's glow over the piles on a deep night (`#0f2234` to `#0a1522`), the PWA's theme colour and manifest background to match.
+- Cards keep `band-*.webp` and `back.webp`, and get a lit edge and a real shadow; the deck is a stack; a held or tapped card lifts with a deeper shadow.
+- **Numerals are white with an outline in the band's ink** (`#1b1340`, `#0d4750`, `#234f2c`, `#7a4706`, `#6a120e`), painted under the fill. White on the pale 1–4 green and 0 aqua was the old look's weakest contrast; the ink is at least 4.5:1 against white on every band.
+- Buttons, the turn pill, panels and the summary sheet are raised surfaces: lit from above, with a shadow under them. The header's emoji become drawn icons.
+
+**Acceptance.**
+1. The table and the summary match the targets at 390 × 844; every difference is listed in the PR with its reason.
+2. 2–8 players at 360–430 px wide: no sideways scroll, every target ≥ 44 px, opponents' numbers ≥ 12 px (`e2e/table.spec.ts`, existing checks still pass).
+3. Your cards keep their width (±1 px) when the frame lights, when you draw, place or discard, in en, es and pt.
+4. The marks: tested per band on your grid and the piles; none on small cards.
+5. The summary's sentence: unit-tested for lower, tied, lowest, none, knockout, es and pt. Eight players' summary fits 360 × 640 without scrolling.
+6. All new text through `t()` in en, es and pt. Reduced motion: the frame lights without a transition.
+7. No regression of BUG-3 (v2.6.2): a long name never covers a total. The panel's name has a line of its own now, shared only with the clock's seconds.
+
+**Not in scope.** The seconds for the whole turn (the mockup's "22 s"): M8 keeps a calm bar until the last 10 s, and a second timer beside it raced the first under a stepped clock. A tilted drawn card: every swap's flight starts from that card, and the motion tests measure it straight. Player avatars (B only).
+
+**PO follow-up (PR #57 review): at 8 seats, the ender's own doubled row wraps.** When you ended the round, were doubled, and 6 or more play, your summary row carries "you", "ended" and "49 ×2 = 98", wraps to two lines, and the sheet scrolls 8 px at 360 × 640 (seed 344, seat 0). Next round stays fully on screen. Every other row and every other seat fits, which the test checks from seat 1. Not blocking. Fix it in the slim rows without shortening names: for example, drop "ended" on a doubled row, where the sentence above and the ×2 already say it.
+
+### M28 — Polished casual, and a switch between the two looks (owner's choice, 2026-11-11) · v2.10.0
+
+**What.** Direction B becomes the default look; A ("Classic", M27) stays, chosen per device. Target: `docs/screenshots/m28/target-table.jpg` and `target-summary.jpg`.
+
+**The look** (B): a plum-to-ink stage (`#3a2ea6` to `#160f45`); glossy chunky cards with a pressable lip, drawn in CSS with no raster art; condensed heavy numerals; bands cool to hot: −2/−1 indigo `#4a38dc`, 0 white, 1–4 aqua `#0a9fa8`, 5–8 tangerine `#f28418`, 9–12 magenta `#dc2060`; face-down backs dark with a gold ring; mint `#3ee6b0` for "your turn"; yellow `#ffd23f` for actions; a coloured monogram disc a player; buttons with real depth. Polished and family-friendly, not babyish. Throw and reaction stickers stay as they are.
+
+**How.**
+- One set of CSS custom properties a look, plus look-specific card rules, on `<html data-theme>`. No component is duplicated.
+- **Fonts:** Barlow Condensed Bold (numerals, headings) and Nunito Sans ExtraBold (UI), both SIL OFL 1.1: self-hosted woff2 in `public/fonts/`, subset to Latin and Latin Extended (es, pt), `font-display: swap`, precached by the service worker, credited in the README with the OFL notice. Target: ≤ 60 KB in all.
+- **The switch.** One `localStorage` key (`skyjo:theme`, read and written in try/catch), like the Fun switch. Easy to find: on Home, and in the game without leaving the table. It is two small previews, a mini card in each look, not a bare toggle. It applies at once, mid-game too, with no reload. It is client-only: each phone at a table may use a different look.
+- The PWA's `theme-color` follows the look; the manifest's colours are the default look's.
+- Every screen a player sees: Home, lobby, table, round summary, game over, the throws tray and the reactions fan, toasts, settings, rules.
+
+**Acceptance.**
+1. B matches the targets at 390 × 844; every difference is listed in the PR with its reason.
+2. `e2e/table.spec.ts`'s layout checks (2–8 players, 360–430 px, 44 px targets, no sideways scroll) pass in both looks.
+3. Text contrast is WCAG AA in both looks, the numerals on every band included.
+4. Switching mid-game is tested on iPhone and Pixel: the look changes without a reload, the game goes on, and a reload keeps it. Two phones at one table hold different looks.
+5. Fonts: licence checked, bytes added reported, both in the service worker's precache.
+6. Reduced motion honoured; M27's acceptance still holds in both looks.
 
 ### M16 — Launch in the App Store and Google Play (user decision, 2026-10-24) · last
 

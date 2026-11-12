@@ -1,7 +1,11 @@
 :root {
-  --bg: #0d1b2a;
-  --bg-hi: #17344d;
+  --bg: #0a1522;
+  --bg-hi: #2a587c;
   --panel: rgb(255 255 255 / 0.07);
+  /* A raised surface (M27): lit from above, with a soft shadow under it. */
+  --raised: linear-gradient(rgb(255 255 255 / 0.09), rgb(255 255 255 / 0.03));
+  --raised-shadow: inset 0 1px 0 rgb(255 255 255 / 0.12), 0 4px 10px -4px rgb(0 0 0 / 0.5);
+  --gold: linear-gradient(#ffd978, #f2c14e 55%, #d99f2b);
   --line: rgb(255 255 255 / 0.14);
   --text: #f5f1e6;
   --muted: #a8b6c6;
@@ -25,7 +29,12 @@ body,
 }
 
 body {
-  background: radial-gradient(130% 90% at 50% 0%, var(--bg-hi), var(--bg) 70%) fixed;
+  /* A lantern's glow where the piles are, over a deep night (M27). */
+  background:
+    radial-gradient(95% 34% at 50% 37%, var(--bg-hi) 0%, rgb(29 65 96 / 0.55) 55%, transparent 100%)
+    fixed,
+    linear-gradient(#0f2234, var(--bg)) fixed;
+  background-color: var(--bg);
   color: var(--text);
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior: none;
@@ -48,10 +57,20 @@ button {
   min-height: 48px;
   min-width: 48px;
   padding: 0 20px;
-  border: 1px solid var(--line);
+  border: 0;
   border-radius: 12px;
-  background: var(--panel);
+  background: linear-gradient(#1f4160, #152c42);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.14),
+    inset 0 0 0 1px rgb(255 255 255 / 0.1),
+    0 2px 4px rgb(0 0 0 / 0.4);
   font-weight: 700;
+}
+
+/* Pressed in. A transform, not `translate`: Undo is placed with that (below), and losing it mid-tap
+   moved the button from under the finger, so the tap never landed. */
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
 .btn:disabled {
@@ -60,9 +79,11 @@ button {
 }
 
 .btn.primary {
-  background: var(--accent);
-  border-color: transparent;
+  background: var(--gold);
   color: var(--accent-ink);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.6),
+    0 6px 18px -4px rgb(242 193 78 / 0.55);
 }
 
 .btn.icon {
@@ -71,6 +92,19 @@ button {
   min-width: 44px;
   min-height: 44px;
   font-size: 18px;
+  display: inline-grid;
+  place-items: center;
+}
+
+.btn.icon svg {
+  fill: currentColor;
+}
+
+.btn.icon .line {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
 }
 
 /* A text button for a way out, such as the lobby's Leave seat (UX-13): no fill, same target. */
@@ -78,6 +112,7 @@ button {
   align-self: center;
   border-color: transparent;
   background: none;
+  box-shadow: none;
   color: var(--muted);
   font-weight: 400;
   text-decoration: underline;
@@ -268,8 +303,8 @@ li.dragging {
   gap: 10px;
   padding: 16px;
   border-radius: var(--radius);
-  background: var(--panel);
-  border: 1px solid var(--line);
+  background: var(--raised);
+  box-shadow: var(--raised-shadow);
 }
 
 .panel h2 {
@@ -358,8 +393,12 @@ li.dragging {
 .turn {
   padding: 6px 14px;
   border-radius: 999px;
-  background: var(--accent);
+  background: var(--gold);
   color: var(--accent-ink);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.6),
+    0 0 0 4px rgb(242 193 78 / 0.16),
+    0 0 22px rgb(242 193 78 / 0.5);
   font-weight: 800;
   white-space: nowrap;
   overflow: hidden;
@@ -401,12 +440,14 @@ li.dragging {
 .clock.warn {
   background: #ffa630;
   color: #2a1700;
+  box-shadow: none;
 }
 
 .turn.danger,
 .clock.danger {
   background: #ff5247;
   color: #2a0503;
+  box-shadow: none;
 }
 
 @keyframes pop {
@@ -447,7 +488,8 @@ li.dragging {
   width: min(128px, calc((100% - 16px) / 3));
   padding: 5px;
   border-radius: 10px;
-  background: var(--panel);
+  background: var(--raised);
+  box-shadow: var(--raised-shadow);
   border: 2px solid transparent;
   text-align: left;
   scroll-snap-align: center;
@@ -2009,57 +2051,61 @@ dialog.zoom::backdrop {
 
 .opp-head {
   display: flex;
-  justify-content: space-between;
+  align-items: center;
   gap: 4px;
   font-size: 12px;
-  margin-bottom: 4px;
 }
 
+/* Stretched over what the clock's seconds leave, so a long name ends in "…" before them. */
 .opp-name {
-  margin-right: auto;
+  flex: 1;
+  min-width: 0;
+  font-weight: 700;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.opp-total {
+/* A number under its caption (M27): "Game" and "Round" on a panel, "Game" and "This round" on
+   your row, so nobody has to learn which is which. */
+.stat {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat small {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.stat b {
+  font-size: 14px;
   font-weight: 800;
+}
+
+/* The round score so far (UX-15) in gold: the number that moves with every card. */
+.sum {
   color: var(--accent);
 }
 
-/* The round score so far (UX-15): quieter than the gold total beside it. */
-.sum {
-  padding: 0 5px;
-  border-radius: 6px;
-  background: rgb(255 255 255 / 0.12);
-  font-size: 12px;
-  font-weight: 700;
-  white-space: nowrap;
+/* The panel's two numbers, on a line of their own under the name. Kept while the round score is
+   missing (before the flip, from the final reveal on), so the strip and your cards never change
+   size with it (UX-12). */
+.opp-scores {
+  display: flex;
+  gap: 4px;
+  margin: 3px 0 4px;
 }
 
-/* The players' strip is too narrow for a name, both numbers and a clock's seconds on one line, so
-   the round score has a line of its own under the total. Kept while empty (before the flip, from
-   the final reveal on), so the strip and your cards never change size with it (UX-12). */
-.opponents:not(.watch) .opp-head {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  grid-template-rows: auto 1.35em;
-  row-gap: 2px;
-}
-
-/* Stretched over its column, so a long name ends in "…" before the total: with an auto margin a
-   grid item is as wide as its text, and the name ran under the total (BUG-3). */
-.opponents:not(.watch) .opp-name {
-  margin-right: 0;
-}
-
-.opponents:not(.watch) .opp-total {
-  grid-area: 1 / 3;
-}
-
-.opponents:not(.watch) .sum {
-  grid-area: 2 / 1 / 3 / 4;
-  justify-self: end;
+.opp-scores .stat {
+  flex: 1;
 }
 
 .mini {
@@ -2094,6 +2140,19 @@ dialog.zoom::backdrop {
   white-space: nowrap;
 }
 
+/* What you hold and where it can go (M27): the caption of the card you drew stands out, and the
+   discard pile's outline is dashed, a place to drop it, not a card to take. */
+.held .pile-label,
+.drop .pile-label {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.drop .card.hl {
+  outline: 2px dashed rgb(242 193 78 / 0.85);
+  outline-offset: 4px;
+}
+
 .prompt {
   margin: 0;
   min-height: 2.7em;
@@ -2108,7 +2167,34 @@ dialog.zoom::backdrop {
   min-height: min-content;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
+}
+
+/* Your frame (M27): lit on your turn, around your row, your clock and your cards. Drawn in the
+   table's own gaps and padding, so no card changes size with it, and under everything: `.mine` is
+   no stacking context, or a card flying out of your grid couldn't pass over the piles. */
+.mine::before {
+  content: "";
+  position: absolute;
+  inset: -4px -8px -6px;
+  z-index: -1;
+  border: 2px solid transparent;
+  border-radius: 16px;
+  pointer-events: none;
+  transition:
+    border-color 0.2s,
+    background-color 0.2s;
+}
+
+.mine.my-turn::before {
+  border-color: rgb(242 193 78 / 0.75);
+  background: linear-gradient(rgb(242 193 78 / 0.13), rgb(242 193 78 / 0.03) 40%);
+  box-shadow: 0 -12px 36px -14px rgb(242 193 78 / 0.6);
+}
+
+/* Not your turn: a quiet surface, so your cards still sit on something. */
+.mine:not(.my-turn)::before {
+  background: rgb(255 255 255 / 0.03);
 }
 
 /* The row above your grid: name, points and the Auto-play switch; while it's on, a bar holding
@@ -2125,11 +2211,12 @@ dialog.zoom::backdrop {
   font-size: 15px;
 }
 
-/* Your name, points and round score on one line: a long name gives way, never the row's height. */
+/* Your name, the game's total and the round's score so far on one line: a long name gives way,
+   never the row's height. */
 .me {
   display: flex;
-  align-items: baseline;
-  gap: 5px;
+  align-items: center;
+  gap: 8px;
   min-width: 0;
   white-space: nowrap;
 }
@@ -2139,9 +2226,11 @@ dialog.zoom::backdrop {
   text-overflow: ellipsis;
 }
 
-.mine-head .pts {
-  color: var(--accent);
-  font-weight: 800;
+.me .stat {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 8px;
+  background: rgb(0 0 0 / 0.28);
 }
 
 .mine-head.auto-on {
@@ -2257,19 +2346,58 @@ dialog.zoom::backdrop {
   }
 }
 
-/* Your clock (M8): 4px under this row, draining for the whole turn. */
+/* One fixed line between your row and your cards (M27): "Low score wins", and your clock (M8)
+   while it runs, draining for the whole turn, with its seconds. */
+.clock-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 14px;
+  padding: 0 4px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+/* Clear of the reactions button, when it sits at the end of your row above (M23). */
+.mine-head:has(.react-btn.bar) + .clock-row {
+  padding-right: 56px;
+}
+
+.track {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: rgb(255 255 255 / 0.12);
+  overflow: hidden;
+}
+
 .clock {
-  position: absolute;
-  left: 4px;
-  right: 4px;
-  bottom: -4px;
-  height: 4px;
-  border-radius: 2px;
-  background: var(--accent);
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #d99f2b, #ffd978);
   transform-origin: left;
   animation-name: drain;
   animation-timing-function: linear;
   animation-fill-mode: forwards;
+}
+
+.secs {
+  min-width: 4ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.secs.warn {
+  color: #ffa630;
+}
+
+.secs.danger {
+  color: #ff5247;
 }
 
 @keyframes drain {
@@ -2292,11 +2420,11 @@ dialog.zoom::backdrop {
 
 .grid-wrap {
   flex: 1;
-  /* Room above the top row for discard mode's outlines, which reach 5px out: they stay clear of
-     your clock's bar (UX-29). */
-  padding-top: 6px;
+  /* Room above the top row for discard mode's outlines, which reach 5px out: with the 4px under
+     the bar in its line, they stay clear of your clock's bar (UX-29). */
+  padding-top: 4px;
   /* Three rows of 44px-wide cards plus gaps. */
-  min-height: calc(3 * 44px * 7 / 5 + 16px + 6px);
+  min-height: calc(3 * 44px * 7 / 5 + 16px + 4px);
   container-type: size;
 }
 
@@ -2317,7 +2445,33 @@ dialog.zoom::backdrop {
 
 /* Cards */
 
+/* Each band's ink (M27): the outline of its numeral and the pill under it, dark enough for white
+   on the palest art (the 1–4 green, the 0 aqua). */
+.b-neg {
+  --ink: #1b1340;
+}
+
+.b-zero {
+  --ink: #0d4750;
+}
+
+.b-low {
+  --ink: #234f2c;
+}
+
+.b-mid {
+  --ink: #7a4706;
+}
+
+.b-high {
+  --ink: #6a120e;
+}
+
 .card {
+  /* A lit edge, and a shadow that puts the card on the table. */
+  --card-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.28), inset 0 1px 0 rgb(255 255 255 / 0.5),
+    0 1px 2px rgb(0 0 0 / 0.5), 0 8px 12px -5px rgb(0 0 0 / 0.65);
   position: relative;
   aspect-ratio: 5 / 7;
   padding: 0;
@@ -2328,9 +2482,7 @@ dialog.zoom::backdrop {
   background-position: center;
   display: grid;
   place-items: center;
-  box-shadow:
-    0 1px 0 rgb(255 255 255 / 0.25) inset,
-    0 3px 8px rgb(0 0 0 / 0.4);
+  box-shadow: var(--card-shadow);
   /* transform is left to the move animations (motion). A tapped card settles back (UX-3), and a
      thrown one tilts and straightens (UX-19), through the separate translate and rotate. */
   transition:
@@ -2354,7 +2506,9 @@ dialog.zoom::backdrop {
   /* A little squatter than a real card: three rows of opponent cards fit in less height. */
   aspect-ratio: 4 / 5;
   border-radius: 12% / 9%;
-  box-shadow: none;
+  box-shadow:
+    inset 0 0 0 0.5px rgb(255 255 255 / 0.3),
+    0 1px 2px rgb(0 0 0 / 0.5);
 }
 
 .card.gone {
@@ -2363,20 +2517,90 @@ dialog.zoom::backdrop {
   border: 2px dashed var(--line);
 }
 
+/* A face-up card's weight (M27), under its number: a diamond below zero, then 0 to 3 filled dots
+   by band (0, 1–4, 5–8, 9–12), so low-is-good reads without colour. Drawn from the band's class,
+   so the flights' stand-ins (motion.ts) carry it; in the card's flow, so a turning card's back
+   (`::before`) covers it. Not on opponents' small cards, which have no room for it. */
+.card.up:not(.sm)::after {
+  --d: max(4px, calc(var(--w) * 0.075));
+  --on: radial-gradient(closest-side, #fff 82%, #0000 90%);
+  --off: radial-gradient(closest-side, #0000 48%, #fff 56% 82%, #0000 90%);
+  content: "";
+  grid-area: 1 / 1;
+  align-self: end;
+  width: calc(var(--d) * 4.2);
+  height: var(--d);
+  margin-bottom: 7%;
+  /* White on a pill of the band's ink. */
+  padding: calc(var(--d) * 0.45) calc(var(--d) * 0.8);
+  border-radius: 99px;
+  background:
+    var(--m1, var(--off)) 0 / var(--d) 100% no-repeat content-box,
+    var(--m2, var(--off)) 50% / var(--d) 100% no-repeat content-box,
+    var(--m3, var(--off)) 100% / var(--d) 100% no-repeat content-box,
+    var(--ink);
+}
+
+.b-low::after {
+  --m1: var(--on);
+}
+
+.b-mid::after {
+  --m1: var(--on);
+  --m2: var(--on);
+}
+
+.b-high::after {
+  --m1: var(--on);
+  --m2: var(--on);
+  --m3: var(--on);
+}
+
+.card.up.b-neg:not(.sm)::after {
+  --d: max(5px, calc(var(--w) * 0.095));
+  width: var(--d);
+  background:
+    linear-gradient(#fff, #fff) content-box,
+    var(--ink);
+  /* The square inside turns into a diamond; the pill around it stays a circle. */
+  rotate: 45deg;
+  padding: calc(var(--d) * 0.55);
+}
+
+/* White numerals outlined in the band's ink (M27): 4.5:1 and more on every band's art, the pale
+   ones too. The stroke is painted under the fill, so it never thins the digit. */
 .num {
-  font-size: calc(var(--w) * 0.44);
+  grid-area: 1 / 1;
+  font-size: calc(var(--w) * 0.5);
   font-weight: 900;
   color: #fff;
-  letter-spacing: -0.03em;
-  text-shadow:
-    0 0 3px rgb(0 0 0 / 0.9),
-    0 2px 6px rgb(0 0 0 / 0.6);
+  letter-spacing: 0.02em;
+  -webkit-text-stroke: 0.11em var(--ink);
+  paint-order: stroke fill;
+  text-shadow: 0 0.06em 0 var(--ink);
+}
+
+/* Up a little, over the mark. */
+.card:not(.sm) .num {
+  translate: 0 -8%;
 }
 
 .card.sm .num {
   /* Readable on 360px phones with 8 players, where 15cqw alone gave 11.5px. */
   font-size: max(12px, 15cqw);
-  text-shadow: 0 0 2px rgb(0 0 0 / 0.95);
+  /* Outlined with shadows, not a stroke: where a browser paints the stroke over the fill (Chrome
+     before 123), it would thin a 12 px digit away. */
+  -webkit-text-stroke-width: 0;
+  text-shadow:
+    1px 0 0 var(--ink),
+    -1px 0 0 var(--ink),
+    0 1px 0 var(--ink),
+    0 -1px 0 var(--ink),
+    1px 1px 0 var(--ink),
+    -1px -1px 0 var(--ink),
+    1px -1px 0 var(--ink),
+    -1px 1px 0 var(--ink),
+    0 0 2px var(--ink);
 }
 
 .card.hl {
@@ -2384,19 +2608,25 @@ dialog.zoom::backdrop {
   outline-offset: 2px;
 }
 
-.grid.active button.card {
-  box-shadow:
-    0 0 0 2px rgb(242 193 78 / 0.55),
-    0 3px 8px rgb(0 0 0 / 0.4);
-}
-
 /* The card you drew, in hand (UX-4). `translate`, not `transform`: it adds to the flights'
    transform, so the draw lands lifted instead of jumping 6px at the end. */
 .held .card {
   translate: 0 -6px;
   box-shadow:
-    0 1px 0 rgb(255 255 255 / 0.25) inset,
-    0 10px 18px rgb(0 0 0 / 0.55);
+    0 0 0 2.5px var(--accent),
+    0 0 26px 4px rgb(242 193 78 / 0.6),
+    0 16px 18px -8px rgb(0 0 0 / 0.8);
+}
+
+/* The deck is a stack. */
+.pile [data-testid="deck"] {
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.28),
+    0 2px 0 #0a1522,
+    0 3px 0 #27496a,
+    0 5px 0 #0a1522,
+    0 6px 0 #27496a,
+    0 12px 12px -4px rgb(0 0 0 / 0.7);
 }
 
 /* The middle slot, kept while nobody holds a card from the deck, so the piles never move (UX-2). */
@@ -2423,8 +2653,9 @@ dialog.zoom::backdrop {
   translate: 0 -16px;
   scale: 1.06;
   box-shadow:
-    0 1px 0 rgb(255 255 255 / 0.25) inset,
-    0 14px 24px rgb(0 0 0 / 0.6);
+    0 0 0 2.5px var(--accent),
+    0 0 26px 4px rgb(242 193 78 / 0.6),
+    0 16px 18px -8px rgb(0 0 0 / 0.8);
 }
 
 /* A card in motion (motion.ts) passes over the table, and one going into a grid over the one
@@ -2470,6 +2701,8 @@ dialog.zoom::backdrop {
   background: #23384f url("./art/back.webp") center / 112%;
   transform: scaleX(-1);
   opacity: 0;
+  /* Over the number and the diamond, which their own translate and rotate would paint above it. */
+  z-index: 1;
 }
 
 /* Discard mode (UX-18): your face-down cards glow past the gold rim of the card back; the others
@@ -2515,8 +2748,8 @@ button.card:active {
 button.card[data-pending] {
   translate: 0 -6px;
   box-shadow:
-    0 1px 0 rgb(255 255 255 / 0.25) inset,
-    0 10px 18px rgb(0 0 0 / 0.55);
+    inset 0 0 0 1px rgb(255 255 255 / 0.28),
+    0 16px 18px -8px rgb(0 0 0 / 0.8);
   transition: none;
 }
 
@@ -2540,7 +2773,9 @@ button.card[data-pending] {
   position: fixed;
   inset: 0;
   z-index: 9;
-  background: rgb(5 12 20 / 0.55);
+  background: rgb(6 13 22 / 0.72);
+  -webkit-backdrop-filter: blur(1.5px);
+  backdrop-filter: blur(1.5px);
 }
 
 dialog.overlay {
@@ -2564,9 +2799,11 @@ dialog.overlay:focus {
   max-height: calc(100dvh - 56px - env(safe-area-inset-top));
   overflow-y: auto;
   padding: 20px 16px max(20px, env(safe-area-inset-bottom));
-  border-radius: 20px 20px 0 0;
-  background: #142a40;
-  border-top: 1px solid var(--line);
+  border-radius: 24px 24px 0 0;
+  background: linear-gradient(#1c3d5a, #12283d 30%, #0d1b2a);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.18),
+    0 -20px 50px rgb(0 0 0 / 0.6);
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -2602,45 +2839,211 @@ dialog.overlay:focus {
   color: #ffb39e;
 }
 
+/* Why the ender's score doubled, or didn't (R12), in a sentence. */
+.sheet .why {
+  margin: -8px 0 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+  text-wrap: balance;
+}
+
+/* The scores (M27): a card a player, in ranking order: their row, and under it their bar toward
+   100. Each is a <tbody> of two rows, so the table stays a table. */
 .scores {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-variant-numeric: tabular-nums;
 }
 
 .scores th,
 .scores td {
-  padding: 8px 6px;
+  padding: 7px 6px 0;
   text-align: right;
-  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
 }
 
-.scores td {
-  overflow-wrap: anywhere;
+.scores th {
+  padding-bottom: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
 
 .scores th:first-child,
 .scores td:first-child {
+  width: 100%;
+  padding-left: 10px;
   text-align: left;
+  white-space: normal;
 }
 
-.scores th {
+.scores :is(th, td):last-child {
+  padding-right: 10px;
+}
+
+.scores tbody td {
+  background: rgb(255 255 255 / 0.05);
+}
+
+.scores tbody tr:first-child td {
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.07);
+}
+
+.scores tbody tr:first-child td:first-child {
+  border-top-left-radius: 12px;
+}
+
+.scores tbody tr:first-child td:last-child {
+  border-top-right-radius: 12px;
+}
+
+.scores tbody tr:last-child td {
+  padding-top: 6px;
+  padding-bottom: 8px;
+  border-radius: 0 0 12px 12px;
+}
+
+/* The gap between two players' cards. */
+.scores tbody + tbody::before {
+  content: "";
+  display: table-row;
+  height: 6px;
+}
+
+/* In front: gold, with a gold line over and under it. */
+.scores .win td {
+  background: rgb(242 193 78 / 0.16);
+}
+
+.scores .win tr:first-child td {
+  box-shadow: inset 0 1.5px 0 rgb(242 193 78 / 0.7);
+}
+
+.scores .win tr:last-child td {
+  box-shadow: inset 0 -1.5px 0 rgb(242 193 78 / 0.7);
+}
+
+.who {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  font-weight: 700;
+}
+
+.who-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.who .tag {
+  margin: 0;
+}
+
+.who::before {
+  content: attr(data-rank);
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 0.1);
   font-size: 12px;
-  color: var(--muted);
-  font-weight: 600;
+  font-weight: 800;
 }
 
-.scores tr.win td {
-  color: var(--accent);
+.win .who::before {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.tot {
+  font-size: 20px;
   font-weight: 800;
+}
+
+.win .tot {
+  color: var(--accent);
+}
+
+.meter {
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  background: rgb(255 255 255 / 0.1);
+  overflow: hidden;
+}
+
+/* `--p` of the way to 100: the part shown of one gradient as wide as the whole bar, from calm to
+   hot. */
+.meter i {
+  display: block;
+  width: calc(var(--p) * 1%);
+  height: 100%;
+  border-radius: 3px;
+  background:
+    linear-gradient(90deg, #3f8f8a, #f2c14e 60%, #d9553f) 0 / calc(10000% / var(--p)) 100%;
+}
+
+/* 6 to 8 players: each row as tall as before M27, its bar the card's bottom edge. */
+.scores.many td {
+  padding-top: 4px;
+}
+
+.scores.many tbody tr:last-child td {
+  padding: 4px 0 0;
+}
+
+.scores.many .meter {
+  height: 4px;
+  border-radius: 0 0 12px 12px;
+}
+
+.scores.many .meter i {
+  border-radius: 0;
+}
+
+.scores.many .who::before {
+  width: 20px;
+  height: 20px;
+  font-size: 11px;
+}
+
+.scores.many .tot {
+  font-size: 17px;
+}
+
+.scores.many tbody + tbody::before {
+  height: 4px;
+}
+
+/* What ends the game and who wins it (R14, R16). */
+.sheet .goal {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 2px 12px;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
 }
 
 .tag {
   white-space: nowrap;
   margin-left: 6px;
-  padding: 1px 6px;
-  border-radius: 6px;
-  font-size: 11px;
-  background: var(--panel);
+  padding: 2px 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: rgb(255 255 255 / 0.12);
   color: var(--muted);
 }
 
@@ -2650,8 +3053,8 @@ dialog.overlay:focus {
 }
 
 .tag.x2 {
-  background: rgb(255 122 89 / 0.25);
-  color: #ffb39e;
+  background: #b3362b;
+  color: #fff;
 }
 
 /* UX-17: a burst from the top of the winner's sheet, out and up, then falling as it fades. */
@@ -2687,6 +3090,23 @@ dialog.overlay:focus {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
+}
+
+/* A phone browser with its bars (iPhone 13: 664 px): closer rows, so your cards get the height the
+   captions and your clock line took (M27). */
+@media (max-height: 700px) {
+  .table {
+    gap: 5px;
+  }
+
+  .opp-scores {
+    margin: 1px 0 3px;
+  }
+
+  .prompt {
+    min-height: 2.5em;
+    line-height: 1.25;
+  }
 }
 
 /* Short screens (iPhone SE with browser bars): tighten everything above your grid. */
@@ -2730,6 +3150,7 @@ dialog.overlay:focus {
   }
 
   .card,
+  .mine::before,
   .switch,
   .switch::after {
     transition: none;
@@ -2904,12 +3325,20 @@ dialog.overlay:focus {
   width: 100%;
   flex-direction: row;
   align-items: center;
-  padding: 8px 10px;
+  padding: 6px 10px;
 }
 
 .opponents.watch .out .opp-head {
   gap: 8px;
   margin: 0;
+}
+
+.opponents.watch .out .opp-scores {
+  margin: 0 0 0 8px;
+}
+
+.opponents.watch .out .opp-name {
+  flex: none;
 }
 
 .opponents.watch .out-note {

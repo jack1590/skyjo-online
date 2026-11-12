@@ -671,7 +671,7 @@ test.describe("with motion allowed", () => {
       await expect(page.locator(".overlay")).toBeVisible();
       expect(await totals()).toEqual({
         panels: others.map((i) => String(after.players[i].total)),
-        mine: `${after.players[seat].total} pts`,
+        mine: String(after.players[seat].total),
       });
     }
   });

@@ -3,7 +3,7 @@
 // Works for every player's moves (and for spectators), because it only needs views.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { GameView, ViewSlot } from "../engine/view";
-import { art, formatCard } from "./Card";
+import { art, band, formatCard } from "./Card";
 
 export const slotKey = (seat: number, pos: number) => `slot-${seat}-${pos}`;
 
@@ -398,7 +398,7 @@ function standIn(
     const text = look.querySelector(".num");
     num = text ? Number.parseFloat(getComputedStyle(text).fontSize) : 0;
   } else if (look !== null) {
-    el.className = `card ${size} ${look === "down" ? "down" : "up"}`;
+    el.className = `card ${size} ${look === "down" ? "down" : `up ${band(look)}`}`;
     el.style.backgroundImage = `url(${art(look)})`;
     // A large card's width comes from your grid; its number is a share of it.
     if (size === "lg") el.style.setProperty("--w", `${box.width}px`);

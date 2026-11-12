@@ -4,6 +4,22 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.9.0] - 2026-11-11
+
+### Changed
+
+- **A new look: Classic, upgraded.** The same night-blue table, paper-cut cards and gold, now with light and depth: a lantern's glow over the piles, cards that cast real shadows, a deck that looks like a stack, and buttons you can see are buttons.
+- **Numbers you can read on every card.** Each numeral is white with a dark outline in its card's colour, so a 2 on pale green or a 0 on aqua is as clear as a 12 on red.
+- **Every score has a caption.** Under each opponent's name: **Game** and **Round**. On your own row: **Game** and **This round**. The round's score so far is the gold one. The "+14" with no label is gone.
+- **Your turn has a frame.** A gold frame lights up around your name, your clock and your cards when it's your turn. Your clock's bar sits inside it, beside a reminder: **Low score wins**.
+- **The round summary explains itself.** Each player has a card with their place, this round's score, the game's total and a bar that fills toward 100. One sentence says what happened to whoever ended the round: "Mamá ended the round, but Leo scored lower, so Mamá's 18 counts double." Under it: "Lowest total wins · Game ends at 100" (or, playing until one is left, "Last one under 100 wins · Out at 100").
+- The Auto-play switch's caption is now just **Auto**, in every language.
+
+### Added
+
+- **A weight mark on every face-up card:** a diamond for the cards below zero, then no dot, one, two or three filled dots for 0, 1–4, 5–8 and 9–12. You can tell a good card from a bad one without relying on its colour.
+- **"You drew" and "Discard here".** The card you drew glows between the piles, and while you hold it the discard pile gets a dashed outline: that's where it goes if you don't want it.
+
 ## [2.8.0] - 2026-11-11
 
 ### Added

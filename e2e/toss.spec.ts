@@ -65,7 +65,11 @@ test("M21: a throw lands on its target without taking a tap, one buzz at a time,
     page.evaluate(() =>
       (window as unknown as { buzzes: number[][] }).buzzes.filter((b) => b.length > 1),
     );
-  await page.clock.install();
+  // Stands still but for runFor: the 0.6 s between buzzes is the page's time, and on a slow
+  // runner the steps between the two throws took longer than that in real time (PR #58).
+  const start = Date.UTC(2026, 10, 11, 12);
+  await page.clock.install({ time: start });
+  await page.clock.pauseAt(start + 1_000);
   const turn = atTurnStart(4);
   const me = turn.seat ?? 0;
   await show(page, turn);
