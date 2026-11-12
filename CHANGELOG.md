@@ -4,6 +4,12 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.14.1] - 2026-11-12
+
+### Changed
+
+- **Love and Angry reactions use their original sounds again:** the soft sigh and the low growl, as before 2.6.1.
+
 ## [2.14.0] - 2026-11-11
 
 ### Added
