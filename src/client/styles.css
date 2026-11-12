@@ -2438,6 +2438,9 @@ dialog.zoom::backdrop {
   position: absolute;
   width: 1px;
   height: 1px;
+  /* Takes no room: one on <body>, under the table, made the page 1px taller than the screen, so
+     it scrolled and a phone's browser could hide its bar mid-game (BUG-2). */
+  margin: -1px;
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;

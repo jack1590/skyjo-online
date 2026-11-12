@@ -4,6 +4,12 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.14.2] - 2026-11-12
+
+### Fixed
+
+- **The page under the table no longer scrolls, which could move the reactions button up into your name bar mid-game.** Since chat arrived (2.11.0) the page under the table was 1 pixel taller than your screen, so a swipe could scroll it. On a phone, that lets the browser hide its address bar: the screen gets taller, your cards grow, and with no room left beside them the button moved from beside your bottom row up to the end of your name bar, then back when the bar returned. The page no longer scrolls, so the browser has no reason to hide its bar and the button should stay where you found it. We could not test this on a real iPhone: if yours still moves it, tell us which phone and browser.
+
 ## [2.14.1] - 2026-11-12
 
 ### Changed
