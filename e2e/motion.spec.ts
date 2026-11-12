@@ -641,8 +641,8 @@ test.describe("with motion allowed", () => {
   }) => {
     await page.clock.install({ time: Date.UTC(2026, 9, 25, 12) });
     await page.clock.pauseAt(Date.UTC(2026, 9, 25, 12, 0, 1));
-    // Knockout seed 1: Dani went out in round 1; Ana and Ben go out as round 2 ends.
-    const knockout = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 1);
+    // Knockout seed 61: Dani went out in round 1; Ana and Ben go out as round 2 ends.
+    const knockout = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 61);
     const end = knockout.findIndex((s) => s.round === 2 && s.phase === "gameOver");
     const games = [
       { ...race(3, 5), seat: 0 },
@@ -1023,8 +1023,8 @@ test.describe("with motion allowed", () => {
     page,
   }) => {
     await recordFlights(page);
-    // Knockout seed 1: Dani went out in round 1, so round 2 deals to Ana, Ben and Cris only.
-    const game = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 1);
+    // Knockout seed 61: Dani went out in round 1, so round 2 deals to Ana, Ben and Cris only.
+    const game = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 61);
     const end = game.findIndex((s) => s.phase === "roundOver");
     const next = toView(game[end + 1]);
     expect(next.round).toBe(2);
@@ -1173,7 +1173,7 @@ test.describe("with motion allowed", () => {
     page,
   }) => {
     await recordFlights(page);
-    const game = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 1);
+    const game = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 61);
     const end = game.findIndex((s) => s.phase === "roundOver");
     await show(page, { view: toView(game[end]), seat: 0 });
     const frames = () =>
@@ -1329,8 +1329,8 @@ test.describe("with motion allowed", () => {
     test.skip(!process.env.SHOTS || info.project.name !== "iphone", "run with SHOTS=1");
     mkdirSync("test-results/m20", { recursive: true });
     await recordFlights(page);
-    // Knockout seed 1: round 1's summary, then round 2, dealt to the three still in, every 60 ms.
-    const game = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 1);
+    // Knockout seed 61: round 1's summary, then round 2, dealt to the three still in, every 60 ms.
+    const game = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 61);
     const end = game.findIndex((s) => s.phase === "roundOver");
     await show(page, { view: toView(game[end]), seat: 0 });
     const every = Array.from({ length: 12 }, (_, i) => i * 60);
@@ -1365,7 +1365,7 @@ test("UX-28: with reduced motion the deal just shows: no stand-in, no animation"
   page,
 }) => {
   await recordFlights(page);
-  const game = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 1);
+  const game = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 61);
   const end = game.findIndex((s) => s.phase === "roundOver");
   await show(page, { view: toView(game[end]), seat: 0 });
   const seen = await page.evaluate(

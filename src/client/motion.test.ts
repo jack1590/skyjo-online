@@ -487,8 +487,8 @@ describe("UX-28: the deal", () => {
   });
 
   it("UX-28, R16: a knockout round deals only to the players still in", () => {
-    // Seed 1, played like e2e/harness.ts's knockoutGame: Dani goes out in round 1.
-    let round2 = createGame(["Ana", "Ben", "Cris", "Dani"], [1, 0, 0, 0], { knockout: true });
+    // Seed 61, played like e2e/harness.ts's knockoutGame: Dani goes out in round 1.
+    let round2 = createGame(["Ana", "Ben", "Cris", "Dani"], [61, 0, 0, 0], { knockout: true });
     while (round2.round === 1) {
       const legal = legalActions(round2);
       round2 = apply(round2, legal[round2.phase === "place" ? legal.length - 1 : 0]);

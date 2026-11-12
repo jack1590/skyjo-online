@@ -1,8 +1,9 @@
 // Throws (M21, M22): the tray in an opponent's sheet, items landing over the table and leaving their
 // mark, and the real thing between two phones.
 import { expect, type Page } from "@playwright/test";
+import { toView } from "../src/engine/view";
 import type { Toss } from "../src/protocol";
-import { atTurnStart, show } from "./harness";
+import { atTurnStart, roundOver, show } from "./harness";
 import { botStep, seatedRoom, startGame, test } from "./helpers";
 
 const throwAt = (page: Page, toss: Omit<Toss, "id">) =>
@@ -35,6 +36,16 @@ test("M21: items live only in an opponent's sheet, 6 big buttons; spectators get
     await expect(page.getByTestId("zoom")).toBeVisible();
     await expect(page.getByTestId("tray")).toHaveCount(0);
   }
+});
+
+test("BUG-7: View table at a summary shows an opponent's cards with nothing to throw", async ({
+  page,
+}) => {
+  await show(page, { view: toView(roundOver(2, 11)), seat: 0, lead: true });
+  await page.getByRole("button", { name: "View table" }).click();
+  await page.getByTestId("opponent").first().click();
+  await expect(page.getByTestId("zoom")).toBeVisible();
+  await expect(page.getByTestId("tray")).toHaveCount(0);
 });
 
 test("M21: a throw lands on its target without taking a tap, one buzz at a time, and the switch turns them off for good", async ({

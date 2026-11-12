@@ -21,7 +21,6 @@ test("README stills", async ({ browser, page }, info) => {
   await page.goto("/");
   const gotIt = page.getByRole("button", { name: "Got it" });
   if (await gotIt.count()) await gotIt.click();
-  await shot(page, "home");
 
   const { pages } = await seatedRoom(browser, info, ["Ana", "Ben", "Cris", "Dani"]);
   // Show the live site's address, not the test server's.
@@ -31,7 +30,13 @@ test("README stills", async ({ browser, page }, info) => {
   });
   await pages[0].getByRole("checkbox", { name: "Play until one is left" }).click({ force: true });
   await expect(pages[1].getByRole("checkbox", { name: "Play until one is left" })).toBeChecked();
+  // A public room (M24): the switch in the lobby, and the room on Home's list.
+  await pages[0].getByRole("checkbox", { name: "Public room" }).click({ force: true });
+  await expect(pages[1].getByRole("checkbox", { name: "Public room" })).toBeChecked();
   await shot(pages[0], "lobby");
+  await page.getByRole("button", { name: "Refresh" }).click();
+  await expect(page.getByTestId("public-rooms")).toContainText("Ana's room");
+  await shot(page, "home");
 
   // Your turn with 9 s on the clock (M8).
   const four = atTurnStart(4);
@@ -51,14 +56,14 @@ test("README stills", async ({ browser, page }, info) => {
   await expect(page.getByTestId("zoom")).toBeVisible();
   await shot(page, "zoom");
   // Ranked from the lowest total, your row tagged, and the ender doubled (UX-14).
-  await show(page, { view: toView(roundOver(4, 4)), seat: 2, lead: true });
+  await show(page, { view: toView(roundOver(4, 344)), seat: 2, lead: true });
   await shot(page, "summary");
 
-  // Play until one is left (R16), seed 1: Dani goes out after round 1; Cris is the one left.
-  const knockout = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 1);
+  // Play until one is left (R16), seed 61: Dani goes out after round 1; Cris is the one left.
+  const knockout = knockoutGame(["Ana", "Ben", "Cris", "Dani"], 61);
   const firstOut = knockout.find((s) => s.phase === "roundOver");
   const round2 = knockout.find((s) => s.round === 2 && s.phase === "draw");
-  if (!firstOut || !round2) throw new Error("seed 1 no longer plays out this way");
+  if (!firstOut || !round2) throw new Error("seed 61 no longer plays out this way");
   await show(page, { view: toView(firstOut), seat: 0, lead: true });
   await shot(page, "knockout-summary");
   await show(page, { view: toView(round2), seat: 3 });

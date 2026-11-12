@@ -3,8 +3,10 @@ import { type Action, type GameState, legalActions } from "../engine/game";
 import {
   CLOSE_ROOM_FULL,
   type ClientMsg,
+  type PublicRoom,
   type RoomView,
   type ServerMsg,
+  TOSS_MS,
   TURN_MS,
 } from "../protocol";
 import {
@@ -12,6 +14,7 @@ import {
   AUTO_NEXT_MS,
   type Conn,
   EMPTY_IDLE_MS,
+  GAGS_PER_UNIT,
   HELLO_MS,
   IDLE_MS,
   IP_MESSAGES_PER_MINUTE,
@@ -20,7 +23,7 @@ import {
   type Room,
   STALE_MS,
 } from "./room";
-import worker, { RoomDO } from "./worker";
+import worker, { DirectoryDO, RoomDO } from "./worker";
 
 vi.mock("cloudflare:workers", () => ({
   DurableObject: class {
@@ -297,9 +300,11 @@ describe("RoomDO storage writes", () => {
       '{"t":"nope"}',
       { t: "join", name: "Again" },
       { t: "kick", seat: 1 },
-      { t: "rematch" },
       { t: "act", action: { type: "draw", seat: 0, source: "deck" } },
     ];
+    // A Play again that lands in the lobby is late, not an error (BUG-12), and as quiet.
+    await t.send(a, { t: "rematch" });
+    expect(a.sent.at(-1)?.t).toBe("state");
     for (const msg of rejected) await t.send(a, msg);
     expect(t.rows()).toBe(rows);
     expect(b.sent.length).toBe(toB);
@@ -753,6 +758,111 @@ describe("RoomDO auto-play (M8)", () => {
   });
 });
 
+describe("RoomDO gags (BUG-4)", () => {
+  /**
+   * `n` phones on one IP play for 5 minutes, a tap every `tap` ms, and every phone throws or reacts
+   * as often as the app lets it: every TOSS_MS, plus the app's 250 ms margin. `dropped`: the last
+   * phone lost its connection at the deal, so its seat goes on Auto-play. Returns the busiest
+   * minute of the IP's budget after the deal, and every socket.
+   */
+  async function gagging(n: number, tap: number, dropped = false) {
+    const env = { MESSAGES: messageLimiter() };
+    const t = await harness(env);
+    const phones = await t.seat(n);
+    await t.send(phones[0], { t: "start" });
+    const from = Date.now();
+    const there = dropped ? phones.slice(0, -1) : phones;
+    for (let ms = 0; ms < 5 * 60_000; ms += 250) {
+      await t.advance(250, there);
+      if (ms % (TOSS_MS + 250) === 0) {
+        for (const [i, ws] of there.entries()) {
+          const gag = { t: "toss", to: (i + 1) % n, item: "bomb" } as const;
+          await t.send(ws, i % 2 ? { t: "react", kind: "laugh" } : gag);
+        }
+      }
+      const game = t.game();
+      if (!game || game.phase === "gameOver") break;
+      if (ms % tap) continue;
+      const legal = legalActions(game);
+      if (game.phase === "flip") {
+        for (const [i, ws] of there.entries()) {
+          const flip = legal.find((a) => a.type === "flip" && a.seat === i);
+          if (flip) await t.send(ws, { t: "act", action: flip });
+        }
+      } else if (game.phase === "roundOver") {
+        await t.send(phones[0], { t: "act", action: legal[0] });
+      } else if (there[game.current] && !lastView(phones[0]).seats[game.current].auto) {
+        const action = legal[game.phase === "place" ? legal.length - 1 : 0] as Action;
+        await t.send(there[game.current], { t: "act", action });
+      }
+    }
+    const played = env.MESSAGES.calls.filter(([, when]) => when > from);
+    return { peak: peakMinute(played, HOME), phones };
+  }
+
+  it("BUG-4: 3, 4, 6 or 8 friends on one Wi-Fi who all throw and react every 3 s are never closed, and stay under 0.75 of the budget, also when one of them drops", async () => {
+    // Before, a gag cost a unit: 6 phones spent the 120 units 37.5 s after the deal and 8 phones
+    // 27.5 s after it, and the next alarm closed every socket of the address (1008).
+    for (const n of [3, 4, 6, 8]) {
+      for (const dropped of [false, true]) {
+        const { peak, phones } = await gagging(n, 2_000, dropped);
+        expect(phones.filter((ws) => ws.closed !== null)).toEqual([]);
+        expect(peak).toBeLessThanOrEqual(0.75 * IP_MESSAGES_PER_MINUTE);
+      }
+    }
+  });
+
+  it("BUG-4: ... and 8 of them tapping once a second, faster than anyone plays, still trip nothing", async () => {
+    const { peak, phones } = await gagging(8, 1_000);
+    expect(phones.filter((ws) => ws.closed !== null)).toEqual([]);
+    expect(peak).toBeLessThanOrEqual(IP_MESSAGES_PER_MINUTE);
+  });
+
+  it("BUG-4: a socket's throws and reactions cost its IP a unit for every 8, the first of each 8 paying, landed, too soon or refused, across hibernation", async () => {
+    const env = { MESSAGES: messageLimiter() };
+    const t = await harness(env);
+    const [a, b] = await t.seat(2);
+    const lobby = spent(env, HOME);
+    await t.send(a, { t: "toss", to: 1, item: "bomb" }); // refused: no game yet
+    expect(a.sent.at(-1)).toMatchObject({ t: "error", code: "not-allowed" });
+    expect(spent(env, HOME)).toBe(lobby + 1);
+    await t.send(a, { t: "start" });
+    await flipAll(t, [a, b]);
+    const before = spent(env, HOME);
+    await t.send(a, { t: "toss", to: 1, item: "bomb" });
+    expect(spent(env, HOME)).toBe(before);
+    t.wake();
+    for (let i = 2; i < GAGS_PER_UNIT; i++) await t.send(a, { t: "react", kind: "laugh" }); // too soon
+    expect(spent(env, HOME)).toBe(before);
+    await t.send(a, { t: "toss", to: 1, item: "kiss" });
+    expect(spent(env, HOME)).toBe(before + 1);
+    for (let i = 1; i < GAGS_PER_UNIT; i++) await t.send(a, { t: "react", kind: "laugh" });
+    expect(spent(env, HOME)).toBe(before + 1);
+    await t.send(a, { t: "toss", to: 1, item: "kiss" });
+    expect(spent(env, HOME)).toBe(before + 2);
+    // Each socket counts its own.
+    await t.send(b, { t: "react", kind: "love" });
+    expect(spent(env, HOME)).toBe(before + 3);
+  });
+
+  it("BUG-4: an IP out of budget keeps its sockets through the gags it already paid for; the next one it can't pay for closes that socket, like any message", async () => {
+    const env = { MESSAGES: messageLimiter() };
+    const t = await harness(env);
+    const [a, b] = await t.seat(2);
+    await t.send(a, { t: "start" });
+    nextMinute();
+    await t.send(a, { t: "toss", to: 1, item: "bomb" });
+    while (spent(env, HOME) < 2 * IP_MESSAGES_PER_MINUTE && b.closed === null) {
+      await t.send(b, { t: "hello", token: token(1) });
+    }
+    expect(b.closed).toBe(1008);
+    for (let i = 1; i < GAGS_PER_UNIT; i++) await t.send(a, { t: "toss", to: 1, item: "bomb" });
+    expect(a.closed).toBeNull();
+    await t.send(a, { t: "toss", to: 1, item: "bomb" });
+    expect(a.closed).toBe(1008);
+  });
+});
+
 describe("RoomDO event order", () => {
   it("SEC-10: a socket's messages are handled in order even when the limiter answers out of order", async () => {
     let calls = 0;
@@ -1015,23 +1125,40 @@ describe("RoomDO alarm charges (SEC-11)", () => {
     expect([t.rows() - rows, Math.round(t.requests - requests)]).toEqual([1, 1]);
   });
 
-  it("SEC-11, SEC-13: one IP at every limit, holding 2-seat rooms open or leaving games mid-turn, and spending the rest of its budget, needs 14 h to use up the rows and 18 h for the DO requests", async () => {
-    // Before SEC-11 rows ran out in 1.8–1.9 h holding, 10.2 h spamming first and 7.5 h hitting and
-    // running. Leaving games mid-turn took 12.2 h before the last socket out paid for its alarm
-    // (SEC-13); now it takes 21.0 h. The least of all: 14.0 h for the rows, 18.2 h for the requests.
-    const ways = [
-      "hold only",
-      "hold, then spam",
-      "spam, then hold",
-      "hit and run",
-      "leave mid-turn",
-    ] as const;
-    for (const how of ways) {
-      const day = await holdRooms(24, how);
+  // Before SEC-11 rows ran out in 1.8–1.9 h holding, 10.2 h spamming first and 7.5 h hitting and
+  // running. Leaving games mid-turn took 12.2 h before the last socket out paid for its alarm
+  // (SEC-13); now it takes 21.0 h. The least of all: 14.0 h for the rows, 18.2 h for the requests.
+  // BUG-4: throwing from every seat it holds, at 8 gags a unit, takes 19.2 h for the requests
+  // (holding first; at 10 a unit it took 17.8 h) and writes fewer rows than holding alone.
+  // One case per way: together they take 13 s here and passed 60 s on a slow CI runner (PR #48).
+  it.each([
+    "hold only",
+    "hold, then spam",
+    "spam, then hold",
+    "hit and run",
+    "leave mid-turn",
+    "hold, then gag",
+    "gag, then hold",
+    "hold, then gag in lobbies",
+    "public loop",
+    "list and run",
+  ] as const)(
+    "SEC-11, SEC-13 (%s): one IP at every limit, holding 2-seat rooms open or leaving games mid-turn, and spending the rest of its budget, needs 14 h to use up the rows and 18 h for the DO requests",
+    async (how) => {
+      // The gag modes send over 20,000 throws an hour, so they simulate 1 or 2 h: what is checked
+      // here. Short runs read about 2% high, as rooms are still being made. Over 24 h: 19.4 h and
+      // 19.2 h holding first, 163.7 h and 30.1 h gagging first, 28.7 h and 19.2 h in lobbies.
+      const gags = { "hold, then gag": 2, "gag, then hold": 1, "hold, then gag in lobbies": 2 }[
+        how as string
+      ];
+      const day = await holdRooms(gags ?? 24, how);
+      expect(day.thrown).toBeGreaterThanOrEqual((gags ?? 0) * 20_000);
+      if (!gags) expect(day.thrown).toBe(0);
+
       expect(day.hoursToRows).toBeGreaterThanOrEqual(14);
       expect(day.hoursToRequests).toBeGreaterThanOrEqual(18);
-    }
-  });
+    },
+  );
 });
 
 /**
@@ -1043,13 +1170,31 @@ describe("RoomDO alarm charges (SEC-11)", () => {
  * and run" closes each socket right after its hello or join, before the room's presence check.
  * "leave mid-turn" (SEC-13) does the same in games its guests deal before leaving (all but the
  * loop's room), so each return's hello restarts a turn clock whose alarm then runs with nobody there.
+ * The gag modes (BUG-4) keep every socket open: each minute, before or after the rest, every seat
+ * throws until the budget closes a socket, in a game dealt in every room, or in lobbies, where a
+ * throw is refused and costs the same.
  * Stops at a day's quota or after `hours`; says how long one IP needs to use up the 100,000 rows
  * and the 100,000 DO requests a day.
  */
 async function holdRooms(
   hours: number,
-  how: "hold only" | "hold, then spam" | "spam, then hold" | "hit and run" | "leave mid-turn",
+  how:
+    | "hold only"
+    | "hold, then spam"
+    | "spam, then hold"
+    | "hit and run"
+    | "leave mid-turn"
+    | "hold, then gag"
+    | "gag, then hold"
+    | "hold, then gag in lobbies"
+    | "public loop"
+    | "list and run",
 ) {
+  /** Its sockets leave right after their hello or join. */
+  const runs = how === "hit and run" || how === "leave mid-turn" || how === "list and run";
+  /** The modes that deal a game in every room, where a throw lands. */
+  const dealt = how === "hold, then gag" || how === "gag, then hold";
+  const gags = dealt || how === "hold, then gag in lobbies";
   const BOT = "192.0.2.66";
   const QUOTA = 100_000;
   type Harness = Awaited<ReturnType<typeof harness>>;
@@ -1058,6 +1203,7 @@ async function holdRooms(
     API_REQUESTS: limiter(30),
     ROOM_CREATION: limiter(10),
     MESSAGES: messageLimiter(),
+    DIRECTORY: fakeDirectory(),
     ROOMS: {
       idFromName: (code: string) => code,
       get: (code: string) => ({
@@ -1109,8 +1255,7 @@ async function holdRooms(
   const start = Math.ceil(Date.now() / 60_000) * 60_000;
   const end = start + hours * 3_600_000;
   const used = () => {
-    let rows = 0;
-    let requests = 0;
+    let { rows, requests } = env.DIRECTORY;
     for (const h of rooms.values()) {
       rows += h.rows();
       requests += h.requests;
@@ -1119,7 +1264,7 @@ async function holdRooms(
   };
   /** A socket in the first room for the join/leave loop, opened before anything else uses the upgrades. */
   const ready = async () => {
-    if (!held.length || spam?.closed === null) return;
+    if (!held.length || spam?.closed === null || how === "public loop") return;
     spam = await open(held[0].code);
     const h = rooms.get(held[0].code) as Harness;
     if (spam && !(await tell(h, spam, { t: "hello", token: "spammer-token" }))) spam = null;
@@ -1128,22 +1273,44 @@ async function holdRooms(
   const spend = async () => {
     if (!held.length) return;
     const h = rooms.get(held[0].code) as Harness;
+    // M24: the first room's host flips its Public switch instead, 2 rows and a request each time.
+    for (let ws = held[0].host; how === "public loop" && ws?.closed === null; ) {
+      await tell(h, ws, { t: "public", on: !lastView(ws).public });
+    }
     while (spam?.closed === null) {
       await tell(h, spam, lastView(spam).you === null ? { t: "join", name: "x" } : { t: "leave" });
+    }
+  };
+  /**
+   * BUG-4: throws from every seat it holds, 100 a socket a minute (under the per-socket
+   * flood limit), until its budget closes one. 8 gags a unit, each 1/20 of a DO request, no row.
+   */
+  let thrown = 0;
+  const gag = async () => {
+    for (const h of rooms.values()) {
+      for (const ws of [...h.sockets]) {
+        for (let i = 0; i < 100 && ws.closed === null; i++) {
+          const view = ws.sent.some((m) => m.t === "state") ? lastView(ws) : null;
+          if (!view || view.you === null || (dealt && !view.game)) break;
+          if (!(await tell(h, ws, { t: "toss", to: 1 - view.you, item: "bomb" }))) return;
+          thrown++;
+        }
+      }
     }
   };
   let minute = 0;
   for (; minute < hours * 60; minute++) {
     vi.setSystemTime(start + minute * 60_000);
-    if (how !== "hold only") await ready();
+    if (how !== "hold only" && !gags) await ready();
     if (how === "spam, then hold") await spend();
+    if (how === "gag, then hold") await gag();
     for (const r of held) {
       if (r.host?.closed === null) continue;
       const ws = await open(r.code);
       const h = rooms.get(r.code) as Harness;
       r.host = ws && (await tell(h, ws, { t: "hello", token: `${r.code}-host` })) ? ws : null;
       if (!r.host) break;
-      if (how === "hit and run" || how === "leave mid-turn") r.host = await leave(h, r.host);
+      if (runs) r.host = await leave(h, r.host);
     }
     for (let res = await api("/api/rooms", { method: "POST" }); res.status === 200; ) {
       const { code } = JSON.parse(res.body ?? "{}") as { code: string };
@@ -1157,12 +1324,23 @@ async function holdRooms(
         // Every room but the first, where the join/leave loop runs, since a game takes no joins.
         const deal = how === "leave mid-turn" && who === "guest" && held.length > 1;
         if (deal && !(await tell(h, ws, { t: "start" }))) break;
+        // M24: each return of the host lists the room, and each leaving takes it off.
+        if (
+          how === "list and run" &&
+          who === "host" &&
+          !(await tell(h, ws, { t: "public", on: true }))
+        ) {
+          break;
+        }
         if (who === "host") r.host = ws;
-        if (how === "hit and run" || how === "leave mid-turn") r.host = await leave(h, ws);
+        if (runs) r.host = await leave(h, ws);
       }
+      // Throws need a game, which the host deals.
+      if (dealt && r.host?.closed === null) await tell(h, r.host, { t: "start" });
       res = await api("/api/rooms", { method: "POST" });
     }
-    if (how !== "spam, then hold") await spend();
+    if (how !== "spam, then hold" && !gags) await spend();
+    if (how === "hold, then gag" || how === "hold, then gag in lobbies") await gag();
     const until = start + (minute + 1) * 60_000;
     for (;;) {
       let next: Harness | null = null;
@@ -1183,7 +1361,227 @@ async function holdRooms(
   const { rows, requests } = used();
   const simulated = (minute + 1) / 60;
   return {
+    thrown,
     hoursToRows: (simulated * QUOTA) / rows,
     hoursToRequests: (simulated * QUOTA) / requests,
   };
 }
+
+/**
+ * The one DirectoryDO (M24) on a fake runtime that counts its rows written (each `put` and
+ * `delete`) and its requests. `down`: it can't be reached.
+ */
+function fakeDirectory() {
+  const data = new Map<string, unknown>();
+  const storage = {
+    list: async () => structuredClone(data),
+    put: async (key: string, value: unknown) => {
+      d.rows++;
+      data.set(key, structuredClone(value));
+    },
+    delete: async (key: string) => {
+      d.rows++;
+      data.delete(key);
+    },
+  };
+  let durable = new DirectoryDO({ storage } as never, {} as never);
+  const d = {
+    rows: 0,
+    requests: 0,
+    down: false,
+    /** The object is evicted and a fresh instance reads its rows. */
+    wake: () => {
+      durable = new DirectoryDO({ storage } as never, {} as never);
+    },
+    rooms: () => durable.list(),
+    idFromName: (name: string) => name,
+    get: () => ({
+      set: async (code: string, room: PublicRoom | null, owner: string | null) => {
+        d.requests++;
+        if (d.down) throw new Error("unreachable");
+        return durable.set(code, room, owner);
+      },
+      list: async () => {
+        d.requests++;
+        return durable.list();
+      },
+    }),
+  };
+  return d;
+}
+
+describe("RoomDO public rooms (M24)", () => {
+  const AWAY = "198.51.100.1";
+  const open: ClientMsg = { t: "public", on: true };
+  const publicRoom = async () => {
+    const DIRECTORY = fakeDirectory();
+    const env = { MESSAGES: messageLimiter(), DIRECTORY };
+    const t = await harness(env);
+    const [host] = await t.seat(1);
+    /** What an event cost: [the room's rows, the directory's rows, its requests, units to `ip`]. */
+    const cost = async (ip: string, run: () => Promise<unknown>) => {
+      const was = [t.rows(), DIRECTORY.rows, DIRECTORY.requests, spent(env, ip)];
+      await run();
+      const now = [t.rows(), DIRECTORY.rows, DIRECTORY.requests, spent(env, ip)];
+      return now.map((n, i) => n - was[i]);
+    };
+    return { DIRECTORY, env, t, host, cost };
+  };
+
+  it("M24: listing a room, each change to its entry and unlisting it cost a row in the directory, a DO request and 2 units to whoever's message did it; other messages cost the list nothing", async () => {
+    const { DIRECTORY, t, host, cost } = await publicRoom();
+    // The room's 2 rows: itself, and its alarm, now a presence check; the 4 units: 1 + 1 + 2.
+    expect(await cost(HOME, () => t.send(host, open))).toEqual([2, 1, 1, 4]);
+    expect(await DIRECTORY.rooms()).toEqual([
+      { code: "ABCDE", host: "P0", players: 1, knockout: false },
+    ]);
+    const guest = await t.connect(AWAY);
+    expect(await cost(AWAY, () => t.send(guest, { t: "hello", token: token(1) }))).toEqual([
+      0, 0, 0, 1,
+    ]);
+    expect(await cost(AWAY, () => t.send(guest, { t: "join", name: "Guest" }))).toEqual([
+      1, 1, 1, 3,
+    ]);
+    expect(await cost(HOME, () => t.send(host, { t: "knockout", on: true }))).toEqual([1, 1, 1, 3]);
+    expect(await DIRECTORY.rooms()).toEqual([
+      { code: "ABCDE", host: "P0", players: 2, knockout: true },
+    ]);
+    // The deal: the room's alarm moves to the turn clock too.
+    expect(await cost(HOME, () => t.send(host, { t: "start" }))).toEqual([2, 1, 1, 4]);
+    expect(await DIRECTORY.rooms()).toEqual([]);
+    expect(await cost(AWAY, () => t.send(guest, { t: "hello", token: token(1) }))).toEqual([
+      0, 0, 0, 1,
+    ]);
+  });
+
+  it("M24: the last seated socket out takes the room off the list and pays 2 for it; its hello puts it back for 2; a spectator's socket changes nothing", async () => {
+    const { DIRECTORY, t, host, cost } = await publicRoom();
+    await t.send(host, open);
+    const watcher = await t.connect(AWAY);
+    await t.send(watcher, { t: "hello", token: token(9) });
+    expect(await cost(AWAY, () => t.close(watcher))).toEqual([0, 0, 0, 0]);
+    // 2 rows: the directory's, and the room's, which remembers it is off the list. 4 units: 2 for
+    // the list and 2 for the presence check it leaves armed (SEC-13).
+    expect(await cost(HOME, () => t.close(host))).toEqual([1, 1, 1, 4]);
+    expect(await DIRECTORY.rooms()).toEqual([]);
+    const back = await t.connect();
+    expect(await cost(HOME, () => t.send(back, { t: "hello", token: token(0) }))).toEqual([
+      1, 1, 1, 3,
+    ]);
+    expect(await DIRECTORY.rooms()).toHaveLength(1);
+  });
+
+  it("M24, SEC-9: a host alone whose phone goes silent leaves the list at the room's presence check, which charges each IP with a socket 2 more; a hello puts the room back", async () => {
+    const { DIRECTORY, env, t, host, cost } = await publicRoom();
+    await t.send(host, open);
+    const watcher = await t.connect(AWAY);
+    await t.send(watcher, { t: "hello", token: token(9) });
+    const away = spent(env, AWAY);
+    // The room's 2 rows: itself, and its next alarm. 4 units each: the alarm run's 2, the list's 2.
+    expect(await cost(HOME, () => t.advance(STALE_MS, [watcher]))).toEqual([2, 1, 1, 4]);
+    expect(spent(env, AWAY) - away).toBe(4);
+    expect(await DIRECTORY.rooms()).toEqual([]);
+    expect(lastView(watcher).public).toBe(true); // still the host's choice
+    await t.send(host, { t: "hello", token: token(0) });
+    expect(await DIRECTORY.rooms()).toHaveLength(1);
+  });
+
+  it("M24: what the list knows survives hibernation, the room's and its own, so nothing is told twice; a list that can't be reached is told at the room's next event, and nobody pays for the miss", async () => {
+    const { DIRECTORY, t, host, cost } = await publicRoom();
+    await t.send(host, open);
+    t.wake();
+    DIRECTORY.wake();
+    expect(await cost(HOME, () => t.send(host, { t: "hello", token: token(0) }))).toEqual([
+      0, 0, 0, 1,
+    ]);
+    expect(await DIRECTORY.rooms()).toHaveLength(1);
+    DIRECTORY.down = true;
+    const guest = await t.connect(AWAY);
+    await t.send(guest, { t: "hello", token: token(1) });
+    const [room, rows, , units] = await cost(AWAY, () => t.send(guest, { t: "join", name: "G" }));
+    expect([room, rows, units]).toEqual([1, 0, 1]);
+    expect(lastView(host).seats).toHaveLength(2); // the room carries on
+    expect(await DIRECTORY.rooms()).toMatchObject([{ players: 1 }]);
+    DIRECTORY.down = false;
+    expect(await cost(HOME, () => t.send(host, { t: "hello", token: token(0) }))).toEqual([
+      1, 1, 1, 3,
+    ]);
+    expect(await DIRECTORY.rooms()).toMatchObject([{ players: 2 }]);
+  });
+
+  it("M24, SEC-9: a public lobby left open with one tab that only pings costs what a 2-seat lobby does, tells the list again at 12 h, and is off it when the room expires", async () => {
+    const { DIRECTORY, t, host } = await publicRoom();
+    await t.send(host, open);
+    const [rows, requests] = [DIRECTORY.rows, DIRECTORY.requests];
+    const left = await dayLeftOpen(t, [host]);
+    expect([DIRECTORY.rows - rows, DIRECTORY.requests - requests]).toEqual([1, 1]);
+    expect(left.rows + 1).toBeLessThanOrEqual(170);
+    expect(left.requests + 1).toBeLessThanOrEqual(170);
+    expect(await DIRECTORY.rooms()).toHaveLength(1);
+    await t.advance(QUIET_MS, [host]);
+    expect(t.exists()).toBe(false);
+    expect(await DIRECTORY.rooms()).toEqual([]);
+  });
+
+  it("M24: an IP past its budget at the presence check that unlists a room loses its sockets, like at any alarm", async () => {
+    const { DIRECTORY, env, t, host } = await publicRoom();
+    await t.send(host, open);
+    const watcher = await t.connect(AWAY);
+    await t.send(watcher, { t: "hello", token: token(9) });
+    await t.advance(60_000 - (Date.now() % 60_000), [host, watcher]); // a fresh limit window
+    // The host's phone goes silent; the check that finds it stale comes in this window.
+    await t.advance(STALE_MS - 1, [watcher]);
+    const minute = Math.floor(Date.now() / 60_000);
+    const used = env.MESSAGES.calls.filter(
+      ([key, when]) => key === AWAY && Math.floor(when / 60_000) === minute,
+    ).length;
+    for (let i = used; i < IP_MESSAGES_PER_MINUTE - 2; i++) await env.MESSAGES.limit({ key: AWAY });
+    await t.advance(1, [watcher]); // the alarm's 2 fit; the list's 2 don't
+    expect(await DIRECTORY.rooms()).toEqual([]);
+    expect(watcher.closed).toBe(1008);
+    expect(host.closed).toBeNull();
+  });
+
+  it("M24: an address lists 2 rooms; its third stays private: the host is told why, everyone sees the switch back off, and the try costs it 3; another address's room is listed", async () => {
+    const DIRECTORY = fakeDirectory();
+    const env = { MESSAGES: messageLimiter(), DIRECTORY };
+    const hosts: FakeSocket[] = [];
+    const rooms: Harness[] = [];
+    for (const code of ["AAAAA", "BBBBB", "CCCCC"]) {
+      const t = await harness(env, code);
+      const [host] = await t.seat(1);
+      hosts.push(host);
+      rooms.push(t);
+    }
+    await rooms[0].send(hosts[0], open);
+    await rooms[1].send(hosts[1], open);
+    const [t, host] = [rooms[2], hosts[2]];
+    const guest = await t.connect(AWAY);
+    await t.send(guest, { t: "hello", token: token(1) });
+    const was = [t.rows(), DIRECTORY.rows, DIRECTORY.requests, spent(env, HOME)];
+    await t.send(host, { ...open, seq: 7 });
+    const now = [t.rows(), DIRECTORY.rows, DIRECTORY.requests, spent(env, HOME)];
+    expect(now.map((n, i) => n - was[i])).toEqual([1, 0, 1, 3]);
+    expect(host.sent.at(-1)).toEqual({ t: "error", code: "too-many-public", ack: 7 });
+    expect(lastView(host).public).toBe(false);
+    expect(lastView(guest).public).toBe(false);
+    expect((await DIRECTORY.rooms()).map((r) => r.code).sort()).toEqual(["AAAAA", "BBBBB"]);
+    t.wake();
+    await t.send(host, { t: "hello", token: token(0) });
+    expect(lastView(host).public).toBe(false); // saved
+    // One of the two starts its game: now the third fits.
+    const second = await rooms[1].connect(AWAY);
+    await rooms[1].send(second, { t: "hello", token: token(1) });
+    await rooms[1].send(second, { t: "join", name: "Guest" });
+    await rooms[1].send(hosts[1], { t: "start" });
+    await t.send(host, open);
+    expect((await DIRECTORY.rooms()).map((r) => r.code).sort()).toEqual(["AAAAA", "CCCCC"]);
+    // Another address has its own two.
+    const other = await harness(env, "DDDDD");
+    const far = await other.connect(AWAY);
+    await other.send(far, { t: "hello", token: token(5) });
+    await other.send(far, { t: "join", name: "Far" });
+    await other.send(far, open);
+    expect(await DIRECTORY.rooms()).toHaveLength(3);
+  });
+});
