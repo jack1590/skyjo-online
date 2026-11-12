@@ -4,6 +4,13 @@ What changed for players, release by release. Format: [Keep a Changelog](https:/
 
 Every merge to `main` deploys to https://skyjo-online.jcarl-30.workers.dev. When the version in `package.json` is new, CI also tags it and publishes a GitHub Release with that version's section from this file, after the live smoke test passes.
 
+## [2.14.3] - 2026-11-12
+
+### Fixed
+
+- **Throwing a reaction no longer turns on Auto-play by accident.** On phones where the 🙂 button sits in your name bar, the pigeon feeder opened right on top of the Auto switch, so a second quick tap, or a thumb a little off, switched Auto-play on. The four reactions now open below your name bar, clear of the switch.
+- **A quick second tap on a reaction no longer plays one of your cards.** While the 🙂 button rests for 3 seconds it still opens, with the reactions greyed out until you can send one again, so the tap stays on them.
+
 ## [2.14.2] - 2026-11-12
 
 ### Fixed
