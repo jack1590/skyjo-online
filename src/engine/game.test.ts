@@ -10,6 +10,7 @@ import {
   newDeck,
   places,
   RuleError,
+  roundWinners,
 } from "./game";
 import type { Seed } from "./rng";
 
@@ -694,5 +695,29 @@ describe("R16: play until one is left (knockout)", () => {
   it("R16 ranking of a played game: B ends with Cris 1st, Ben 2nd, Dani 3rd, Ana last", () => {
     const s = endWith(inRound([104, 90, 75, 98], [3, null, null, null]), 2, [0, 12, 4, 12]);
     expect(places(s)).toEqual([4, 2, 1, 3]);
+  });
+});
+
+describe("roundWinners (M30)", () => {
+  const players = (scores: number[], out: (number | null)[] = []) =>
+    scores.map((score, i) => ({ scores: [50, score], out: out[i] ?? null }));
+
+  it("M30: the lowest round score takes the round; equal scores share it", () => {
+    expect(roundWinners({ round: 2, players: players([12, -3, 7]) })).toEqual([1]);
+    expect(roundWinners({ round: 2, players: players([4, 9, 4, 4]) })).toEqual([0, 2, 3]);
+    expect(roundWinners({ round: 1, players: [{ scores: [], out: null }] })).toEqual([]);
+  });
+
+  it("M30 (R12): an ender tied for the lowest is doubled out of it, in a played round", () => {
+    // Seat 0 ends on 9 and seat 1's cards make 9 too, so seat 0's count 18.
+    const s = endWith(inRound([0, 0], [null, null]), 0, [9, 9]);
+    expect(s.players.map((p) => p.scores.at(-1))).toEqual([18, 9]);
+    expect(roundWinners(s)).toEqual([1]);
+  });
+
+  it("M30 (R16): a player out before the round took no part; one who goes out in it did", () => {
+    // Seat 0's last score is from round 1, when it went out: lower, and not this round's.
+    expect(roundWinners({ round: 2, players: players([-9, 20, 31], [1]) })).toEqual([1]);
+    expect(roundWinners({ round: 2, players: players([60, 8, 31], [null, 2]) })).toEqual([1]);
   });
 });

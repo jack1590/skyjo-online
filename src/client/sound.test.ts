@@ -361,6 +361,25 @@ describe("soundsBetween", () => {
     expect(names(soundsBetween(view, over, 1))).toEqual(["end"]);
   });
 
+  it("M30: at a round summary the round's winners hear the win, once; nobody else does, and game over or going out comes first", () => {
+    const view = toView(table(GRID, [0, 1], 0));
+    const scored = (scores: number[]) =>
+      view.players.map((p, i) => ({ ...p, scores: [scores[i]] }));
+    const summary = { ...view, phase: "roundOver" as const, players: scored([7, 3]) };
+    expect(soundsBetween(view, summary, 1)).toEqual([["win", 250]]);
+    for (const seat of [0, null]) expect(names(soundsBetween(view, summary, seat))).toEqual([]);
+    expect(names(soundsBetween(summary, { ...summary }, 1))).toEqual([]);
+    // A shared round: both.
+    const tie = { ...summary, players: scored([3, 3]) };
+    for (const seat of [0, 1]) expect(names(soundsBetween(view, tie, seat))).toEqual(["win"]);
+    // The game ends with this round: its own cue only, for the round's winner too.
+    const over = { ...summary, phase: "gameOver" as const, winners: [0] };
+    expect(names(soundsBetween(view, over, 1))).toEqual(["end"]);
+    // Won the round and went out in it (R16): out.
+    const out = summary.players.map((p, i) => (i === 1 ? { ...p, out: view.round } : p));
+    expect(names(soundsBetween(view, { ...summary, players: out }, 1))).toEqual(["out"]);
+  });
+
   it("M14: the round's last turns start with a cue for everyone, once; it stands in for the next player's 'your turn'", () => {
     // Seat 0 reveals its last face-down card (R10): seat 1's turn is the first of the last turns.
     const s = apply(table(GRID, upExcept(5), 0), draw);
@@ -430,13 +449,15 @@ describe("soundsBetween", () => {
     const { before, after, over } = lastTurn();
     const step = revealStep(6);
     const timing = reveal(ORDER);
+    // 250 ms after the summary shows, 600 ms after the last card has turned.
+    const shows = 5 * step + FLIP_MS.sm + 600 + 250;
+    // Everyone holds the same cards, so seats 0 and 2 share the round (M30): its win sounds then.
     expect(soundsBetween(before, after, 0, timing)).toEqual([
       ["discard", 0],
       ["flip", 0],
       ["flip", 3 * step],
+      ["win", shows],
     ]);
-    // 250 ms after the summary shows, 600 ms after the last card has turned.
-    const shows = 5 * step + FLIP_MS.sm + 600 + 250;
     expect(soundsBetween(before, over, 0, timing)).toContainEqual(["end", shows]);
     expect(soundsBetween(before, over, 2, timing)).toContainEqual(["win", shows]);
     // Going out (M13) sounds as its summary shows, too.
