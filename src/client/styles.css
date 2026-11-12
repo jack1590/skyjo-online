@@ -1511,13 +1511,31 @@ dialog.zoom::backdrop {
 }
 
 .react-item:disabled {
+  cursor: default;
+}
+
+.react-item:disabled .react-pick {
   opacity: 0.35;
   filter: grayscale(1);
-  cursor: default;
 }
 
 .react-fan.closing .react-item {
   animation: fan-in 120ms ease-in calc(var(--n) * 20ms) both;
+}
+
+/* After a pick the items hold their place, greyed, then fade: a double tap's second tap lands on
+   them, not on the card under them (BUG-14). It ends with the 400 ms close in Reactions.tsx. */
+.react-fan.closing.resting .react-item {
+  animation: fan-rest 400ms ease-in both;
+}
+
+@keyframes fan-rest {
+  60% {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
 }
 
 @keyframes fan-out {
@@ -3250,6 +3268,7 @@ dialog.overlay:focus {
 
   .react-item,
   .react-fan.closing .react-item,
+  .react-fan.closing.resting .react-item,
   .react[data-kind] .react-art,
   .react[data-kind] .react-fly {
     animation: none;

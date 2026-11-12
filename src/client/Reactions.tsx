@@ -35,6 +35,13 @@ const COO_ONSET = 40;
 /** The fan: each item's angle from the button, and how far out (px). */
 const FAN = [90, 120, 150, 180];
 const REACH = 104;
+/**
+ * In your name bar the Auto-play switch is where 180° would be, and a tap there when the fan isn't
+ * (the button rests, or the thumb misses) ticked it (BUG-14). A longer, tighter arc keeps every
+ * item below the bar and the switch's 44 px tap area.
+ */
+const BAR_FAN = [88, 110, 133, 155];
+const BAR_REACH = 140;
 
 const FACE: Record<ReactionKind, string> = {
   laugh: laughFace,
@@ -333,6 +340,7 @@ export function ReactButton({ place, until, target, reduced, onReact }: ReactBut
     else setClosing(true);
   };
   useFanDismiss(open !== null && !closing, [button, fan], close, () => button.current?.focus());
+  // biome-ignore lint/correctness/useExhaustiveDependencies: closing is the trigger
   useEffect(() => {
     if (!closing) return;
     const id = setTimeout(
@@ -340,18 +348,16 @@ export function ReactButton({ place, until, target, reduced, onReact }: ReactBut
         setOpen(null);
         setClosing(false);
       },
-      120 + 3 * 20,
+      // After a pick it rests: its greyed items take a double tap's second tap.
+      resting ? 400 : 120 + 3 * 20,
     );
     return () => clearTimeout(id);
   }, [closing]);
-  // Resting while open (you just sent from another phone, or a throw): the fan goes.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: resting is the trigger
-  useEffect(() => {
-    if (resting) close();
-  }, [resting]);
+  // It opens while it rests too, greyed out: a thumb's second tap where a reaction was is taken by
+  // the fan, not by your card or the switch under it (BUG-14).
   const toggle = () => {
-    if (resting) return;
-    if (open) return close();
+    if (open && !closing) return close();
+    setClosing(false);
     const r = button.current?.getBoundingClientRect();
     if (r) setOpen({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
   };
@@ -367,7 +373,7 @@ export function ReactButton({ place, until, target, reduced, onReact }: ReactBut
         aria-label={t("reactions")}
         title={t("reactions")}
         aria-expanded={open !== null && !closing}
-        // Not `disabled`: it keeps the focus after you pick a reaction.
+        // Not `disabled`: it keeps the focus after you pick a reaction, and still opens the fan.
         aria-disabled={resting || undefined}
         onClick={toggle}
       >
@@ -385,12 +391,13 @@ export function ReactButton({ place, until, target, reduced, onReact }: ReactBut
         createPortal(
           <div
             ref={fan}
-            className={`react-fan${closing ? " closing" : ""}`}
+            className={`react-fan${closing ? (resting ? " closing resting" : " closing") : ""}`}
             data-testid="react-fan"
             style={{ left: open.x, top: open.y }}
           >
             {REACTIONS.map((kind, i) => {
-              const angle = (FAN[i] * Math.PI) / 180;
+              const angle = ((down ? BAR_FAN : FAN)[i] * Math.PI) / 180;
+              const reach = down ? BAR_REACH : REACH;
               const off = kind === "migajero" && target === null;
               return (
                 <button
@@ -400,11 +407,11 @@ export function ReactButton({ place, until, target, reduced, onReact }: ReactBut
                   data-kind={kind}
                   aria-label={t(`react_${kind}`)}
                   title={t(`react_${kind}`)}
-                  disabled={off}
+                  disabled={off || resting}
                   style={
                     {
-                      "--x": `${Math.round(Math.cos(angle) * REACH)}px`,
-                      "--y": `${Math.round(Math.sin(angle) * REACH) * (down ? 1 : -1)}px`,
+                      "--x": `${Math.round(Math.cos(angle) * reach)}px`,
+                      "--y": `${Math.round(Math.sin(angle) * reach) * (down ? 1 : -1)}px`,
                       "--i": i,
                       "--n": REACTIONS.length - 1 - i,
                     } as CSSProperties
@@ -412,8 +419,7 @@ export function ReactButton({ place, until, target, reduced, onReact }: ReactBut
                   onClick={() => {
                     onReact(kind, kind === "migajero" ? (target ?? undefined) : undefined);
                     navigator.vibrate?.(10);
-                    setOpen(null);
-                    setClosing(false);
+                    setClosing(true);
                     button.current?.focus();
                   }}
                 >

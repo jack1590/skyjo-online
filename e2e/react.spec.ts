@@ -342,8 +342,130 @@ test("M23: your choice keeps the focus on the button, which rests", async ({ pag
   await page.getByTestId("react-fan").getByRole("button", { name: "Love" }).click();
   await expect(button).toBeFocused();
   await expect(button).toHaveAttribute("aria-disabled", "true");
+  // While it rests it still opens, with nothing to pick: a second tap where a reaction was is
+  // taken by the fan, not by the card under it (BUG-14).
   await button.click({ force: true });
-  await expect(page.getByTestId("react-fan")).toHaveCount(0);
+  await expect(page.getByTestId("react-fan").locator("button:disabled")).toHaveCount(4);
+  await expect(page.getByTestId("react-fan").locator("button:enabled")).toHaveCount(4, {
+    timeout: 4_000,
+  });
+});
+
+test("BUG-14: in your name bar no reaction opens over the Auto-play switch, and a tap where the pigeon feeder goes, while the button rests, never ticks it", async ({
+  page,
+  hasTouch,
+}) => {
+  test.setTimeout(90_000);
+  // A phone the cards fill (an iPhone's home-screen app): the button is in your name bar.
+  await page.setViewportSize({ width: 390, height: 745 });
+  for (const look of ["classic", "casual"]) {
+    await page.addInitScript((look) => localStorage.setItem("skyjo:theme", look), look);
+    await show(page, atTurnStart(4));
+    const button = page.getByTestId("react-button");
+    await expect(button).toHaveClass(/bar/);
+    const ticks = await page.evaluateHandle(() => {
+      const ticks = { n: 0 };
+      document.querySelector(".auto input")?.addEventListener("click", () => ticks.n++);
+      return ticks;
+    });
+    await button.click();
+    const bar = await box(page, "[data-testid=mine-head]");
+    const input = await box(page, ".auto input");
+    const items = await page
+      .locator(".react-item")
+      .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().toJSON() as DOMRect));
+    expect(items).toHaveLength(4);
+    // Each is below your name bar and the switch's 44 px tap area: a tap that misses one, or
+    // comes when the fan isn't there, never lands on the switch.
+    const clear = Math.max(bar.y + bar.height, input.y + input.height) + 8;
+    // Soft: where this fails, the taps below still show the switch ticking.
+    for (const r of items) expect.soft(r.top).toBeGreaterThanOrEqual(clear);
+    const bird = await box(page, ".react-item[data-kind=migajero]");
+    const tap = (b: { x: number; y: number; width: number; height: number }) =>
+      hasTouch
+        ? page.touchscreen.tap(b.x + b.width / 2, b.y + b.height / 2)
+        : page.mouse.click(b.x + b.width / 2, b.y + b.height / 2);
+    await tap(bird);
+    await expect(button).toHaveAttribute("aria-disabled", "true");
+    // Again at once, as a thumb does: the resting button doesn't open, so the second tap lands
+    // on whatever is under the pigeon feeder's place.
+    await tap(await box(page, "[data-testid=react-button]"));
+    await expect(button).toHaveAttribute("aria-disabled", "true");
+    await tap(bird);
+    // The resting button opened the fan greyed out, and it took the tap.
+    await expect(page.locator(".react-item:disabled")).toHaveCount(4);
+    expect(await ticks.evaluate((t) => t.n)).toBe(0);
+
+    // The same three taps in the opening flip, where a tap on your card is a move: none is made.
+    await show(page, { view: toView(createGame(["Ana", "Ben"], [3, 0, 0, 0])), seat: 0 });
+    let overCard = 0;
+    for (const kind of ["laugh", "love", "anger"]) {
+      await button.click();
+      const item = await box(page, `.react-item[data-kind=${kind}]`);
+      await tap(item);
+      await expect(page.getByTestId("react-fan")).toHaveCount(0);
+      overCard += await page.evaluate(
+        ([x, y]) =>
+          document.elementFromPoint(x, y)?.closest('[data-testid="my-grid"] .card') ? 1 : 0,
+        [item.x + item.width / 2, item.y + item.height / 2],
+      );
+      await tap(await box(page, "[data-testid=react-button]"));
+      await expect(button).toHaveAttribute("aria-disabled", "true");
+      await tap(item);
+      await expect(page.getByTestId("my-grid").locator("[data-pending]")).toHaveCount(0);
+      // The next tap anywhere closes it, and the button is ready again after its rest.
+      await page.keyboard.press("Escape");
+      await expect(button).not.toHaveAttribute("aria-disabled", "true", { timeout: 4_000 });
+    }
+    // The check means something: reactions do open over your cards.
+    expect(overCard).toBeGreaterThan(0);
+
+    // A double tap on the pigeon feeder, with no tap on the button between, in the place phase
+    // where a tap on your card swaps it: the fan stays up, greyed, and takes the second tap.
+    const game = lastTurnGame(4, 3);
+    const placing = toView(apply(game, { type: "draw", seat: game.current, source: "deck" }));
+    // The page's clock steps the gap exactly: a busy runner can't stretch it past the fan's 400 ms.
+    if (look === "classic") await page.clock.install();
+    for (const reducedMotion of ["reduce", "no-preference"] as const) {
+      await page.emulateMedia({ reducedMotion });
+      for (const gap of [80, 250]) {
+        await show(page, { view: placing, seat: game.current });
+        const ticks = await page.evaluateHandle(() => {
+          const ticks = { n: 0 };
+          document.querySelector(".auto input")?.addEventListener("click", () => ticks.n++);
+          return ticks;
+        });
+        await button.click();
+        const pigeon = page.locator(".react-item[data-kind=migajero]");
+        // Settled where it opens (not still flying out of the button).
+        await expect.poll(async () => (await pigeon.boundingBox())?.width).toBe(48);
+        const spot = await box(page, ".react-item[data-kind=migajero]");
+        await page.clock.pauseAt(await page.evaluate(() => Date.now() + 500));
+        await tap(spot);
+        await page.clock.runFor(gap);
+        // A paused clock holds CSS animations too: move the fan's on by the gap as well.
+        // (evaluateAll: the fan may be gone already, and then there's nothing to wait for.)
+        await pigeon.evaluateAll((els, gap) => {
+          for (const a of els.flatMap((el) => el.getAnimations())) a.currentTime = gap;
+        }, gap);
+        await tap(spot);
+        await page.clock.runFor(1000);
+        await page.clock.resume();
+        const when = `${look}, ${reducedMotion}, ${gap} ms`;
+        await expect(page.getByTestId("react-fan"), when).toHaveCount(0);
+        await expect(page.getByTestId("my-grid").locator("[data-pending]"), when).toHaveCount(0);
+        expect(await ticks.evaluate((t) => t.n), when).toBe(0);
+        // The check means something: the pigeon feeder opens over one of your cards.
+        expect(
+          await page.evaluate(
+            ([x, y]) => !!document.elementFromPoint(x, y)?.closest('[data-testid="my-grid"] .card'),
+            [spot.x + spot.width / 2, spot.y + spot.height / 2],
+          ),
+        ).toBe(true);
+      }
+    }
+    await page.emulateMedia({ reducedMotion: "reduce" });
+  }
 });
 
 // The switch's caption is "Auto" in every language since M27; its label still says it in full.
