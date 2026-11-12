@@ -315,6 +315,11 @@ export class Room {
   private reaction: Reaction | null = null;
   private tossed = new Map<number, number>();
   /**
+   * The seats that asked for a rematch at this game over (M30), in memory only like the throws: a
+   * room that slept forgets them, and each phone keeps what it saw.
+   */
+  private asked: number[] = [];
+  /**
    * The latest messages (M29), in memory only like the throws: a message writes no row, and a room
    * that slept forgets them (each phone keeps what it saw). `chatted`: per sender (`chatKey`), when its
    * allowance is whole again.
@@ -477,11 +482,19 @@ export class Room {
           throw new RoomError("not-allowed");
         }
         this.data.game = null;
+        this.asked = [];
         // Auto-play lasts a game. The lobby has no switch for it, so a host left on it could never
         // lead again (BUG-6). A host whose page is closed or asleep is offline, so others lead; one
         // away from an open page holds the lobby, as in any lobby.
         for (const s of seats) s.auto = false;
         return "data";
+      case "askRematch":
+        if (game === null || seat === null) throw new RoomError("not-allowed");
+        // Once a seat a game: a repeat, or a tap that lands after Play again and a new deal, is
+        // dropped like a throw too soon.
+        if (game.phase !== "gameOver" || this.asked.includes(seat)) return "none";
+        this.asked.push(seat);
+        return "view";
       case "act":
         if (game === null || seat === null) throw new RoomError("not-allowed");
         if (msg.action.type === "nextRound") {
@@ -613,6 +626,7 @@ export class Room {
       ...(this.toss && this.deps.now() - this.toss.id < TOSS_SHOW_MS && { toss: this.toss }),
       ...(this.reaction &&
         this.deps.now() - this.reaction.id < TOSS_SHOW_MS && { reaction: this.reaction }),
+      ...(this.data.game?.phase === "gameOver" && this.asked.length > 0 && { rematch: this.asked }),
       ...(this.chat.length > 0 && {
         chat: this.chat,
         chatFresh: this.chat.filter((m) => now - m.id < CHAT_SHOW_MS).length,

@@ -816,7 +816,8 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 34  | ✅ M27                             | Classic, upgraded: labelled scores, your frame, weight marks, a summary that explains itself, a look with depth (owner) | 2.9.0         | the owner's design round, 2026-11-11: the look to ship to the stores                                             |
 | 35  | ✅ M28                             | Polished casual, the new default look, and a switch between it and Classic (owner)                                      | 2.10.0        | the owner's choice of direction B; stacked on M27                                                                |
 | 36  | ✅ M29                             | Chat: quick phrases, emojis and typed messages, as bubbles by whoever spoke (owner request, 2026-11-11)                 | 2.11.0        | the owner asked for it; after the redesign (M27, M28)                                                            |
-| 37  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
+| 37  | M30                                | Round celebrations: the round's winner, a highlight, a kind line for every place, and "wants a rematch" (owner)         | 2.12.0        | product review 2026-11-11, idea 3 (K6, K7, F3); owner-approved                                                   |
+| 38  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
 
 Deferred: Turnstile (SEC-4) and SEC-12 (until M16). Quick reactions, deferred until now, are M23 (user request, 2026-10-29). Declined: SEC-7. Versions assume this order; a PR that reorders says so.
 
@@ -1735,6 +1736,31 @@ Both carry the same clarity changes, which this milestone builds, so M28 is toke
 - **History survives hibernation only on phones.** A Durable Object asleep for 10 s forgets its 30 messages; each phone keeps what it saw. A phone that joins later misses them. Persisting would cost a row a message.
 - A sound for an incoming message; a countdown on the greyed Send.
 - **PO, PR #56 review: chat follows BUG-4's final rule.** This milestone was built on PR #42's first fix, where phones on one address waited for each other (24 s between messages with 8 phones). The owner rejected that wait for throws, and PR #42 shipped another rule: the wait stays 3 s per sender, and a socket pays one unit for 8 gags. Chat now does the same, on the same per-socket counter. Measured: 8 phones on one address, a tap every 2 s, each chatting every 3 s (656 messages in 4 minutes, where the first rule let 80 through) peak at 74 of 120 units, nobody closed; `holdRooms` "hold, then chat" keeps the 14 h and 18 h bounds. Not measured: that minute with throws, reactions and chat all at the app's limit together; by the price it is about 20 units more than chat alone, so about 94 of 120.
+
+### M30 — Round celebrations (owner-approved, product review idea 3, 2026-11-11) · v2.12.0
+
+**Problem** (product review K6, K7, F3). The round summary is a table of numbers: no round winner, no cheer. Losing reads "You placed 3rd" in plain type, and a guest can only wait for the host.
+
+**What players get.**
+- The round summary's heading is the round's winner: "You won round 3!", "Leo won round 3!", or "Ana & Leo share round 3!" on a tie. The winner is the lowest round score, after the ender's doubling (R12), among those who played the round (R16).
+- The round's winners get confetti, the win sound and its buzz on their own phone (until now only the game's winner did). Mute and reduced motion are honoured as before.
+- One highlight line when the round has one worth saying, from the view alone: "Leo cleared 2 columns." (2 or more), else "Ana scored −5: below zero.". With 6 or more players the sheet is full, so the highlight gives way to the doubling sentence when both apply.
+- At game over every seat reads a kind line for its place: the winner, a shared win, second, the middle, last.
+- At game over a seat that can't start the next game has a **Rematch?** button. Everyone then reads "Sofi wants a rematch" where "The host can start a new game" was. The leader's phone chimes.
+
+**Server.** `{ t: "askRematch" }` from a seated player at game over, on the throws' path: kept in memory (never in `RoomData`), `"view"`, no row. `RoomView.rematch` lists the seats that asked, in order; it is unset when nobody did, and a separate field, so tabs loaded before 2.12.0 ignore it. One request a seat a game: a repeat is dropped (`"none"`), as is one outside game over. Play again clears it. A room that slept forgets who asked; each phone keeps what it saw until the game leaves game over.
+
+**Acceptance.**
+- [x] `game.test.ts`: `roundWinners`: the lowest score, ties shared, a tie the ender doubled out of, players out before the round skipped (R16).
+- [x] `Table.test.ts`: the heading for you, for others, for ties; the highlight (columns before a negative score, none for an ordinary round, players who are out never counted); a kind line for every place in en, es and pt.
+- [x] `room.test.ts`: a request reaches every view and nothing is saved; a repeat, a request mid-game or at a round summary is dropped; a spectator and a lobby are refused; Play again clears it; no `rematch` field until someone asks.
+- [x] `worker.test.ts`: a request writes no row.
+- [x] `sound.test.ts`: the round's winner hears the win; nobody else does; game over still wins over it.
+- [x] E2E in the harness, Classic and Modern, iPhone and Pixel: the heading, the highlight, confetti only for the round's winner and never with reduced motion; the kind line; the guest's button sends once and reads "Rematch asked"; the leader reads who asked. 8 players at 360 × 640: no sideways scroll, and Next round on screen without scrolling.
+
+**Not in this PR.**
+- Persisting requests through hibernation (a row a request).
+- A recap of the whole game (best round, most columns) and anything kept on the device: product review idea 9.
 
 ### M16 — Launch in the App Store and Google Play (user decision, 2026-10-24) · last
 

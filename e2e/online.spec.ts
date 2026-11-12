@@ -33,6 +33,11 @@ test("two phones create, join, and play a full game to 100", async ({ browser },
   for (const page of pages) await expect(page.getByTestId("game-over")).toBeVisible();
   // Only the host can rematch.
   await expect(pages[1].getByRole("button", { name: "Play again" })).toHaveCount(0);
+  // The guest asks instead (M30), and the host reads it.
+  await pages[1].getByRole("button", { name: "Rematch?" }).click();
+  for (const page of pages) {
+    await expect(page.getByTestId("rematch-asked")).toHaveText("Ben wants a rematch");
+  }
   // Play again returns everyone to the lobby with the same seats; the host starts.
   await pages[0].getByRole("button", { name: "Play again" }).click();
   await expect(pages[1].getByTestId("seats")).toContainText("Ana");
