@@ -12,6 +12,10 @@ const PUBLIC_SHELL = [
   "/icons/icon-192.png",
   "/icons/icon-512.png",
   "/icons/apple-touch-icon.png",
+  // The default look's fonts (M28), Latin: the Latin Extended files load only for a name that
+  // needs them.
+  "/fonts/barlow-condensed-700-latin.woff2",
+  "/fonts/nunito-sans-800-latin.woff2",
 ];
 
 /**

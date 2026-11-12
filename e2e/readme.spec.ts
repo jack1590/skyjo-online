@@ -7,6 +7,10 @@ import { atTurnStart, knockoutGame, lastTurnGame, roundOver, show } from "./harn
 import { botStep, seatedRoom, startGame, test } from "./helpers";
 
 test.skip(!process.env.SHOTS, "run with npm run shots:readme");
+// The default look (M28): the harness would show Classic.
+test.beforeEach(({ page }) =>
+  page.addInitScript(() => localStorage.setItem("skyjo:theme", "casual")),
+);
 
 const shot = (page: Page, name: string) =>
   page.screenshot({

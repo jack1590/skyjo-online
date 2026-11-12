@@ -813,8 +813,8 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 31  | BUG-13                             | The lobby's ✕ removed a seat by index, so a seat leaving just before it made it remove someone else                     | 2.7.7         | a QA read; proven in room.test.ts                                                                                |
 | 32  | BUG-5                              | The shuffle, measured (it was fair) and hardened: ChaCha20, unbiased picks, a 256-bit seed per round (owner report)     | 2.7.8         | the owner still finds the deals weak; fairness and cheating come before the launch                               |
 | 33  | M24                                | Public rooms: a lobby switch and a list on Home (owner request, 2026-11-11)                                             | 2.8.0         | the owner asked for it; ahead of M16, which waits on the owner                                                   |
-| 34  | M27                                | Classic, upgraded: labelled scores, your frame, weight marks, a summary that explains itself, a look with depth (owner) | 2.9.0         | the owner's design round, 2026-11-11: the look to ship to the stores                                             |
-| 35  | M28                                | Polished casual, the new default look, and a switch between it and Classic (owner)                                      | 2.10.0        | the owner's choice of direction B; stacked on M27                                                                |
+| 34  | ✅ M27                             | Classic, upgraded: labelled scores, your frame, weight marks, a summary that explains itself, a look with depth (owner) | 2.9.0         | the owner's design round, 2026-11-11: the look to ship to the stores                                             |
+| 35  | ✅ M28                             | Polished casual, the new default look, and a switch between it and Classic (owner)                                      | 2.10.0        | the owner's choice of direction B; stacked on M27                                                                |
 | 36  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
 
 Deferred: Turnstile (SEC-4) and SEC-12 (until M16). Quick reactions, deferred until now, are M23 (user request, 2026-10-29). Declined: SEC-7. Versions assume this order; a PR that reorders says so.
@@ -1690,8 +1690,8 @@ Both carry the same clarity changes, which this milestone builds, so M28 is toke
 
 **How.**
 - One set of CSS custom properties a look, plus look-specific card rules, on `<html data-theme>`. No component is duplicated.
-- **Fonts:** Barlow Condensed Bold (numerals, headings) and Nunito Sans ExtraBold (UI), both SIL OFL 1.1: self-hosted woff2 in `public/fonts/`, subset to Latin and Latin Extended (es, pt), `font-display: swap`, precached by the service worker, credited in the README with the OFL notice. Target: ≤ 60 KB in all.
-- **The switch.** One `localStorage` key (`skyjo:theme`, read and written in try/catch), like the Fun switch. Easy to find: on Home, and in the game without leaving the table. It is two small previews, a mini card in each look, not a bare toggle. It applies at once, mid-game too, with no reload. It is client-only: each phone at a table may use a different look.
+- **Fonts:** Barlow Condensed Bold (numerals, headings) and Nunito Sans ExtraBold (UI), both SIL OFL 1.1: self-hosted woff2 in `public/fonts/`, subset to Latin and Latin Extended, `font-display: swap`, credited in the README with the OFL notice. Target: ≤ 60 KB in all. **As built:** Google Fonts' own subsets, unmodified: Latin 14.9 KB + 22.2 KB = 37.1 KB, which every Modern player loads and the service worker precaches (es and pt need nothing more); Latin Extended 9.3 KB + 21.6 KB = 30.9 KB, fetched by `unicode-range` only when a name needs it ("Łukasz"). 68.0 KB in the repo, 37.1 KB for a player.
+- **The switch.** One `localStorage` key (`skyjo:theme`, read and written in try/catch), like the Fun switch. Easy to find: on Home, and in the game without leaving the table. **As built:** players read the looks as **Modern** and **Classic**. At the table the header's round label is the button (a palette beside "Round 3"), as wide as the label was: a third 44 px icon in the header would clip the pill's longest text at 360 px. It opens a sheet with the same two previews. It is two small previews, a mini card in each look, not a bare toggle. It applies at once, mid-game too, with no reload. It is client-only: each phone at a table may use a different look.
 - The PWA's `theme-color` follows the look; the manifest's colours are the default look's.
 - Every screen a player sees: Home, lobby, table, round summary, game over, the throws tray and the reactions fan, toasts, settings, rules.
 
@@ -1702,6 +1702,12 @@ Both carry the same clarity changes, which this milestone builds, so M28 is toke
 4. Switching mid-game is tested on iPhone and Pixel: the look changes without a reload, the game goes on, and a reload keeps it. Two phones at one table hold different looks.
 5. Fonts: licence checked, bytes added reported, both in the service worker's precache.
 6. Reduced motion honoured; M27's acceptance still holds in both looks.
+
+**PO review (PR #58): the harness suites in Modern.** The harness defaults to Classic, so `table`, `motion`, `react` and `toss` never ran in the players' default look. `LOOK=casual` now runs them in Modern (`e2e/harness.ts`). On Pixel and iPhone, 180 of 192 passed; the 6 tests that failed:
+- **Fixed here, a real mismatch:** an opponent's completed column waited as stand-ins whose numbers were 4 px smaller than their cards' (UX-26). `motion.ts` repeated Classic's size formula; it now reads the size of a number still in that grid, whatever the look.
+- **Test constants, not defects:** M18's discard-mode outline and PO PR #33's prompt expect Classic's gold (`rgb(242, 193, 78)`; Modern's accent is `rgb(255, 210, 63)`); M23's card floor is 84 px on Pixel and Modern's cards are 83.94.
+- **Open:** UX-23/UX-7 on iPhone, "the two cards cross": in Modern's layout the card leaving and the card going in never overlap by 10 px for the slot the test picks. Its other checks pass (both on top of your cards, the one going in above the one leaving). Not looked into further.
+- **Follow-up:** make those constants read the look's tokens, then add one CI job (or the Pixel job) with `LOOK=casual`, so the default look has motion, throw and reaction coverage. Mind the wall time: M27's run took 4:01.
 
 ### M16 — Launch in the App Store and Google Play (user decision, 2026-10-24) · last
 

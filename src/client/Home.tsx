@@ -2,6 +2,7 @@ import { type FormEvent, useEffect, useState } from "react";
 import { MAX_PLAYERS } from "../engine/game";
 import { CODE_LENGTH, isRoomCode, type PublicRoom } from "../protocol";
 import { LOCALES, type Locale, useI18n } from "./i18n";
+import { LookPicker } from "./theme";
 import { useOnline } from "./useOnline";
 
 const IOS_HINT_KEY = "skyjo:ios-hint-dismissed";
@@ -205,6 +206,10 @@ export function Home() {
           </ul>
         </section>
       )}
+
+      <section className="panel">
+        <LookPicker />
+      </section>
 
       <details className="panel rules">
         <summary>{t("howToPlay")}</summary>
