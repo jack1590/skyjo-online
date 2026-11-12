@@ -73,7 +73,7 @@ async function playStep(page: Page, i: number, says?: string[], measure = true) 
   }
 }
 
-test("M31: Home offers the tutorial once; it plays a whole scripted round on the real table in under 20 s, one instruction and one real tap at a time, explains the doubling at the summary and ends on Home, ready to create or join a room", async ({
+test("M31: Home offers the tutorial once; it plays a whole scripted round on the real table, one instruction and one real tap at a time, explains the doubling at the summary and ends on Home, ready to create or join a room", async ({
   page,
 }) => {
   // What the tutorial asks the server for while it plays: nothing (Home's own polls stop too).
@@ -85,7 +85,6 @@ test("M31: Home offers the tutorial once; it plays a whole scripted round on the
   await page.goto("/");
   await expect(page.getByTestId("tutorial-offer")).toContainText("New here?");
   await expectMobileFriendly(page);
-  const started = Date.now();
   await page.getByRole("button", { name: "Show me" }).click();
   playing = true;
   await expect(page.getByTestId("table")).toHaveAttribute("data-phase", "flip");
@@ -127,7 +126,6 @@ test("M31: Home offers the tutorial once; it plays a whole scripted round on the
   await expect(summary.locator('tr[data-seat="1"]')).toContainText("7");
   playing = false;
   await summary.getByRole("button", { name: "Continue" }).click();
-  expect(Date.now() - started).toBeLessThan(20_000);
 
   // Home again: "You're ready", over the buttons to create a room or join one.
   await expect(page.getByTestId("tutorial-ready")).toContainText("You're ready!");

@@ -1620,6 +1620,65 @@ describe("chat (M29)", () => {
   });
 });
 
+describe("asking for a rematch (M30)", () => {
+  const gameOver = (t: Setup, n: number) => {
+    const conns = startedGame(t, n);
+    (t.room.data.game as GameState).phase = "gameOver";
+    return conns;
+  };
+
+  it("M30: at game over a seat asks for a rematch: every view lists who asked, in order, and nothing is saved", () => {
+    const t = setup();
+    const [host, a, b] = gameOver(t, 3);
+    const watcher = t.connect("token-w-abcdef");
+    // Nobody asked: no field at all, which is what a tab loaded before 2.12.0 always reads.
+    expect("rematch" in t.room.view(host, t.live)).toBe(false);
+    const saved = JSON.stringify({ ...t.room.data, updatedAt: 0 });
+    expect(t.send(b, { t: "askRematch" })).toBe("view");
+    expect(t.send(a, { t: "askRematch" })).toBe("view");
+    for (const c of [host, a, b, watcher]) expect(t.room.view(c, t.live).rematch).toEqual([2, 1]);
+    expect(JSON.stringify({ ...t.room.data, updatedAt: 0 })).toBe(saved);
+    // It stays: not a 2 s flash like a throw.
+    t.advance(60_000);
+    expect(t.room.view(host, t.live).rematch).toEqual([2, 1]);
+  });
+
+  it("M30: one request a seat a game: a repeat is dropped, and so is one mid-game or at a round summary", () => {
+    const t = setup();
+    const [, a] = startedGame(t, 2);
+    for (const phase of ["flip", "draw", "roundOver"] as const) {
+      (t.room.data.game as GameState).phase = phase;
+      expect(t.send(a, { t: "askRematch" })).toBe("none");
+    }
+    (t.room.data.game as GameState).phase = "gameOver";
+    expect(t.send(a, { t: "askRematch" })).toBe("view");
+    t.advance(60_000);
+    expect(t.send(a, { t: "askRematch" })).toBe("none");
+    expect(t.room.view(a, t.live).rematch).toEqual([1]);
+  });
+
+  it("M30: a spectator and a lobby are refused; Play again clears the requests, for the next game too", () => {
+    const t = setup();
+    const [host, a] = t.seated(2);
+    expect(t.errorOf(() => t.send(a, { t: "askRematch" }))).toBe("not-allowed");
+    t.send(host, { t: "start" });
+    (t.room.data.game as GameState).phase = "gameOver";
+    const watcher = t.connect("token-w-abcdef");
+    expect(t.errorOf(() => t.send(watcher, { t: "askRematch" }))).toBe("not-allowed");
+    t.send(a, { t: "askRematch" });
+    expect(t.send(host, { t: "rematch" })).toBe("data");
+    expect("rematch" in t.room.view(host, t.live)).toBe(false);
+    t.send(host, { t: "start" });
+    (t.room.data.game as GameState).phase = "gameOver";
+    expect("rematch" in t.room.view(host, t.live)).toBe(false);
+    expect(t.send(a, { t: "askRematch" })).toBe("view");
+  });
+
+  it("M30: parseClientMsg takes the request, with nothing else in it", () => {
+    expect(parseClientMsg('{"t":"askRematch","seat":3}')).toEqual({ t: "askRematch" });
+  });
+});
+
 describe("reactions (M23)", () => {
   it("M23: a seated player reacts mid-game, the opening flip included: every view shows it for 2 s, and nothing is saved", () => {
     const t = setup();

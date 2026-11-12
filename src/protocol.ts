@@ -166,6 +166,11 @@ export type ClientMsg = (
   | { t: "start" }
   | { t: "act"; action: Action }
   | { t: "rematch" }
+  /**
+   * At game over, a seat that can't lead asks for another game (M30), for the table to read. Not
+   * `rematch`, which only whoever leads may send, and which starts one.
+   */
+  | { t: "askRematch" }
   /** Ticks or unticks Auto-play for the sender's own seat. */
   | { t: "auto"; on: boolean }
   /** In the lobby, whoever may lead switches "Play until one is left" (R16) on or off. */
@@ -235,6 +240,12 @@ export interface RoomView {
   /** The latest reaction, in views sent within TOSS_SHOW_MS of it (M23). */
   reaction?: Reaction;
   /**
+   * At game over, the seats that asked for a rematch (M30), in the order they asked; unset when
+   * nobody has. In memory only, like `toss`. A field of its own, so tabs loaded before 2.12.0
+   * ignore it.
+   */
+  rematch?: number[];
+  /**
    * The latest CHAT_KEEP messages (M29), oldest first; unset when there are none. The room keeps
    * them in memory only, so a phone keeps what it saw.
    */
@@ -285,6 +296,7 @@ function parseBody(msg: Record<string, unknown>): ClientMsg | null {
     case "leave":
     case "start":
     case "rematch":
+    case "askRematch":
       return { t: msg.t };
     case "kick":
       if (!Number.isInteger(msg.seat)) return null;

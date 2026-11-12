@@ -816,8 +816,9 @@ One PR at a time, in this order. M7 (PR #10) merged as v2.0.1 and is waiting for
 | 34  | ✅ M27                             | Classic, upgraded: labelled scores, your frame, weight marks, a summary that explains itself, a look with depth (owner) | 2.9.0         | the owner's design round, 2026-11-11: the look to ship to the stores                                             |
 | 35  | ✅ M28                             | Polished casual, the new default look, and a switch between it and Classic (owner)                                      | 2.10.0        | the owner's choice of direction B; stacked on M27                                                                |
 | 36  | ✅ M29                             | Chat: quick phrases, emojis and typed messages, as bubbles by whoever spoke (owner request, 2026-11-11)                 | 2.11.0        | the owner asked for it; after the redesign (M27, M28)                                                            |
-| 37  | M31                                | Learn to play: a first-game tutorial, one scripted round on the real table (owner-approved, 2026-11-11)                 | 2.13.0        | the product review's idea 4 (K1, K2); tutorial only: the owner plans "Play on one phone" himself                 |
-| 38  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
+| 37  | ✅ M30                             | Round celebrations: the round's winner, a highlight, a kind line for every place, and "wants a rematch" (owner)         | 2.12.0        | product review 2026-11-11, idea 3 (K6, K7, F3); owner-approved                                                   |
+| 38  | M31                                | Learn to play: a first-game tutorial, one scripted round on the real table (owner-approved, 2026-11-11)                 | 2.13.0        | the product review's idea 4 (K1, K2); tutorial only: the owner plans "Play on one phone" himself                 |
+| 39  | M16                                | Launch in the App Store and Google Play                                                                                 | set at launch | last: the user wants the product final first                                                                     |
 
 Deferred: Turnstile (SEC-4) and SEC-12 (until M16). Quick reactions, deferred until now, are M23 (user request, 2026-10-29). Declined: SEC-7. Versions assume this order; a PR that reorders says so.
 
@@ -985,7 +986,7 @@ The limit stays 16 code points, so a stored name is no bigger than before. `cutN
 **Delivery (PO, PR #51): UX-11 was flaky on iPhone, and the iPhone job is short of frames.**
 - **UX-11.** `e2e/table.spec.ts`, "UX-11: the summary is a modal…": after Escape, "Show scores" was not focused within 5 s, twice in a row on `main` (run 43117120506, attempts 1 and 2), which skipped v2.7.5's deploy until a third attempt passed. It passes alone (40 of 40 on iPhone at 14 workers; the M27 author saw it fail in about half of full local runs under load). The cause is not proven. The likely one is M26's: headless WebKit draws about 7 frames a second at 4 workers on CI, and the focus moves only after the dialog's `close` event and a render. The check now waits 20 s and reports what has the focus and whether a dialog is still open. If it fails again with the dialog closed and the focus on the page body, the app lost the focus and that is a real bug (a keyboard user stuck after Escape).
 - **BUG-9's test** (`e2e/online.spec.ts`, Pixel) failed once on this PR (`e2e (pixel)`, run 43120274547): it tapped as soon as the second socket was created, and on a slow runner that socket was still connecting, where `useRoom` sends nothing; the test's clock is paused, so nothing retried. It now waits until the new socket has answered. 30 of 30 on Pixel at 10 workers. The app is unchanged.
-- **PLAN item: the iPhone job at 3 workers.** Two tests have now failed for slow frames at 4 workers (this one and M26's edge scroll, fixed in PR #50). `e2e (iphone)` takes 2:43 at 4 workers (PR #55's run), against the rubric's 3:00, and PR #17's probe measured 62 s for the 2-phone tests at 4 workers. Measure the job at 3 workers: if it stays under 3:00, switch; if not, keep 4 and move the heaviest harness cases to desktop, as M23's follow-up does for Pixel.
+- **Done another way (PO, the CI PR after M29): the phones' suites are sharded.** PR wall time had grown from 3:08 (PR #43) to 4:01 (M27), 4:54 (M28) and 4:59 (M29: iphone 4:59, pixel 3:39, desktop 2:36, ci 2:16, node 1:34), against the rubric's 3:00. Fewer workers would make one runner slower still, so each device's suite now runs on several runners: iPhone in 4 shards, Pixel in 3, desktop in 2 (with 3 iPhone shards the slowest still took 2:51: shards hold equal numbers of tests, not equal minutes). `e2e (iphone)`, `e2e (pixel)` and `e2e (desktop)` remain as gate jobs, so the required checks keep their names. The CI PR's own run gives the after numbers (in its description). Still open from this item: frames are short at 4 workers within a shard, as before.
 
 ### M17 — Play until one is left (knockout) (user request, 2026-10-24) · v2.2.0 · ✅ shipped (PR #24)
 
@@ -1737,6 +1738,31 @@ Both carry the same clarity changes, which this milestone builds, so M28 is toke
 - A sound for an incoming message; a countdown on the greyed Send.
 - **PO, PR #56 review: chat follows BUG-4's final rule.** This milestone was built on PR #42's first fix, where phones on one address waited for each other (24 s between messages with 8 phones). The owner rejected that wait for throws, and PR #42 shipped another rule: the wait stays 3 s per sender, and a socket pays one unit for 8 gags. Chat now does the same, on the same per-socket counter. Measured: 8 phones on one address, a tap every 2 s, each chatting every 3 s (656 messages in 4 minutes, where the first rule let 80 through) peak at 74 of 120 units, nobody closed; `holdRooms` "hold, then chat" keeps the 14 h and 18 h bounds. Not measured: that minute with throws, reactions and chat all at the app's limit together; by the price it is about 20 units more than chat alone, so about 94 of 120.
 
+### M30 — Round celebrations (owner-approved, product review idea 3, 2026-11-11) · v2.12.0
+
+**Problem** (product review K6, K7, F3). The round summary is a table of numbers: no round winner, no cheer. Losing reads "You placed 3rd" in plain type, and a guest can only wait for the host.
+
+**What players get.**
+- The round summary's heading is the round's winner: "You won round 3!", "Leo won round 3!", or "Ana & Leo share round 3!" on a tie. The winner is the lowest round score, after the ender's doubling (R12), among those who played the round (R16).
+- The round's winners get confetti, the win sound and its buzz on their own phone (until now only the game's winner did). Mute and reduced motion are honoured as before.
+- One highlight line when the round has one worth saying, from the view alone: "Leo cleared 2 columns." (2 or more), else "Ana scored −5: below zero.". With 6 or more players the sheet is full, so the highlight gives way to the doubling sentence when both apply.
+- At game over every seat reads a kind line for its place: the winner, a shared win, second, the middle, last.
+- At game over a seat that can't start the next game has a **Rematch?** button. Everyone then reads "Sofi wants a rematch" where "The host can start a new game" was. The leader's phone chimes.
+
+**Server.** `{ t: "askRematch" }` from a seated player at game over, on the throws' path: kept in memory (never in `RoomData`), `"view"`, no row. `RoomView.rematch` lists the seats that asked, in order; it is unset when nobody did, and a separate field, so tabs loaded before 2.12.0 ignore it. One request a seat a game: a repeat is dropped (`"none"`), as is one outside game over. Play again clears it. A room that slept forgets who asked; each phone keeps what it saw until the game leaves game over.
+
+**Acceptance.**
+- [x] `game.test.ts`: `roundWinners`: the lowest score, ties shared, a tie the ender doubled out of, players out before the round skipped (R16).
+- [x] `Table.test.ts`: the heading for you, for others, for ties; the highlight (columns before a negative score, none for an ordinary round, players who are out never counted); a kind line for every place in en, es and pt.
+- [x] `room.test.ts`: a request reaches every view and nothing is saved; a repeat, a request mid-game or at a round summary is dropped; a spectator and a lobby are refused; Play again clears it; no `rematch` field until someone asks.
+- [x] `worker.test.ts`: a request writes no row.
+- [x] `sound.test.ts`: the round's winner hears the win; nobody else does; game over still wins over it.
+- [x] E2E in the harness, Classic and Modern, iPhone and Pixel: the heading, the highlight, confetti only for the round's winner and never with reduced motion; the kind line; the guest's button sends once and reads "Rematch asked"; the leader reads who asked. 8 players at 360 × 640: no sideways scroll, and Next round on screen without scrolling.
+
+**Not in this PR.**
+- Persisting requests through hibernation (a row a request).
+- A recap of the whole game (best round, most columns) and anything kept on the device: product review idea 9.
+
 ### M31 — Learn to play (owner-approved, 2026-11-11) · v2.13.0
 
 **Problem** (product review § 1, K1 and K2; § 2, idea 4). The rules are 8 paragraphs behind "How to play". A new player, a child above all, never learns from the table that low is good, why two cards are flipped, what a cleared column is, or why a score doubled.
@@ -1762,6 +1788,12 @@ Both carry the same clarity changes, which this milestone builds, so M28 is toke
 - "Play on one phone" (robots, pass-and-play): the owner's own plan.
 - The offer on a first visit by a room link (`/r/CODE`): a friend is waiting there; Home offers it on the next visit.
 - A helper in real games (the review's idea 2c).
+
+**PO decisions (PR #63 review).**
+- **The learner's score doubles (9 ×2 = 18 against Leo's 7): kept.** Doubling is the rule new players miss, and the summary's own sentence explains it as it happens. Since M30 the heading also says "Leo won round 1!", which is true and harmless in a lesson.
+- **"You're ready!" is a panel on Home: kept.** It sits over Create a room, the next thing to do.
+- **The offer shows on Home only: kept.** Someone who opens a room link is joining friends who are waiting; Learn to play stays on Home for later.
+- **The play-through test no longer asserts a wall-clock time.** It checked that a bot finished in 20 s (5 s locally). That measures the runner, not the lesson, and CI's WebKit runs several times slower at 4 workers; the test's own timeout is the bound.
 
 ### M16 — Launch in the App Store and Google Play (user decision, 2026-10-24) · last
 
