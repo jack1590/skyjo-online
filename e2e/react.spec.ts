@@ -258,6 +258,35 @@ test("BUG-2: out of a knockout game, your own reaction pops over the corner butt
   expect(o.y).toBeLessThan(button.y - 60);
 });
 
+// A page that scrolls, even by 1 px, lets a phone's browser hide its bar on a swipe. The screen
+// then gets taller, the cards grow, and the button moves from beside row 3 up into the name bar.
+for (const look of ["casual", "classic"] as const) {
+  test(`BUG-2 (${look}): the page under the table never scrolls, so the browser's bar stays and the button keeps its place`, async ({
+    page,
+  }) => {
+    await page.addInitScript((look) => localStorage.setItem("skyjo:theme", look), look);
+    const scroll = () =>
+      page.evaluate(() => {
+        window.scrollTo(0, 100);
+        const over = document.documentElement.scrollHeight - window.innerHeight;
+        return { over, scrolled: window.scrollY };
+      });
+    for (const players of [2, 8]) {
+      const turn = atTurnStart(players);
+      const me = turn.seat ?? 0;
+      await show(page, { ...turn, said: [{ id: 1, from: me, name: "", text: "😂" }] });
+      await react(page, { from: me, kind: "laugh" });
+      await expect(page.getByTestId("reaction")).toHaveCount(1);
+      await expect(page.getByTestId("bubble")).toHaveCount(1);
+      expect(await scroll()).toEqual({ over: 0, scrolled: 0 });
+    }
+    // The round summary too.
+    await show(page, { view: toView(roundOver(2, 344)), seat: 0, lead: true });
+    await expect(page.getByTestId("round-summary")).toBeVisible();
+    expect(await scroll()).toEqual({ over: 0, scrolled: 0 });
+  });
+}
+
 test("M23: a throw or reaction at a panel scrolled out of the strip brings it into view and lands on it", async ({
   page,
 }) => {
